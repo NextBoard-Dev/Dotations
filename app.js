@@ -3797,9 +3797,13 @@ function bindSignatureCanvases() {
             ? "SIGNATURE VALIDEE"
             : "SIGNATURE SUPPRIMEE";
       showActionStatus(nextValue ? "update" : "delete", saveText);
+      const mustAlertAndClose = Boolean(nextValue);
       await saveDataToFile({
-        silent: true,
+        silent: !mustAlertAndClose,
+        reloadAfter: !mustAlertAndClose,
         successText: saveText,
+        alertText: "DONNEES SUPABASE MISES A JOUR",
+        closeAfterAlert: mustAlertAndClose,
       });
       if (document.body.dataset.page === "mobile-signature") {
         renderMobileSignaturePage();
@@ -6255,6 +6259,8 @@ async function saveDataToFile(options = {}) {
     silent = false,
     reloadAfter = true,
     successText = "data.json MIS A JOUR",
+    alertText = "",
+    closeAfterAlert = false,
   } = options;
 
   try {
@@ -6283,7 +6289,14 @@ async function saveDataToFile(options = {}) {
     renderDirtyState();
     showDataStatus(mode === "SUPABASE" ? "DONNEES SUPABASE SAUVEGARDEES" : successText);
     if (!silent) {
-      window.alert(mode === "SUPABASE" ? "DONNEES SUPABASE MISES A JOUR" : "data.json A ETE MIS A JOUR");
+      window.alert(alertText || (mode === "SUPABASE" ? "DONNEES SUPABASE MISES A JOUR" : "data.json A ETE MIS A JOUR"));
+      if (closeAfterAlert) {
+        try {
+          window.close();
+        } catch (error) {
+          // ignore close errors
+        }
+      }
     }
     if (reloadAfter) {
       await reloadData(mode === "SUPABASE" ? "RELECTURE DES DONNEES SUPABASE..." : "RELECTURE DE data.json...");
