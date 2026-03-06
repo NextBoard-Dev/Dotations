@@ -1467,6 +1467,7 @@ body[data-page="global"] .form-actions--filters {
   min-height: 21px;
   padding: 0 7px;
   border-radius: 999px;
+  border: 1px solid transparent;
   background: rgba(93, 120, 134, 0.12);
   color: var(--accent-strong);
   font-size: 9px;
@@ -1474,26 +1475,40 @@ body[data-page="global"] .form-actions--filters {
 }
 
 .status-pill--actif {
-  background: rgba(93, 120, 134, 0.12);
-  color: var(--accent-strong);
+  background: rgba(89, 148, 117, 0.16);
+  border-color: rgba(89, 148, 117, 0.38);
+  color: #2f5e43;
 }
 
 .status-pill--restitue {
-  background: rgba(111, 157, 120, 0.16);
-  color: #4c6a53;
+  background: rgba(87, 143, 106, 0.2);
+  border-color: rgba(87, 143, 106, 0.4);
+  color: #2c513a;
 }
 
-.status-pill--non-rendu,
 .status-pill--perdu {
-  background: rgba(217, 137, 106, 0.16);
-  color: #8f4a32;
+  background: rgba(202, 91, 96, 0.19);
+  border-color: rgba(202, 91, 96, 0.42);
+  color: #7d2a31;
+}
+
+.status-pill--non-rendu {
+  background: rgba(224, 147, 82, 0.2);
+  border-color: rgba(224, 147, 82, 0.42);
+  color: #8e4d1e;
+}
+
+.status-pill--hs {
+  background: rgba(132, 140, 149, 0.22);
+  border-color: rgba(132, 140, 149, 0.45);
+  color: #4a545d;
 }
 
 .status-pill--casse,
-.status-pill--detruit,
-.status-pill--hs {
-  background: rgba(121, 122, 134, 0.16);
-  color: #525763;
+.status-pill--detruit {
+  background: rgba(122, 112, 170, 0.19);
+  border-color: rgba(122, 112, 170, 0.42);
+  color: #4f447f;
 }
 
 .status-pill--sheet {

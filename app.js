@@ -2390,6 +2390,10 @@ function getEffectReplacementCause(person, effect) {
 }
 
 function getEffectReplacementCost(person, effect) {
+  if (normalizeText(getEffectStatus(person, effect)) === "HS") {
+    return 0;
+  }
+
   const explicitCause = getEffectReplacementCause(person, effect);
   const effectiveCause = explicitCause || (getEffectStatus(person, effect) === "NON RENDU" ? "NON RENDU" : "");
   const cause = normalizeText(effectiveCause);
@@ -2425,8 +2429,14 @@ function syncReplacementCostField() {
   const reference = findReferenceById(referenceId);
   const designation =
     form.elements.designationLibre?.value || reference?.designation || "";
+  const statutManuel = normalizeText(form.elements.statutManuel?.value || "");
   const coutField = form.elements.coutRemplacement;
   if (!coutField) {
+    return;
+  }
+
+  if (statutManuel === "HS") {
+    coutField.value = "0,00 €";
     return;
   }
 
