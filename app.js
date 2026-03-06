@@ -3953,7 +3953,9 @@ function renderMobileSignaturePage() {
   const request = getCurrentMobileSignatureRequest();
   const person = getCurrentPerson();
   const docType = getCurrentMobileSignatureDocType();
-  const signer = getCurrentMobileSignatureSigner();
+  const signerFromUrl = getCurrentMobileSignatureSigner();
+  const signerFromRequest = normalizeMobileSignatureSigner(request?.signer || "");
+  const signer = request ? signerFromRequest : signerFromUrl;
   const titleNode = document.getElementById("mobile-signature-title");
   const subtitleNode = document.getElementById("mobile-signature-subtitle");
   const identityLabelNode = document.getElementById("mobile-signature-identity-label");
@@ -4012,7 +4014,7 @@ function renderMobileSignaturePage() {
       request &&
       isMobileSignatureRequestValid(request) &&
       normalizeText(request.docType) === normalizeText(docType) &&
-      normalizeMobileSignatureSigner(request.signer || "") === signer &&
+      signerFromRequest === signer &&
       representativeReady
   );
   if (panelNode) {
