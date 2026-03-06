@@ -3170,6 +3170,7 @@ function getArrivalComplementMovementMap(person, effects) {
 
   const latestSignedArrival = getLatestSignedArrivalArchiveForPerson(person.id);
   let baselineKeys = new Set();
+  const baselineArchivedAt = normalizeDateString(latestSignedArrival?.dateArchivage || "");
   if (latestSignedArrival?.fingerprint) {
     try {
       const payload = JSON.parse(String(latestSignedArrival.fingerprint || ""));
@@ -3194,6 +3195,17 @@ function getArrivalComplementMovementMap(person, effects) {
       return;
     }
     if (baselineKeys.size && !baselineKeys.has(key)) {
+      movements.set(key, "AJOUTE");
+      return;
+    }
+    if (!baselineKeys.size && baselineArchivedAt) {
+      const remiseDate = normalizeDateString(effect?.dateRemise || "");
+      if (remiseDate && remiseDate >= baselineArchivedAt) {
+        movements.set(key, "AJOUTE");
+      }
+      return;
+    }
+    if (!baselineKeys.size && !baselineArchivedAt) {
       movements.set(key, "AJOUTE");
     }
   });
@@ -4847,7 +4859,9 @@ function fillSheetForm(person) {
 
 function renderArrivalDocument(personId) {
   const person = state.data?.personnes?.find((entry) => entry.id === personId) || null;
-  const mode = normalizeText(new URLSearchParams(window.location.search).get("mode") || "STANDARD");
+  const explicitMode = normalizeText(new URLSearchParams(window.location.search).get("mode") || "");
+  const computedMode = person ? getDocumentArchiveMode(person, "arrival") : "STANDARD";
+  const mode = explicitMode || computedMode;
   const isComplement = mode === "COMPLEMENTAIRE";
   const dateNode = document.getElementById("arrival-doc-date");
   const referenceNode = document.getElementById("arrival-doc-reference");
