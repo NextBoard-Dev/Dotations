@@ -1925,21 +1925,6 @@ function bindEffectForm() {
     };
   }
 
-  const openArrivalComplementAfterEffectUpdate = async (personId) => {
-    await saveDataToFile({
-      silent: true,
-      reloadAfter: false,
-    });
-    if (state.isDirty) {
-      showDataStatus("SAUVEGARDE IMPOSSIBLE - REDIRECTION ANNULEE");
-      return;
-    }
-    window.alert(
-      "DES MODIFICATIONS D'EFFETS ONT ETE EFFECTUEES. VOUS DEVEZ DONC PROCEDER A UNE NOUVELLE SIGNATURE DE L'AVENANT."
-    );
-    window.location.href = `document-arrivee.html?personId=${encodeURIComponent(personId)}&mode=COMPLEMENTAIRE`;
-  };
-
   const submitEffect = async (mode) => {
     const person = getCurrentPerson();
     if (!person) {
@@ -2040,9 +2025,7 @@ function bindEffectForm() {
         : `EFFET AJOUTE : ${effectLabel}`
     );
 
-    if (mode === "edit") {
-      await openArrivalComplementAfterEffectUpdate(person.id);
-    }
+    await saveAndRedirectToArrivalComplement(person.id);
   };
 
   form.onsubmit = async (event) => {
@@ -2061,13 +2044,13 @@ function bindEffectForm() {
     };
   }
   if (deleteButton) {
-    deleteButton.onclick = () => {
+    deleteButton.onclick = async () => {
       const person = getCurrentPerson();
       if (!person || !state.editingEffectId) {
         showDataStatus("SELECTIONNER D'ABORD UN EFFET A SUPPRIMER");
         return;
       }
-      deleteEffect(person.id, state.editingEffectId);
+      await deleteEffect(person.id, state.editingEffectId);
     };
   }
   if (cancelButton) {
@@ -2081,7 +2064,7 @@ function bindEffectForm() {
   updateEffectActionButtons();
 }
 
-function deleteEffect(personId, effectId) {
+async function deleteEffect(personId, effectId) {
   const person = state.data?.personnes?.find((entry) => entry.id === personId);
   if (!person || !Array.isArray(person.effetsConfies)) {
     return;
@@ -2105,6 +2088,22 @@ function deleteEffect(personId, effectId) {
   renderPage();
   renderPersonSheet(personId);
   showActionStatus("delete", `EFFET SUPPRIME : ${effectId}`);
+  await saveAndRedirectToArrivalComplement(personId);
+}
+
+async function saveAndRedirectToArrivalComplement(personId) {
+  await saveDataToFile({
+    silent: true,
+    reloadAfter: false,
+  });
+  if (state.isDirty) {
+    showDataStatus("SAUVEGARDE IMPOSSIBLE - REDIRECTION ANNULEE");
+    return;
+  }
+  window.alert(
+    "DES MODIFICATIONS D'EFFETS ONT ETE EFFECTUEES. VOUS DEVEZ DONC PROCEDER A UNE NOUVELLE SIGNATURE DE L'AVENANT."
+  );
+  window.location.href = `document-arrivee.html?personId=${encodeURIComponent(personId)}&mode=COMPLEMENTAIRE`;
 }
 
 function deletePerson(personId) {
