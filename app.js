@@ -3279,7 +3279,7 @@ function getDocumentArchiveOpenPath(entry) {
   if (/^https?:\/\//i.test(raw)) {
     return raw;
   }
-  return `/${raw.replace(/^\/+/, "")}`;
+  return raw.replace(/^\/+/, "");
 }
 
 function getArchiveEntrySites(entry) {
@@ -4861,8 +4861,8 @@ function renderArrivalDocument(personId) {
   const person = state.data?.personnes?.find((entry) => entry.id === personId) || null;
   const explicitMode = normalizeText(new URLSearchParams(window.location.search).get("mode") || "");
   const computedMode = person ? getDocumentArchiveMode(person, "arrival") : "STANDARD";
-  const mode = explicitMode || computedMode;
-  const isComplement = mode === "COMPLEMENTAIRE";
+  let mode = explicitMode || computedMode;
+  let isComplement = mode === "COMPLEMENTAIRE";
   const dateNode = document.getElementById("arrival-doc-date");
   const referenceNode = document.getElementById("arrival-doc-reference");
   const titleNode = document.getElementById("arrival-doc-title");
@@ -4954,6 +4954,12 @@ function renderArrivalDocument(personId) {
   const effects = (person.effetsConfies || []).filter((effect) => Boolean(effect.dateRemise));
   const sortedEffects = sortEffectsForTable(person, effects, "arrivalEffects");
   const totalValue = effects.reduce((sum, effect) => sum + getEffectUnitValue(effect), 0);
+  const fallbackMovements = getArrivalComplementMovementMap(person, sortedEffects);
+
+  if (!explicitMode && !isComplement && fallbackMovements.size) {
+    mode = "COMPLEMENTAIRE";
+    isComplement = true;
+  }
 
   titleNode.textContent = isComplement
     ? "AVENANT DE REMISE DES EFFETS CONFIES"
@@ -4983,7 +4989,7 @@ function renderArrivalDocument(personId) {
   signatureRepresentantDateNode.textContent =
     formatSignatureTimestamp(getSignatureValidationDate(person, "arrival", "representant")) || "-";
 
-  const complementMovements = isComplement ? getArrivalComplementMovementMap(person, sortedEffects) : new Map();
+  const complementMovements = isComplement ? fallbackMovements : new Map();
 
   body.innerHTML = sortedEffects.length
     ? `${sortedEffects
