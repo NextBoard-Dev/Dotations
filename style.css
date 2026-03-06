@@ -1819,6 +1819,40 @@ body[data-page="reference-bases"] .table-wrap--reference-large::-webkit-scrollba
   background: rgba(214, 224, 229, 0.55);
 }
 
+.arrival-effect-row--added td {
+  background: rgba(109, 174, 126, 0.12);
+}
+
+.arrival-effect-row--returned td {
+  background: rgba(224, 154, 103, 0.12);
+}
+
+.movement-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+  vertical-align: middle;
+}
+
+.movement-badge--ajout {
+  color: #2f6941;
+  background: rgba(109, 174, 126, 0.2);
+  border-color: rgba(109, 174, 126, 0.55);
+}
+
+.movement-badge--retour {
+  color: #8a4e20;
+  background: rgba(224, 154, 103, 0.22);
+  border-color: rgba(224, 154, 103, 0.62);
+}
+
 .js-person-row {
   cursor: pointer;
 }

@@ -3135,6 +3135,72 @@ function getDocumentArchiveMode(person, docType) {
   return "COMPLEMENTAIRE";
 }
 
+function getEffectMovementKey(effect) {
+  const explicitId = String(effect?.id || "").trim();
+  if (explicitId) {
+    return `ID:${explicitId}`;
+  }
+  return [
+    normalizeText(effect?.typeEffet),
+    normalizeText(effect?.siteReference || referenceSiteFromEffect(effect)),
+    normalizeText(getEffectDisplayDesignation(effect)),
+    normalizeText(effect?.numeroIdentification),
+    String(effect?.dateRemise || ""),
+  ].join("|");
+}
+
+function getLatestSignedArrivalArchiveForPerson(personId) {
+  const entries = (state.data?.documentsArchives || [])
+    .filter(
+      (entry) =>
+        String(entry?.personId || "") === String(personId || "") &&
+        normalizeText(entry?.typeDocument) === "ARRIVEE" &&
+        normalizeText(entry?.statutSignature) === "SIGNE"
+    )
+    .slice()
+    .sort((left, right) => String(right?.dateArchivage || "").localeCompare(String(left?.dateArchivage || "")));
+  return entries[0] || null;
+}
+
+function getArrivalComplementMovementMap(person, effects) {
+  const movements = new Map();
+  if (!person || !Array.isArray(effects) || !effects.length) {
+    return movements;
+  }
+
+  const latestSignedArrival = getLatestSignedArrivalArchiveForPerson(person.id);
+  let baselineKeys = new Set();
+  if (latestSignedArrival?.fingerprint) {
+    try {
+      const payload = JSON.parse(String(latestSignedArrival.fingerprint || ""));
+      const baselineEffects = Array.isArray(payload?.effects) ? payload.effects : [];
+      baselineKeys = new Set(
+        baselineEffects
+          .map((effect) => getEffectMovementKey(effect))
+          .filter(Boolean)
+      );
+    } catch (error) {
+      baselineKeys = new Set();
+    }
+  }
+
+  effects.forEach((effect) => {
+    const key = getEffectMovementKey(effect);
+    if (!key) {
+      return;
+    }
+    if (String(effect?.dateRetour || "")) {
+      movements.set(key, "RENDU");
+      return;
+    }
+    if (baselineKeys.size && !baselineKeys.has(key)) {
+      movements.set(key, "AJOUTE");
+    }
+  });
+
+  return movements;
+}
+
 function getDocumentFingerprint(person, docType) {
   if (!person) {
     return "";
@@ -4903,16 +4969,27 @@ function renderArrivalDocument(personId) {
   signatureRepresentantDateNode.textContent =
     formatSignatureTimestamp(getSignatureValidationDate(person, "arrival", "representant")) || "-";
 
+  const complementMovements = isComplement ? getArrivalComplementMovementMap(person, sortedEffects) : new Map();
+
   body.innerHTML = sortedEffects.length
     ? `${sortedEffects
         .map(
-          (effect) => `<tr>
+          (effect) => {
+            const movement = isComplement ? String(complementMovements.get(getEffectMovementKey(effect)) || "") : "";
+            const movementBadge = movement
+              ? `<span class="movement-badge movement-badge--${movement === "RENDU" ? "retour" : "ajout"}">${movement}</span>`
+              : "";
+            const rowClass = movement
+              ? ` class="arrival-effect-row arrival-effect-row--${movement === "RENDU" ? "returned" : "added"}"`
+              : "";
+            return `<tr${rowClass}>
             <td>${effect.typeEffet || ""}</td>
-            <td>${getEffectDisplayDesignation(effect) || "-"}</td>
+            <td>${getEffectDisplayDesignation(effect) || "-"} ${movementBadge}</td>
             <td>${effect.numeroIdentification || "-"}</td>
             <td>${formatDate(effect.dateRemise) || "-"}</td>
             <td>${formatAmountWithEuro(getEffectUnitValue(effect))}</td>
-          </tr>`
+          </tr>`;
+          }
         )
         .join("")}
         <tr class="table-total-row">
