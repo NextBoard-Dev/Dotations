@@ -7783,7 +7783,7 @@ async function saveDataToFile(options = {}) {
     showDataStatus(saveConfirmation);
     if (!silent) {
       window.alert(saveAlertText);
-      if (promptDownload && saveSource === "LOCAL") {
+      if (promptDownload && saveSource === "LOCAL" && document.body.dataset.page !== "mobile-signature") {
         downloadDataJson();
       }
       if (closeAfterAlert) {
