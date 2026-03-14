@@ -1,0 +1,1142 @@
+{
+  "meta": {
+    "appTitle": "SUIVI DES DOTATIONS ENTREE / SORTIE",
+    "appSubtitle": "GESTION ONLINE DES EFFETS",
+    "version": "1.0",
+    "signatureMobileBaseUrl": "https://mililumatt.github.io/Dotations/index.html",
+    "storagePdfBucket": "pdf",
+    "storageSignaturesBucket": "signatures"
+  },
+  "listes": {
+    "sites": [
+      "CDM",
+      "COLLEGE",
+      "ECOLE SCSE",
+      "LGT",
+      "NDC",
+      "TOUS SITES"
+    ],
+    "typesPersonnel": [
+      "ACCES COMMUNS",
+      "CLUB SEMAINE",
+      "DERICHEBOURG",
+      "DIRECTION",
+      "ELIOR",
+      "ENSEIGNANTS",
+      "ENTREPRISES",
+      "HORS-GROUPE",
+      "PERSONNELS SCSE"
+    ],
+    "typesContrats": [
+      "CDD",
+      "CDI",
+      "INTERIMAIRE"
+    ],
+    "fonctions": [
+      "ADJOINT REGISSEUR INTENDANT",
+      "AGENT D'ACCUEIL",
+      "AGENT D'ENTRETIEN DERICHEBOURG",
+      "AGENT D'ENTRETIEN OGEC",
+      "AGENT DE MAINTENANCE OGEC",
+      "AGENT DE RESTAURATION ELIOR",
+      "ASSISTANT(E) DE VIE SCOLAIRE",
+      "ASSISTANTE RH",
+      "CHEF COMPTABLE",
+      "COMPTABLE",
+      "COURSIER",
+      "DAF",
+      "DDFPT",
+      "DIRECTEUR",
+      "DIRECTEUR OGEC",
+      "ENSEIGNANT",
+      "FORMATEUR",
+      "LABORANTIN(E)",
+      "LINGERE",
+      "REGISSEUR INTENDANT",
+      "RESPONSABLE CFC/CFA",
+      "RESPONSABLE COMMUNICATION",
+      "RESPONSABLE DE VIE SCOLAIRE",
+      "RESPONSABLE DERICHEBOURG",
+      "RESPONSABLE ELIOR",
+      "RESPONSABLE INFORMATIQUE",
+      "RESPONSABLE POLE SUPERIEUR",
+      "RH",
+      "RSG",
+      "SECRETAIRE",
+      "SECRETAIRE DE DIRECTION",
+      "SOUS DIRECTEUR",
+      "TECHNICIEN ENTREPRISE EXTERIEURE"
+    ],
+    "typesEffets": [
+      "BADGE INTRUSION",
+      "CARTE TURBOSELF",
+      "CLE",
+      "CLE CES",
+      "TELECOMMANDE URMET"
+    ],
+    "statutsObjetManuels": [
+      "ACTIF",
+      "HS",
+      "PERDU",
+      "VOL"
+    ],
+    "causesRemplacement": [
+      "HS",
+      "PERTE",
+      "VOL",
+      "NON RENDU"
+    ],
+    "coutsRemplacement": [
+      {
+        "typeEffet": "BADGE INTRUSION",
+        "cause": "HS",
+        "montant": 0
+      },
+      {
+        "typeEffet": "BADGE INTRUSION",
+        "cause": "NON RENDU",
+        "montant": 15
+      },
+      {
+        "typeEffet": "BADGE INTRUSION",
+        "cause": "PERTE",
+        "montant": 15
+      },
+      {
+        "typeEffet": "BADGE INTRUSION",
+        "cause": "VOL",
+        "montant": 15
+      },
+      {
+        "typeEffet": "CARTE TURBOSELF",
+        "cause": "HS",
+        "montant": 0
+      },
+      {
+        "typeEffet": "CARTE TURBOSELF",
+        "cause": "NON RENDU",
+        "montant": 10
+      },
+      {
+        "typeEffet": "CARTE TURBOSELF",
+        "cause": "PERTE",
+        "montant": 10
+      },
+      {
+        "typeEffet": "CARTE TURBOSELF",
+        "cause": "VOL",
+        "montant": 10
+      },
+      {
+        "typeEffet": "CLE",
+        "cause": "HS",
+        "montant": 0
+      },
+      {
+        "typeEffet": "CLE",
+        "cause": "NON RENDU",
+        "montant": 5
+      },
+      {
+        "typeEffet": "CLE",
+        "cause": "PERTE",
+        "montant": 5
+      },
+      {
+        "typeEffet": "CLE",
+        "cause": "VOL",
+        "montant": 5
+      },
+      {
+        "typeEffet": "CLE CES",
+        "cause": "HS",
+        "montant": 0
+      },
+      {
+        "typeEffet": "CLE CES",
+        "cause": "NON RENDU",
+        "montant": 50
+      },
+      {
+        "typeEffet": "CLE CES",
+        "cause": "PERTE",
+        "montant": 50
+      },
+      {
+        "typeEffet": "CLE CES",
+        "cause": "VOL",
+        "montant": 50
+      },
+      {
+        "typeEffet": "TELECOMMANDE URMET",
+        "cause": "HS",
+        "montant": 0
+      },
+      {
+        "typeEffet": "TELECOMMANDE URMET",
+        "cause": "NON RENDU",
+        "montant": 40
+      },
+      {
+        "typeEffet": "TELECOMMANDE URMET",
+        "cause": "PERTE",
+        "montant": 40
+      },
+      {
+        "typeEffet": "TELECOMMANDE URMET",
+        "cause": "VOL",
+        "montant": 40
+      }
+    ],
+    "representantsSignataires": [
+      {
+        "id": "REP0003",
+        "nom": "KARINE FRETIGNY",
+        "fonction": "RH"
+      },
+      {
+        "id": "REP0002",
+        "nom": "LAURENT DUPUIS",
+        "fonction": "RSG"
+      },
+      {
+        "id": "REP0004",
+        "nom": "MIGUEL CORREIA DE ALBUQUERQUE",
+        "fonction": "ADJOINT REGISSEUR INTENDANT"
+      },
+      {
+        "id": "REP0001",
+        "nom": "ROMAIN VALLEE",
+        "fonction": "REGISSEUR INTENDANT"
+      }
+    ],
+    "referencesEffets": [
+      {
+        "id": "REF0003",
+        "site": "CDM",
+        "sitesAffectation": [
+          "CDM"
+        ],
+        "typeEffet": "CLE",
+        "designation": "AC"
+      },
+      {
+        "id": "REF0023",
+        "site": "CDM",
+        "sitesAffectation": [
+          "CDM"
+        ],
+        "typeEffet": "CLE",
+        "designation": "ASCENSEUR"
+      },
+      {
+        "id": "REF0024",
+        "site": "CDM",
+        "sitesAffectation": [
+          "CDM"
+        ],
+        "typeEffet": "CLE",
+        "designation": "ASCENSEUR BAT F"
+      },
+      {
+        "id": "REF0004",
+        "site": "CDM",
+        "typeEffet": "CLE",
+        "designation": "ASSP",
+        "sitesAffectation": [
+          "CDM"
+        ]
+      },
+      {
+        "id": "REF0005",
+        "site": "CDM",
+        "typeEffet": "CLE",
+        "designation": "CES-CHAUFF",
+        "sitesAffectation": [
+          "CDM"
+        ]
+      },
+      {
+        "id": "REF0007",
+        "site": "CDM",
+        "typeEffet": "CLE",
+        "designation": "CES-PP1",
+        "sitesAffectation": [
+          "CDM"
+        ]
+      },
+      {
+        "id": "REF0008",
+        "site": "CDM",
+        "typeEffet": "CLE",
+        "designation": "CES-PP2",
+        "sitesAffectation": [
+          "CDM"
+        ]
+      },
+      {
+        "id": "REF0009",
+        "site": "CDM",
+        "typeEffet": "CLE",
+        "designation": "CES-PP3",
+        "sitesAffectation": [
+          "CDM"
+        ]
+      },
+      {
+        "id": "REF0010",
+        "site": "CDM",
+        "typeEffet": "CLE",
+        "designation": "CES-PP4",
+        "sitesAffectation": [
+          "CDM"
+        ]
+      },
+      {
+        "id": "REF0011",
+        "site": "CDM",
+        "typeEffet": "CLE",
+        "designation": "CES-VACC",
+        "sitesAffectation": [
+          "CDM"
+        ]
+      },
+      {
+        "id": "REF0012",
+        "site": "CDM",
+        "typeEffet": "CLE",
+        "designation": "CES-VELEC",
+        "sitesAffectation": [
+          "CDM"
+        ]
+      },
+      {
+        "id": "REF0013",
+        "site": "CDM",
+        "typeEffet": "CLE",
+        "designation": "CES-VINFO",
+        "sitesAffectation": [
+          "CDM"
+        ]
+      },
+      {
+        "id": "REF0014",
+        "site": "CDM",
+        "typeEffet": "CLE",
+        "designation": "CES-VTECH",
+        "sitesAffectation": [
+          "CDM"
+        ]
+      },
+      {
+        "id": "REF0015",
+        "site": "CDM",
+        "typeEffet": "CLE",
+        "designation": "DE",
+        "sitesAffectation": [
+          "CDM"
+        ]
+      },
+      {
+        "id": "REF0016",
+        "site": "CDM",
+        "typeEffet": "CLE",
+        "designation": "DESFRICHES",
+        "sitesAffectation": [
+          "CDM"
+        ]
+      },
+      {
+        "id": "REF0017",
+        "site": "CDM",
+        "typeEffet": "CLE",
+        "designation": "DODO",
+        "sitesAffectation": [
+          "CDM"
+        ]
+      },
+      {
+        "id": "REF0018",
+        "site": "CDM",
+        "typeEffet": "CLE",
+        "designation": "EX-INTERNAT",
+        "sitesAffectation": [
+          "CDM"
+        ]
+      },
+      {
+        "id": "REF0019",
+        "site": "CDM",
+        "typeEffet": "CLE",
+        "designation": "INDUS",
+        "sitesAffectation": [
+          "CDM"
+        ]
+      },
+      {
+        "id": "REF0020",
+        "site": "CDM",
+        "typeEffet": "CLE",
+        "designation": "LABOS",
+        "sitesAffectation": [
+          "CDM"
+        ]
+      },
+      {
+        "id": "REF0025",
+        "site": "CDM",
+        "sitesAffectation": [
+          "CDM"
+        ],
+        "typeEffet": "CLE",
+        "designation": "LOCAL PRODUITS"
+      },
+      {
+        "id": "REF0021",
+        "site": "CDM",
+        "typeEffet": "CLE",
+        "designation": "PASS INDUS-ASSP",
+        "sitesAffectation": [
+          "CDM"
+        ]
+      },
+      {
+        "id": "REF0022",
+        "site": "CDM",
+        "typeEffet": "CLE",
+        "designation": "PORTILLON-ELEVES",
+        "sitesAffectation": [
+          "CDM"
+        ]
+      },
+      {
+        "id": "REF0006",
+        "site": "TOUS SITES",
+        "sitesAffectation": [
+          "TOUS SITES"
+        ],
+        "typeEffet": "CLE",
+        "designation": "CES-PG"
+      }
+    ]
+  },
+  "personnes": [
+    {
+      "id": "P9001",
+      "nom": "TEST",
+      "prenom": "ALICE",
+      "fonction": "ENSEIGNANT",
+      "site": "CDM",
+      "typePersonnel": "ENSEIGNANTS",
+      "typeContrat": "CDI",
+      "dateEntree": "2026-01-10",
+      "dateSortiePrevue": "",
+      "dateSortieReelle": "",
+      "effetsConfies": [
+        {
+          "id": "E900101",
+          "typeEffet": "CLE",
+          "siteReference": "CDM",
+          "referenceEffetId": "REF0023",
+          "designation": "ASCENSEUR",
+          "numeroIdentification": "",
+          "vehiculeImmatriculation": "",
+          "dateRemise": "2026-01-10",
+          "dateRetour": "",
+          "statutManuel": "ACTIF",
+          "dateRemplacement": "",
+          "coutRemplacement": 0,
+          "commentaire": "CAS ACTIF",
+          "legacyDamageFacturable": false
+        },
+        {
+          "id": "E900102",
+          "typeEffet": "CARTE TURBOSELF",
+          "siteReference": "TOUS SITES",
+          "referenceEffetId": "",
+          "designation": "",
+          "numeroIdentification": "9001-01",
+          "vehiculeImmatriculation": "",
+          "dateRemise": "2026-01-10",
+          "dateRetour": "",
+          "statutManuel": "ACTIF",
+          "dateRemplacement": "",
+          "coutRemplacement": 0,
+          "commentaire": "",
+          "legacyDamageFacturable": false
+        }
+      ],
+      "sitesAffectation": [
+        "CDM"
+      ],
+      "signatures": {
+        "arrival": {
+          "personnel": {
+            "image": "",
+            "validatedAt": ""
+          },
+          "representant": {
+            "image": "",
+            "validatedAt": ""
+          }
+        },
+        "exit": {
+          "personnel": {
+            "image": "",
+            "validatedAt": ""
+          },
+          "representant": {
+            "image": "",
+            "validatedAt": ""
+          }
+        }
+      },
+      "representants": {
+        "arrival": {
+          "nom": "",
+          "fonction": "",
+          "id": ""
+        },
+        "exit": {
+          "nom": "",
+          "fonction": "",
+          "id": ""
+        }
+      }
+    },
+    {
+      "id": "P9002",
+      "nom": "TEST",
+      "prenom": "BRUNO",
+      "fonction": "AGENT D'ACCUEIL",
+      "site": "LGT",
+      "typePersonnel": "PERSONNELS SCSE",
+      "typeContrat": "CDD",
+      "dateEntree": "2025-09-01",
+      "dateSortiePrevue": "2026-02-01",
+      "dateSortieReelle": "",
+      "effetsConfies": [
+        {
+          "id": "E900201",
+          "typeEffet": "BADGE INTRUSION",
+          "siteReference": "LGT",
+          "referenceEffetId": "",
+          "designation": "",
+          "numeroIdentification": "B-9002",
+          "vehiculeImmatriculation": "",
+          "dateRemise": "2025-09-01",
+          "dateRetour": "",
+          "statutManuel": "ACTIF",
+          "dateRemplacement": "",
+          "coutRemplacement": 15,
+          "commentaire": "SORTIE PREVUE DEPASSEE",
+          "legacyDamageFacturable": false
+        }
+      ],
+      "sitesAffectation": [
+        "LGT"
+      ],
+      "signatures": {
+        "arrival": {
+          "personnel": {
+            "image": "",
+            "validatedAt": ""
+          },
+          "representant": {
+            "image": "",
+            "validatedAt": ""
+          }
+        },
+        "exit": {
+          "personnel": {
+            "image": "",
+            "validatedAt": ""
+          },
+          "representant": {
+            "image": "",
+            "validatedAt": ""
+          }
+        }
+      },
+      "representants": {
+        "arrival": {
+          "nom": "",
+          "fonction": "",
+          "id": ""
+        },
+        "exit": {
+          "nom": "",
+          "fonction": "",
+          "id": ""
+        }
+      }
+    },
+    {
+      "id": "P9003",
+      "nom": "TEST",
+      "prenom": "CHLOE",
+      "fonction": "COMPTABLE",
+      "site": "CDM / LGT",
+      "typePersonnel": "DIRECTION",
+      "typeContrat": "CDI",
+      "dateEntree": "2024-03-11",
+      "dateSortiePrevue": "2026-03-10",
+      "dateSortieReelle": "2026-03-10",
+      "effetsConfies": [
+        {
+          "id": "E900301",
+          "typeEffet": "CLE",
+          "siteReference": "CDM",
+          "referenceEffetId": "REF0015",
+          "designation": "DE",
+          "numeroIdentification": "",
+          "vehiculeImmatriculation": "",
+          "dateRemise": "2024-03-11",
+          "dateRetour": "2026-03-10",
+          "statutManuel": "ACTIF",
+          "dateRemplacement": "",
+          "coutRemplacement": 0,
+          "commentaire": "RENDU",
+          "legacyDamageFacturable": false
+        }
+      ],
+      "sitesAffectation": [
+        "CDM",
+        "LGT"
+      ],
+      "signatures": {
+        "arrival": {
+          "personnel": {
+            "image": "",
+            "validatedAt": ""
+          },
+          "representant": {
+            "image": "",
+            "validatedAt": ""
+          }
+        },
+        "exit": {
+          "personnel": {
+            "image": "",
+            "validatedAt": ""
+          },
+          "representant": {
+            "image": "",
+            "validatedAt": ""
+          }
+        }
+      },
+      "representants": {
+        "arrival": {
+          "nom": "",
+          "fonction": "",
+          "id": ""
+        },
+        "exit": {
+          "nom": "",
+          "fonction": "",
+          "id": ""
+        }
+      }
+    },
+    {
+      "id": "P9004",
+      "nom": "TEST",
+      "prenom": "DAVID",
+      "fonction": "RESPONSABLE INFORMATIQUE",
+      "site": "COLLEGE",
+      "typePersonnel": "PERSONNELS SCSE",
+      "typeContrat": "CDI",
+      "dateEntree": "2025-02-10",
+      "dateSortiePrevue": "",
+      "dateSortieReelle": "",
+      "effetsConfies": [
+        {
+          "id": "E900401",
+          "typeEffet": "CLE",
+          "siteReference": "COLLEGE",
+          "referenceEffetId": "",
+          "designation": "",
+          "numeroIdentification": "",
+          "vehiculeImmatriculation": "",
+          "dateRemise": "2025-02-10",
+          "dateRetour": "",
+          "statutManuel": "PERDU",
+          "dateRemplacement": "2026-01-12",
+          "coutRemplacement": 5,
+          "commentaire": "PERTE FACTURABLE",
+          "legacyDamageFacturable": false
+        }
+      ],
+      "sitesAffectation": [
+        "COLLEGE"
+      ],
+      "signatures": {
+        "arrival": {
+          "personnel": {
+            "image": "",
+            "validatedAt": ""
+          },
+          "representant": {
+            "image": "",
+            "validatedAt": ""
+          }
+        },
+        "exit": {
+          "personnel": {
+            "image": "",
+            "validatedAt": ""
+          },
+          "representant": {
+            "image": "",
+            "validatedAt": ""
+          }
+        }
+      },
+      "representants": {
+        "arrival": {
+          "nom": "",
+          "fonction": "",
+          "id": ""
+        },
+        "exit": {
+          "nom": "",
+          "fonction": "",
+          "id": ""
+        }
+      }
+    },
+    {
+      "id": "P9005",
+      "nom": "TEST",
+      "prenom": "EMMA",
+      "fonction": "SECRETAIRE",
+      "site": "NDC",
+      "typePersonnel": "PERSONNELS SCSE",
+      "typeContrat": "CDI",
+      "dateEntree": "2023-08-22",
+      "dateSortiePrevue": "",
+      "dateSortieReelle": "",
+      "effetsConfies": [
+        {
+          "id": "E900501",
+          "typeEffet": "BADGE INTRUSION",
+          "siteReference": "NDC",
+          "referenceEffetId": "",
+          "designation": "",
+          "numeroIdentification": "B-9005",
+          "vehiculeImmatriculation": "",
+          "dateRemise": "2023-08-22",
+          "dateRetour": "",
+          "statutManuel": "VOL",
+          "dateRemplacement": "2026-02-14",
+          "coutRemplacement": 15,
+          "commentaire": "VOL FACTURABLE",
+          "legacyDamageFacturable": false
+        }
+      ],
+      "sitesAffectation": [
+        "NDC"
+      ],
+      "signatures": {
+        "arrival": {
+          "personnel": {
+            "image": "",
+            "validatedAt": ""
+          },
+          "representant": {
+            "image": "",
+            "validatedAt": ""
+          }
+        },
+        "exit": {
+          "personnel": {
+            "image": "",
+            "validatedAt": ""
+          },
+          "representant": {
+            "image": "",
+            "validatedAt": ""
+          }
+        }
+      },
+      "representants": {
+        "arrival": {
+          "nom": "",
+          "fonction": "",
+          "id": ""
+        },
+        "exit": {
+          "nom": "",
+          "fonction": "",
+          "id": ""
+        }
+      }
+    },
+    {
+      "id": "P9006",
+      "nom": "TEST",
+      "prenom": "FARID",
+      "fonction": "AGENT DE MAINTENANCE OGEC",
+      "site": "CDM",
+      "typePersonnel": "PERSONNELS SCSE",
+      "typeContrat": "CDI",
+      "dateEntree": "2022-01-05",
+      "dateSortiePrevue": "",
+      "dateSortieReelle": "",
+      "effetsConfies": [
+        {
+          "id": "E900601",
+          "typeEffet": "TELECOMMANDE URMET",
+          "siteReference": "",
+          "referenceEffetId": "",
+          "designation": "",
+          "numeroIdentification": "UR-9006",
+          "vehiculeImmatriculation": "",
+          "dateRemise": "2022-01-05",
+          "dateRetour": "",
+          "statutManuel": "HS",
+          "dateRemplacement": "2026-02-02",
+          "coutRemplacement": 0,
+          "commentaire": "HS NON FACTURABLE",
+          "legacyDamageFacturable": false
+        }
+      ],
+      "sitesAffectation": [
+        "CDM"
+      ],
+      "signatures": {
+        "arrival": {
+          "personnel": {
+            "image": "",
+            "validatedAt": ""
+          },
+          "representant": {
+            "image": "",
+            "validatedAt": ""
+          }
+        },
+        "exit": {
+          "personnel": {
+            "image": "",
+            "validatedAt": ""
+          },
+          "representant": {
+            "image": "",
+            "validatedAt": ""
+          }
+        }
+      },
+      "representants": {
+        "arrival": {
+          "nom": "",
+          "fonction": "",
+          "id": ""
+        },
+        "exit": {
+          "nom": "",
+          "fonction": "",
+          "id": ""
+        }
+      }
+    },
+    {
+      "id": "P9007",
+      "nom": "TEST",
+      "prenom": "GAEL",
+      "fonction": "RESPONSABLE DE VIE SCOLAIRE",
+      "site": "ECOLE SCSE",
+      "typePersonnel": "DIRECTION",
+      "typeContrat": "CDI",
+      "dateEntree": "2021-09-01",
+      "dateSortiePrevue": "2026-02-15",
+      "dateSortieReelle": "2026-02-20",
+      "effetsConfies": [
+        {
+          "id": "E900701",
+          "typeEffet": "CLE CES",
+          "siteReference": "TOUS SITES",
+          "referenceEffetId": "REF0006",
+          "designation": "CES-PG",
+          "numeroIdentification": "",
+          "vehiculeImmatriculation": "",
+          "dateRemise": "2021-09-01",
+          "dateRetour": "",
+          "statutManuel": "ACTIF",
+          "dateRemplacement": "",
+          "coutRemplacement": 50,
+          "commentaire": "NON RENDU FACTURABLE",
+          "legacyDamageFacturable": false
+        }
+      ],
+      "sitesAffectation": [
+        "ECOLE SCSE"
+      ],
+      "signatures": {
+        "arrival": {
+          "personnel": {
+            "image": "",
+            "validatedAt": ""
+          },
+          "representant": {
+            "image": "",
+            "validatedAt": ""
+          }
+        },
+        "exit": {
+          "personnel": {
+            "image": "",
+            "validatedAt": ""
+          },
+          "representant": {
+            "image": "",
+            "validatedAt": ""
+          }
+        }
+      },
+      "representants": {
+        "arrival": {
+          "nom": "",
+          "fonction": "",
+          "id": ""
+        },
+        "exit": {
+          "nom": "",
+          "fonction": "",
+          "id": ""
+        }
+      }
+    },
+    {
+      "id": "P9008",
+      "nom": "TEST",
+      "prenom": "HUGO",
+      "fonction": "TECHNICIEN ENTREPRISE EXTERIEURE",
+      "site": "TOUS SITES",
+      "typePersonnel": "ENTREPRISES",
+      "typeContrat": "INTERIMAIRE",
+      "dateEntree": "2026-01-15",
+      "dateSortiePrevue": "2026-06-30",
+      "dateSortieReelle": "",
+      "effetsConfies": [
+        {
+          "id": "E900801",
+          "typeEffet": "CLE",
+          "siteReference": "CDM",
+          "referenceEffetId": "REF0022",
+          "designation": "PORTILLON-ELEVES",
+          "numeroIdentification": "",
+          "vehiculeImmatriculation": "",
+          "dateRemise": "2026-01-15",
+          "dateRetour": "2026-02-01",
+          "statutManuel": "ACTIF",
+          "dateRemplacement": "",
+          "coutRemplacement": 0,
+          "commentaire": "RETOUR PARTIEL",
+          "legacyDamageFacturable": false
+        },
+        {
+          "id": "E900802",
+          "typeEffet": "CLE",
+          "siteReference": "CDM",
+          "referenceEffetId": "REF0025",
+          "designation": "LOCAL PRODUITS",
+          "numeroIdentification": "",
+          "vehiculeImmatriculation": "",
+          "dateRemise": "2026-02-01",
+          "dateRetour": "",
+          "statutManuel": "ACTIF",
+          "dateRemplacement": "",
+          "coutRemplacement": 0,
+          "commentaire": "AJOUT APRES RETOUR",
+          "legacyDamageFacturable": false
+        }
+      ],
+      "sitesAffectation": [
+        "TOUS SITES"
+      ],
+      "signatures": {
+        "arrival": {
+          "personnel": {
+            "image": "",
+            "validatedAt": ""
+          },
+          "representant": {
+            "image": "",
+            "validatedAt": ""
+          }
+        },
+        "exit": {
+          "personnel": {
+            "image": "",
+            "validatedAt": ""
+          },
+          "representant": {
+            "image": "",
+            "validatedAt": ""
+          }
+        }
+      },
+      "representants": {
+        "arrival": {
+          "nom": "",
+          "fonction": "",
+          "id": ""
+        },
+        "exit": {
+          "nom": "",
+          "fonction": "",
+          "id": ""
+        }
+      }
+    },
+    {
+      "id": "P9009",
+      "nom": "TEST",
+      "prenom": "INES",
+      "fonction": "ASSISTANTE RH",
+      "site": "CDM / NDC",
+      "typePersonnel": "DIRECTION",
+      "typeContrat": "CDD",
+      "dateEntree": "2026-02-01",
+      "dateSortiePrevue": "",
+      "dateSortieReelle": "",
+      "effetsConfies": [
+        {
+          "id": "E900901",
+          "typeEffet": "CARTE TURBOSELF",
+          "siteReference": "TOUS SITES",
+          "referenceEffetId": "",
+          "designation": "",
+          "numeroIdentification": "TS-9009",
+          "vehiculeImmatriculation": "",
+          "dateRemise": "2026-02-01",
+          "dateRetour": "",
+          "statutManuel": "ACTIF",
+          "dateRemplacement": "",
+          "coutRemplacement": 0,
+          "commentaire": "MULTI SITES",
+          "legacyDamageFacturable": false
+        },
+        {
+          "id": "E900902",
+          "typeEffet": "BADGE INTRUSION",
+          "siteReference": "NDC",
+          "referenceEffetId": "",
+          "designation": "",
+          "numeroIdentification": "B-9009",
+          "vehiculeImmatriculation": "",
+          "dateRemise": "2026-02-01",
+          "dateRetour": "",
+          "statutManuel": "ACTIF",
+          "dateRemplacement": "",
+          "coutRemplacement": 0,
+          "commentaire": "",
+          "legacyDamageFacturable": false
+        }
+      ],
+      "sitesAffectation": [
+        "CDM",
+        "NDC"
+      ],
+      "signatures": {
+        "arrival": {
+          "personnel": {
+            "image": "",
+            "validatedAt": ""
+          },
+          "representant": {
+            "image": "",
+            "validatedAt": ""
+          }
+        },
+        "exit": {
+          "personnel": {
+            "image": "",
+            "validatedAt": ""
+          },
+          "representant": {
+            "image": "",
+            "validatedAt": ""
+          }
+        }
+      },
+      "representants": {
+        "arrival": {
+          "nom": "",
+          "fonction": "",
+          "id": ""
+        },
+        "exit": {
+          "nom": "",
+          "fonction": "",
+          "id": ""
+        }
+      }
+    },
+    {
+      "id": "P9010",
+      "nom": "TEST",
+      "prenom": "JULIE",
+      "fonction": "SECRETAIRE DE DIRECTION",
+      "site": "COLLEGE",
+      "typePersonnel": "DIRECTION",
+      "typeContrat": "CDI",
+      "dateEntree": "2026-03-01",
+      "dateSortiePrevue": "",
+      "dateSortieReelle": "",
+      "effetsConfies": [],
+      "sitesAffectation": [
+        "COLLEGE"
+      ],
+      "signatures": {
+        "arrival": {
+          "personnel": {
+            "image": "",
+            "validatedAt": ""
+          },
+          "representant": {
+            "image": "",
+            "validatedAt": ""
+          }
+        },
+        "exit": {
+          "personnel": {
+            "image": "",
+            "validatedAt": ""
+          },
+          "representant": {
+            "image": "",
+            "validatedAt": ""
+          }
+        }
+      },
+      "representants": {
+        "arrival": {
+          "nom": "",
+          "fonction": "",
+          "id": ""
+        },
+        "exit": {
+          "nom": "",
+          "fonction": "",
+          "id": ""
+        }
+      }
+    }
+  ],
+  "documentsArchives": [],
+  "demandesSignatureMobile": [
+    {
+      "id": "DSM0001",
+      "token": "SIG-1773516541298-9735K7YC88",
+      "personId": "P9003",
+      "docType": "EXIT",
+      "signer": "PERSONNEL",
+      "createdAt": "2026-03-14T19:29:01.298Z",
+      "expiresAt": "2026-03-14T19:39:01.298Z",
+      "status": "EN ATTENTE",
+      "validatedAt": ""
+    }
+  ]
+}
