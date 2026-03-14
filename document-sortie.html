@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Document de sortie</title>
-    <link rel="stylesheet" href="style.css?v=20260304-003" />
+    <link rel="stylesheet" href="style.css?v=20260304-007" />
   </head>
   <body data-page="exit-document">
     <div class="app-shell">
@@ -28,10 +28,9 @@
         <nav class="sidebar__nav">
           <a href="index.html" class="sidebar__link" data-nav="overview">VUE D'ENSEMBLE</a>
           <a href="fiche-personne.html" class="sidebar__link" data-nav="person-sheet">FICHE PERSONNE</a>
-          <a href="document-arrivee.html" class="sidebar__link" data-nav="arrival-document">DOCUMENT ARRIVEE</a>
-          <a href="document-sortie.html" class="sidebar__link" data-nav="exit-document">DOCUMENT SORTIE</a>
+          <a href="document-arrivee.html" class="sidebar__link" data-nav="arrival-document">ENTREE / SITUATION</a>
+          <a href="document-sortie.html" class="sidebar__link" data-nav="exit-document">SORTIE / SITUATION</a>
           <a href="documents-archives.html" class="sidebar__link" data-nav="documents-archives">DOCUMENTS / ARCHIVES</a>
-          <a href="suivi-global.html" class="sidebar__link" data-nav="global">SUIVI GLOBAL</a>
           <a href="bases-reference.html" class="sidebar__link" data-nav="reference-bases">BASES DE REFERENCE</a>
         </nav>
       </aside>
@@ -59,39 +58,75 @@
         </header>
         <p class="data-status" id="data-status">OUVERTURE DES DONNEES EN COURS...</p>
         <p class="dirty-status" id="dirty-status" hidden>MODIFICATIONS NON SAUVEGARDEES</p>
-
         <section class="section document-picker-section">
+          <div class="section__heading">
+            <h3>RECHERCHE ET FILTRES</h3>
+            <p>Recherche transverse sur les personnes et les effets confies.</p>
+          </div>
           <div class="card">
-            <form class="picker-form picker-form--person-search">
-              <label class="field field--search picker-field">
-                <span>CHOISIR UNE PERSONNE</span>
+            <form class="filter-form js-filter-form">
+              <label class="field field--search field--search-compact field--overview-search picker-field">
+                <span>RECHERCHE</span>
                 <div class="search-input-wrap">
-                  <span class="field__icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" focusable="false">
-                      <defs>
-                        <linearGradient id="searchExitGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                          <stop offset="0%" stop-color="#FF9A62" />
-                          <stop offset="45%" stop-color="#FFD166" />
-                          <stop offset="100%" stop-color="#67C6CF" />
-                        </linearGradient>
-                      </defs>
-                      <circle cx="10.5" cy="10.5" r="5.4" fill="url(#searchExitGradient)" />
-                      <path d="M10.5 4.6A5.9 5.9 0 1 0 16.4 10.5 5.91 5.91 0 0 0 10.5 4.6Zm0 1.4A4.5 4.5 0 1 1 6 10.5 4.5 4.5 0 0 1 10.5 6Z" fill="#355564" />
-                      <path d="M15.35 15.35 20 20" stroke="#E16F4F" stroke-width="2.4" stroke-linecap="round" />
-                      <circle cx="8.7" cy="8.6" r="1.35" fill="#FFFFFF" fill-opacity="0.82" />
-                    </svg>
-                  </span>
+                  <span class="field__icon" aria-hidden="true"></span>
                   <input
                     type="search"
                     id="person-picker-search"
+                    name="search"
                     list="person-picker-list"
-                    placeholder="NOM, PRENOM, SITE..."
+                    placeholder="NOM, PRENOM, SITE, EFFET, COMMENTAIRE..."
                     autocomplete="off"
                   />
                 </div>
                 <datalist id="person-picker-list"></datalist>
                 <div class="picker-suggestions" id="person-picker-suggestions" hidden></div>
               </label>
+
+              <label class="field field--overview-site">
+                <span>SITE</span>
+                <select name="site"><option value="">TOUS</option></select>
+              </label>
+
+              <label class="field field--overview-type-personnel">
+                <span>TYPE DE PERSONNEL</span>
+                <select name="typePersonnel"><option value="">TOUS</option></select>
+              </label>
+
+              <label class="field field--overview-type-contrat">
+                <span>TYPE DE CONTRAT</span>
+                <select name="typeContrat"><option value="">TOUS</option></select>
+              </label>
+
+              <label class="field field--type-effet-compact field--overview-type-effet">
+                <span>TYPE D'EFFET</span>
+                <select name="typeEffet"><option value="">TOUS</option></select>
+              </label>
+
+              <label class="field field--overview-statut-dossier">
+                <span>STATUT DOSSIER</span>
+                <select name="statutDossier">
+                  <option value="">TOUS</option>
+                  <option value="EN POSTE">EN POSTE</option>
+                  <option value="SORTIE PREVUE">SORTIE PREVUE</option>
+                  <option value="SORTI">SORTI</option>
+                </select>
+              </label>
+
+              <label class="field field--overview-statut-objet">
+                <span>STATUT OBJET</span>
+                <select name="statutObjet">
+                  <option value="">TOUS</option>
+                  <option value="ACTIF">ACTIF</option>
+                  <option value="RESTITUE">RESTITUE</option>
+                  <option value="NON RENDU">NON RENDU</option>
+                  <option value="PERDU">PERDU</option>
+                  <option value="HS">HS</option>
+                </select>
+              </label>
+
+              <div class="form-actions form-actions--filters">
+                <button type="reset" class="button button--secondary">REINITIALISER</button>
+              </div>
             </form>
           </div>
         </section>
@@ -142,13 +177,14 @@
                       <th data-sort-table="exitEffects" data-sort-key="dateRemise">DATE DE REMISE</th>
                       <th data-sort-table="exitEffects" data-sort-key="dateRetour">DATE DE RETOUR</th>
                       <th data-sort-table="exitEffects" data-sort-key="statut">STATUT</th>
-                      <th data-sort-table="exitEffects" data-sort-key="cause">CAUSE</th>
+                      <th>MOUVEMENT</th>
+                      <th>RENDU CE JOUR</th>
                       <th data-sort-table="exitEffects" data-sort-key="coutFacturable">COUT FACTURABLE</th>
                     </tr>
                   </thead>
                   <tbody id="exit-effects-body">
                     <tr>
-                      <td colspan="8" class="table-empty">AUCUN EFFET A AFFICHER</td>
+                      <td colspan="9" class="table-empty">AUCUN EFFET A AFFICHER</td>
                     </tr>
                   </tbody>
                 </table>
@@ -178,10 +214,10 @@
 
             <section class="arrival-document__block">
               <div class="section__subheading section__subheading--stacked">
-                <h4>MENTION DE RETENUE</h4>
+                <h4>CLAUSES DE RESTITUTION ET DE FACTURATION</h4>
               </div>
               <div class="document-clauses">
-                <p>En cas de perte, vol ou détérioration imputable à une faute de l’agent, l’établissement pourra engager toute procédure administrative ou judiciaire permettant d’obtenir réparation du préjudice subi.</p>
+                <p class="document-clause--warning">En cas de perte, vol ou détérioration imputable à une faute de l’agent, l’établissement pourra engager toute procédure administrative ou judiciaire permettant d’obtenir réparation du préjudice subi.</p>
                 <div class="table-wrap">
                   <table class="data-table data-table--document-costs">
                     <thead id="exit-costs-head">
@@ -324,6 +360,6 @@
       </main>
     </div>
 
-    <script src="app.js?v=20260304-007"></script>
+    <script src="app.js?v=20260314-1451"></script>
   </body>
 </html>
