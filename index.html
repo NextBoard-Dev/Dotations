@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Suivi des dotations Entree / Sortie</title>
-    <link rel="stylesheet" href="style.css?v=20260304-001" />
+    <link rel="stylesheet" href="style.css?v=20260309-001" />
   </head>
   <body data-page="overview">
     <div class="app-shell">
@@ -28,10 +28,9 @@
         <nav class="sidebar__nav">
           <a href="index.html" class="sidebar__link" data-nav="overview">VUE D'ENSEMBLE</a>
           <a href="fiche-personne.html" class="sidebar__link" data-nav="person-sheet">FICHE PERSONNE</a>
-          <a href="document-arrivee.html" class="sidebar__link" data-nav="arrival-document">DOCUMENT ARRIVEE</a>
-          <a href="document-sortie.html" class="sidebar__link" data-nav="exit-document">DOCUMENT SORTIE</a>
+          <a href="document-arrivee.html" class="sidebar__link" data-nav="arrival-document">ENTREE / SITUATION</a>
+          <a href="document-sortie.html" class="sidebar__link" data-nav="exit-document">SORTIE / SITUATION</a>
           <a href="documents-archives.html" class="sidebar__link" data-nav="documents-archives">DOCUMENTS / ARCHIVES</a>
-          <a href="suivi-global.html" class="sidebar__link" data-nav="global">SUIVI GLOBAL</a>
           <a href="bases-reference.html" class="sidebar__link" data-nav="reference-bases">BASES DE REFERENCE</a>
         </nav>
       </aside>
@@ -43,10 +42,12 @@
             <p class="page-header__eyebrow">VUE GENERALE</p>
             <h2 class="page-header__title">SUIVI DES DOTATIONS ENTREE / SORTIE</h2>
             <p class="page-header__subtitle">
-              GESTION LOCALE DES OBJETS ATTRIBUES ET RESTITUES
+              GESTION ONLINE DES EFFETS
             </p>
           </div>
           <div class="page-header__actions">
+            <button type="button" class="button button--secondary js-toggle-urgency">MODE URGENCES</button>
+            <button type="button" class="button button--secondary js-export-control">EXPORTER ETAT DE CONTROLE</button>
             <button type="button" class="button button--secondary js-load-data">RECHARGER</button>
             <button type="button" class="button button--primary js-save-data">SAUVEGARDER</button>
           </div>
@@ -166,7 +167,6 @@
                   <option value="RESTITUE">RESTITUE</option>
                   <option value="NON RENDU">NON RENDU</option>
                   <option value="PERDU">PERDU</option>
-                  <option value="DETRUIT">DETRUIT</option>
                   <option value="HS">HS</option>
                 </select>
               </label>
@@ -212,18 +212,23 @@
                     <tr>
                     <th data-sort-table="overviewPersons" data-sort-key="nom">NOM</th>
                     <th data-sort-table="overviewPersons" data-sort-key="prenom">PRENOM</th>
-                    <th data-sort-table="overviewPersons" data-sort-key="fonction">FONCTION</th>
                     <th data-sort-table="overviewPersons" data-sort-key="site">SITE</th>
+                    <th data-sort-table="overviewPersons" data-sort-key="typePersonnel">TYPE DE PERSONNEL</th>
                     <th data-sort-table="overviewPersons" data-sort-key="typeContrat">TYPE CONTRAT</th>
+                    <th data-sort-table="overviewPersons" data-sort-key="dateEntree">DATE D'ENTREE</th>
+                    <th data-sort-table="overviewPersons" data-sort-key="dateSortiePrevue">DATE DE SORTIE PREVUE</th>
+                    <th data-sort-table="overviewPersons" data-sort-key="dateSortieReelle">DATE DE SORTIE REELLE</th>
                     <th data-sort-table="overviewPersons" data-sort-key="statutDossier">STATUT DOSSIER</th>
                     <th data-sort-table="overviewPersons" data-sort-key="nbEffets">NB EFFETS</th>
                     <th data-sort-table="overviewPersons" data-sort-key="nonRendus">NON RENDUS</th>
                     <th data-sort-table="overviewPersons" data-sort-key="couts">COUTS</th>
+                    <th data-sort-table="overviewPersons" data-sort-key="mouvements">MOUVEMENTS</th>
+                    <th>ACTION</th>
                     </tr>
                   </thead>
                 <tbody id="overview-table-body">
                   <tr>
-                    <td colspan="9" class="table-empty">CHARGEMENT...</td>
+                    <td colspan="14" class="table-empty">CHARGEMENT...</td>
                   </tr>
                 </tbody>
               </table>
@@ -233,6 +238,9 @@
       </main>
     </div>
 
-    <script src="app.js?v=20260304-007"></script>
+    <script src="app.js?v=20260314-1451"></script>
   </body>
 </html>
+
+
+
