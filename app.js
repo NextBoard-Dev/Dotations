@@ -1,3 +1,13 @@
+const DEFAULT_FILTERS = {
+  search: "",
+  site: "",
+  typePersonnel: "",
+  typeContrat: "",
+  statutDossier: "",
+  statutObjet: "",
+  typeEffet: "",
+};
+
 const state = {
   data: null,
   currentSheetPersonId: "",
@@ -20,31 +30,30 @@ const state = {
     exitEffects: { key: "typeEffet", dir: "asc" },
     overviewPersons: { key: "nom", dir: "asc" },
   },
-  filters: {
-    search: "",
-    site: "",
-    typePersonnel: "",
-    typeContrat: "",
-    statutDossier: "",
-    statutObjet: "",
-    typeEffet: "",
-  },
+  filters: { ...DEFAULT_FILTERS },
   referenceRenderContext: null,
+  urgentMode: false,
+  lastSaveInfo: null,
 };
 
 const WORKING_DATA_KEY = "dashboard-working-data";
 const LEGACY_CONTRACT_TYPES = ["CDI", "CDD", "INTERIMAIRE"];
 const MAX_UNDO_STACK = 30;
 const ALL_SITES_VALUE = "TOUS SITES";
-const CHARGED_REPLACEMENT_CAUSES = ["PERTE", "CASSE", "NON RENDU", "VOL"];
+const EFFECT_STATUS_CAUSES = ["HS", "PERTE", "VOL", "NON RENDU"];
+const BILLABLE_EFFECT_CAUSES = ["PERTE", "VOL", "NON RENDU"];
 const MOBILE_SIGNATURE_REQUEST_TTL_MS = 10 * 60 * 1000;
 const SUPABASE_PROJECT_URL = "https://dphrvdhqhgycmllietuk.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_2wYXnIDj4-c8daQZW8D5hA_2Py6k7z6";
 const SUPABASE_APP_STATE_TABLE = "app_state";
 const SUPABASE_APP_STATE_ID = "main";
+const DEFAULT_SUPABASE_PDF_BUCKET = "pdf";
+const DEFAULT_SUPABASE_SIGNATURES_BUCKET = "signatures";
+const NAVIGATION_CONTEXT_KEY = "dotations-navigation-context";
+const PDF_LAYOUT_VERSION = "2026-03-14-exit-layout-fix-3";
+const PDF_FORMAT_LOCK = "v1";
 let pdfModalCleanupBound = false;
 const signatureCanvases = new WeakMap();
-
 redirectToLocalServerIfNeeded();
 applyPdfModeFromQuery();
 
@@ -92,6 +101,14 @@ function normalizeHttpUrl(value) {
   }
 }
 
+function normalizeBucketName(value, fallback = "") {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]/g, "");
+  return normalized || String(fallback || "").trim().toLowerCase();
+}
+
 function isLocalRuntime() {
   const host = String(window.location.hostname || "").toLowerCase();
   return (
@@ -122,12 +139,237 @@ function getSupabaseRestEndpoint() {
   return `${baseUrl}/rest/v1/${SUPABASE_APP_STATE_TABLE}`;
 }
 
-function getSupabaseHeaders(extra = {}) {
+function getSupabaseHeaders(extra = {}, options = {}) {
   const key = String(SUPABASE_PUBLISHABLE_KEY || "").trim();
-  return {
+  const includeAuthorization = options?.includeAuthorization ?? "auto";
+  const headers = {
     apikey: key,
-    Authorization: `Bearer ${key}`,
     ...extra,
+  };
+  const keyLooksLikeJwt = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(key);
+  const shouldAddAuthorization =
+    includeAuthorization === true || (includeAuthorization === "auto" && keyLooksLikeJwt);
+  if (shouldAddAuthorization) {
+    headers.Authorization = `Bearer ${key}`;
+  }
+  return headers;
+}
+
+function encodeStorageObjectPath(path) {
+  return String(path || "")
+    .split("/")
+    .map((part) => encodeURIComponent(String(part || "").trim()))
+    .filter(Boolean)
+    .join("/");
+}
+
+function getSupabaseStoragePublicUrl(bucket, objectPath) {
+  const baseUrl = normalizeHttpUrl(SUPABASE_PROJECT_URL);
+  const normalizedBucket = normalizeBucketName(bucket);
+  const encodedPath = encodeStorageObjectPath(objectPath);
+  if (!baseUrl || !normalizedBucket || !encodedPath) {
+    return "";
+  }
+  return `${baseUrl}/storage/v1/object/public/${encodeURIComponent(normalizedBucket)}/${encodedPath}`;
+}
+
+function parseStorageSchemePath(value) {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return null;
+  }
+  const match = raw.match(/^storage:\/\/([^\/]+)\/(.+)$/i);
+  if (!match) {
+    return null;
+  }
+  return {
+    bucket: normalizeBucketName(match[1]),
+    objectPath: String(match[2] || "").trim().replace(/^\/+/, ""),
+  };
+}
+
+function getStoragePdfBucketName() {
+  return normalizeBucketName(
+    state.data?.meta?.storagePdfBucket,
+    DEFAULT_SUPABASE_PDF_BUCKET
+  );
+}
+
+function getStorageSignaturesBucketName() {
+  return normalizeBucketName(
+    state.data?.meta?.storageSignaturesBucket,
+    DEFAULT_SUPABASE_SIGNATURES_BUCKET
+  );
+}
+
+function getSupabaseStorageUploadEndpoint(bucket, objectPath) {
+  const baseUrl = normalizeHttpUrl(SUPABASE_PROJECT_URL);
+  const normalizedBucket = normalizeBucketName(bucket);
+  const encodedPath = encodeStorageObjectPath(objectPath);
+  if (!baseUrl || !normalizedBucket || !encodedPath) {
+    return "";
+  }
+  return `${baseUrl}/storage/v1/object/${encodeURIComponent(normalizedBucket)}/${encodedPath}`;
+}
+
+async function blobToBase64(blob) {
+  const buffer = await blob.arrayBuffer();
+  let binary = "";
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 0x8000;
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    const chunk = bytes.subarray(index, index + chunkSize);
+    binary += String.fromCharCode(...chunk);
+  }
+  return btoa(binary);
+}
+
+async function extractSupabaseErrorText(response, limit = 220) {
+  let errorText = "";
+  try {
+    errorText = (await response.text()) || "";
+  } catch (error) {
+    errorText = "";
+  }
+  return errorText.replace(/\s+/g, " ").trim().slice(0, limit);
+}
+
+async function uploadBlobToSupabaseStorage(bucket, objectPath, blob, contentType) {
+  if (getDataBackendMode() === "LOCAL_API") {
+    const response = await fetch("/api/storage-upload", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        projectUrl: normalizeHttpUrl(SUPABASE_PROJECT_URL),
+        publishableKey: String(SUPABASE_PUBLISHABLE_KEY || "").trim(),
+        bucket: normalizeBucketName(bucket),
+        objectPath: String(objectPath || "").trim().replace(/^\/+/, ""),
+        contentType: String(contentType || "application/octet-stream"),
+        payloadBase64: await blobToBase64(blob),
+      }),
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || !payload?.ok) {
+      const status = Number(payload?.status || response.status || 0);
+      const details = String(payload?.error || "").trim().slice(0, 220);
+      throw new Error(`SUPABASE STORAGE UPLOAD FAILED [${status}]${details ? ` ${details}` : ""}`);
+    }
+    return;
+  }
+
+  const endpoint = getSupabaseStorageUploadEndpoint(bucket, objectPath);
+  if (!endpoint) {
+    throw new Error("SUPABASE STORAGE ENDPOINT INVALIDE");
+  }
+  const executeUpload = async (includeAuthorization) => {
+    const buildRequestOptions = (method) => ({
+      method,
+      headers: getSupabaseHeaders(
+        {
+          "Content-Type": contentType,
+          "x-upsert": "true",
+        },
+        { includeAuthorization }
+      ),
+      body: blob,
+    });
+    let response = await fetch(endpoint, buildRequestOptions("POST"));
+    if (!response.ok) {
+      console.warn("[SUPABASE][STORAGE] POST failed", {
+        status: response.status,
+        bucket,
+        objectPath,
+        includeAuthorization: Boolean(includeAuthorization),
+      });
+      response = await fetch(endpoint, buildRequestOptions("PUT"));
+    }
+    return response;
+  };
+
+  let response = await executeUpload(false);
+  if (!response.ok && (response.status === 401 || response.status === 403)) {
+    console.warn("[SUPABASE][STORAGE] retry with Authorization header", {
+      status: response.status,
+      bucket,
+      objectPath,
+    });
+    response = await executeUpload(true);
+  }
+  if (!response.ok) {
+    const compactError = await extractSupabaseErrorText(response);
+    throw new Error(
+      `SUPABASE STORAGE UPLOAD FAILED [${response.status}]${compactError ? ` ${compactError}` : ""}`
+    );
+  }
+}
+
+function dataUrlToBlob(dataUrl) {
+  const raw = String(dataUrl || "").trim();
+  const match = raw.match(/^data:([^;,]+)?(?:;base64)?,(.*)$/i);
+  if (!match) {
+    return null;
+  }
+  const mimeType = match[1] || "application/octet-stream";
+  const payload = match[2] || "";
+  try {
+    const binary = atob(payload);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) {
+      bytes[index] = binary.charCodeAt(index);
+    }
+    return new Blob([bytes], { type: mimeType });
+  } catch (error) {
+    return null;
+  }
+}
+
+async function uploadPdfBlobToSupabaseStorage(docType, person, blob, archiveMode = "STANDARD") {
+  if (!isSupabaseConfigured() || !(blob instanceof Blob) || !person) {
+    return null;
+  }
+
+  const bucket = getStoragePdfBucketName();
+  if (!bucket) {
+    return null;
+  }
+
+  const folder = normalizeText(docType) === "EXIT" ? "sortie" : "arrivee";
+  const objectPath = `${folder}/${sanitizeFilePart(String(person.id || "P0000"))}/COURANT.pdf`;
+  console.info("[SUPABASE][PDF] upload start", { bucket, objectPath });
+  await uploadBlobToSupabaseStorage(bucket, objectPath, blob, "application/pdf");
+  const storageRef = `storage://${bucket}/${objectPath}`;
+  console.info("[SUPABASE][PDF] upload success", { storageRef });
+
+  return {
+    storageRef,
+    publicUrl: getSupabaseStoragePublicUrl(bucket, objectPath),
+  };
+}
+
+async function uploadSignatureImageToSupabaseStorage(docType, person, signer, signatureDataUrl) {
+  if (!isSupabaseConfigured() || !person || !signatureDataUrl) {
+    return null;
+  }
+  const bucket = getStorageSignaturesBucketName();
+  if (!bucket) {
+    return null;
+  }
+  const signatureBlob = dataUrlToBlob(signatureDataUrl);
+  if (!(signatureBlob instanceof Blob) || signatureBlob.size <= 0) {
+    throw new Error("SIGNATURE INVALIDE (BLOB VIDE)");
+  }
+  const folder = normalizeText(docType) === "EXIT" ? "sortie" : "arrivee";
+  const signerLabel = normalizeText(signer) === "REPRESENTANT" ? "representant" : "personnel";
+  const objectPath = `${folder}/${sanitizeFilePart(String(person.id || "P0000"))}/COURANT_${signerLabel}.png`;
+  console.info("[SUPABASE][SIGNATURE] upload start", { bucket, objectPath });
+  await uploadBlobToSupabaseStorage(bucket, objectPath, signatureBlob, "image/png");
+  const storageRef = `storage://${bucket}/${objectPath}`;
+  console.info("[SUPABASE][SIGNATURE] upload success", { storageRef });
+  return {
+    storageRef,
+    publicUrl: getSupabaseStoragePublicUrl(bucket, objectPath),
   };
 }
 
@@ -261,6 +503,10 @@ function formatSignatureTimestamp(value) {
   });
 }
 
+function formatCurrentUiTimestamp() {
+  return formatSignatureTimestamp(getCurrentSignatureTimestamp());
+}
+
 function typeUsesReferenceCatalog(typeEffet) {
   return ["CLE", "CLE CES"].includes(normalizeText(typeEffet));
 }
@@ -284,9 +530,11 @@ function normalizeSites(values) {
 function getPersonSites(person) {
   const baseValues = Array.isArray(person?.sitesAffectation)
     ? person.sitesAffectation
-    : person?.site
-      ? String(person.site).split("/").map((value) => value.trim())
-      : [];
+    : Array.isArray(person?.sites)
+      ? person.sites
+      : person?.site
+        ? String(person.site).split("/").map((value) => value.trim())
+        : [];
   return normalizeSites(baseValues);
 }
 
@@ -375,9 +623,67 @@ function redirectToLocalServerIfNeeded() {
   window.location.replace(`http://127.0.0.1:8123/${fileName}${window.location.search || ""}`);
 }
 
+function getStoredNavigationContext() {
+  try {
+    const raw = window.sessionStorage.getItem(NAVIGATION_CONTEXT_KEY);
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch (error) {
+    return null;
+  }
+}
+
+function saveNavigationContext(partial = {}) {
+  const current = getStoredNavigationContext() || {};
+  const merged = {
+    personId: String(partial.personId ?? current.personId ?? ""),
+    urgentMode: Boolean(partial.urgentMode ?? current.urgentMode ?? false),
+    filters: {
+      ...DEFAULT_FILTERS,
+      ...(current.filters || {}),
+      ...(partial.filters || {}),
+    },
+  };
+  try {
+    window.sessionStorage.setItem(NAVIGATION_CONTEXT_KEY, JSON.stringify(merged));
+  } catch (error) {
+    // Ignore storage errors
+  }
+}
+
+function restoreNavigationContext() {
+  const context = getStoredNavigationContext();
+  const params = new URLSearchParams(window.location.search);
+  const personIdInQuery = params.get("personId") || "";
+
+  state.urgentMode = Boolean(context?.urgentMode);
+  state.filters = {
+    ...DEFAULT_FILTERS,
+    ...((context && context.filters) || {}),
+  };
+
+  if (personIdInQuery) {
+    saveNavigationContext({ personId: personIdInQuery, filters: state.filters });
+    return;
+  }
+
+  const storedPersonId = String((context && context.personId) || "");
+  if (storedPersonId) {
+    setCurrentPersonId(storedPersonId, "replace");
+  }
+}
+
 function getCurrentPersonId() {
   const params = new URLSearchParams(window.location.search);
-  return params.get("personId") || "";
+  const personIdInQuery = params.get("personId") || "";
+  if (personIdInQuery) {
+    return personIdInQuery;
+  }
+  const context = getStoredNavigationContext();
+  return String(context?.personId || "");
 }
 
 function setCurrentPersonId(personId, mode = "replace") {
@@ -389,9 +695,20 @@ function setCurrentPersonId(personId, mode = "replace") {
   }
   if (mode === "push") {
     window.history.pushState({}, "", nextUrl);
+  } else {
+    window.history.replaceState({}, "", nextUrl);
+  }
+  saveNavigationContext({ personId: personId || "" });
+}
+
+
+function openPersonSheet(personId) {
+  const normalizedId = String(personId || "");
+  if (!normalizedId) {
     return;
   }
-  window.history.replaceState({}, "", nextUrl);
+  setCurrentPersonId(normalizedId, "replace");
+  window.location.href = `fiche-personne.html?personId=${normalizedId}`;
 }
 
 function getCurrentMobileSignatureToken() {
@@ -655,6 +972,7 @@ async function openMobileSignatureRequest(docType, personId, signer = "personnel
 
 async function loadData() {
   bindPdfModalCleanup();
+  restoreNavigationContext();
   applyActiveNav();
   bindHistoryNavigation();
   bindGlobalShortcuts();
@@ -662,6 +980,8 @@ async function loadData() {
   bindSaveButtons();
   bindPdfButtons();
   bindMobileSignatureButtons();
+  bindOverviewUrgencyActions();
+  bindOverviewControlExport();
   bindDeletePersonButtons();
   bindFilterForms();
   bindAddPersonForm();
@@ -697,7 +1017,15 @@ function applyPdfModeFromQuery() {
   const params = new URLSearchParams(window.location.search);
   if (params.get("pdf") === "1") {
     document.body.dataset.pdfMode = "true";
+    document.body.dataset.pdfLayoutLock = PDF_FORMAT_LOCK;
   }
+}
+
+function isPdfRenderMode() {
+  if (document.body?.dataset?.pdfMode === "true") {
+    return true;
+  }
+  return new URLSearchParams(window.location.search).get("pdf") === "1";
 }
 
 async function reloadData(statusText = "RECHARGEMENT DES DONNEES...") {
@@ -756,6 +1084,14 @@ function migrateDataModel() {
     state.data.meta = {};
   }
   state.data.meta.signatureMobileBaseUrl = normalizeHttpUrl(state.data.meta.signatureMobileBaseUrl || "");
+  state.data.meta.storagePdfBucket = normalizeBucketName(
+    state.data.meta.storagePdfBucket,
+    DEFAULT_SUPABASE_PDF_BUCKET
+  );
+  state.data.meta.storageSignaturesBucket = normalizeBucketName(
+    state.data.meta.storageSignaturesBucket,
+    DEFAULT_SUPABASE_SIGNATURES_BUCKET
+  );
 
   delete state.data.listes.services;
 
@@ -815,22 +1151,19 @@ function migrateDataModel() {
     ])
   ).filter(Boolean);
   state.data.listes.statutsObjetManuels = Array.from(
-    new Set([
-      ...state.data.listes.statutsObjetManuels.map(normalizeText),
-      "ACTIF",
-      "PERDU",
-      "CASSE",
-      "HS",
-      "REMPLACE",
-    ])
+    new Set(
+      state.data.listes.statutsObjetManuels
+        .map(normalizeText)
+        .map((value) => (value === "CASSE" || value === "DETRUIT" ? "HS" : value))
+        .filter((value) => !["REMPLACE", "NON RENDU", "RESTITUE", "CASSE", "DETRUIT"].includes(value))
+        .concat(["ACTIF", "PERDU", "HS", "VOL"])
+    )
   ).filter(Boolean);
-  state.data.listes.causesRemplacement = Array.from(
-    new Set([...state.data.listes.causesRemplacement.map(normalizeText), "PERTE", "CASSE", "NON RENDU", "VOL", "HS"])
-  ).filter(Boolean);
+  state.data.listes.causesRemplacement = [...EFFECT_STATUS_CAUSES];
   state.data.listes.coutsRemplacement = state.data.listes.coutsRemplacement
     .map((entry) => ({
       typeEffet: normalizeText(entry.typeEffet),
-      cause: normalizeText(entry.cause),
+      cause: ["CASSE", "DETRUIT"].includes(normalizeText(entry.cause)) ? "HS" : normalizeText(entry.cause),
       montant: normalizeAmount(entry.montant),
     }))
     .filter((entry) => entry.typeEffet && entry.cause);
@@ -980,10 +1313,20 @@ function migrateDataModel() {
       effect.numeroIdentification = normalizeText(effect.numeroIdentification);
       effect.vehiculeImmatriculation = normalizeText(effect.vehiculeImmatriculation);
       effect.statutManuel = normalizeText(effect.statutManuel);
-      if (effect.statutManuel === "DETRUIT") {
-        effect.statutManuel = "CASSE";
+      if (effect.statutManuel === "CASSE" || effect.statutManuel === "DETRUIT") {
+        effect.statutManuel = "HS";
       }
-      effect.causeRemplacement = normalizeText(effect.causeRemplacement);
+      const legacyCause = normalizeText(effect.causeRemplacement);
+      if (legacyCause === "CASSE" || legacyCause === "DETRUIT") {
+        effect.statutManuel = "HS";
+      }
+      if (legacyCause === "VOL" && effect.statutManuel === "ACTIF") {
+        effect.statutManuel = "VOL";
+      }
+      if (legacyCause === "PERTE" && effect.statutManuel === "ACTIF") {
+        effect.statutManuel = "PERDU";
+      }
+      delete effect.causeRemplacement;
       effect.dateRemplacement = String(effect.dateRemplacement || "");
       effect.coutRemplacement = normalizeAmount(effect.coutRemplacement);
       effect.commentaire = normalizeText(effect.commentaire);
@@ -1003,27 +1346,14 @@ function migrateDataModel() {
       }
 
       if (effect.dateRemplacement && !effect.statutManuel) {
-        effect.statutManuel = "REMPLACE";
-      }
-
-      if (effect.statutManuel === "NON RENDU") {
         effect.statutManuel = "ACTIF";
       }
 
-      if (effect.causeRemplacement === "NON RENDU" && getEffectStatus(person, effect) !== "NON RENDU") {
-        effect.causeRemplacement = "";
+      if (["NON RENDU", "RESTITUE", "REMPLACE"].includes(effect.statutManuel)) {
+        effect.statutManuel = "ACTIF";
       }
 
-      if (effect.causeRemplacement && effect.causeRemplacement !== "NON RENDU") {
-        effect.coutRemplacement = getEffectReplacementCost(person, effect);
-      } else if (getEffectStatus(person, effect) === "NON RENDU") {
-        effect.coutRemplacement = getEffectReplacementCost(person, {
-          ...effect,
-          causeRemplacement: "NON RENDU",
-        });
-      } else {
-        effect.coutRemplacement = 0;
-      }
+      effect.coutRemplacement = getEffectReplacementCost(person, effect);
     });
   });
 
@@ -1058,7 +1388,6 @@ function migrateDataModel() {
   sortListValues(state.data.listes.typesContrats);
   sortListValues(state.data.listes.fonctions);
   sortListValues(state.data.listes.statutsObjetManuels);
-  sortListValues(state.data.listes.causesRemplacement);
   sortRepresentatives();
   sortReferenceEffects();
   sortDocumentsArchives();
@@ -1230,6 +1559,238 @@ function bindMobileSignatureButtons() {
   });
 }
 
+function updateUrgencyModeUi() {
+  document.querySelectorAll(".js-toggle-urgency").forEach((button) => {
+    if (!(button instanceof HTMLButtonElement)) {
+      return;
+    }
+    button.classList.toggle("is-active", state.urgentMode);
+    button.textContent = state.urgentMode ? "URGENCES ACTIVES" : "MODE URGENCES";
+  });
+}
+
+function bindOverviewUrgencyActions() {
+  document.querySelectorAll(".js-toggle-urgency").forEach((button) => {
+    if (!(button instanceof HTMLButtonElement)) {
+      return;
+    }
+    button.onclick = () => {
+      state.urgentMode = !state.urgentMode;
+      saveNavigationContext({ filters: state.filters, urgentMode: state.urgentMode });
+      updateUrgencyModeUi();
+      renderPage();
+      showActionStatus(
+        state.urgentMode ? "warning" : "update",
+        state.urgentMode ? "MODE URGENCES ACTIVE" : "MODE URGENCES DESACTIVE"
+      );
+    };
+  });
+  updateUrgencyModeUi();
+}
+
+function buildControlReportHtml(persons) {
+  const alerts = persons.filter((person) => hasOverdueExit(person));
+  const critical = persons.filter((person) => hasUrgencyCondition(person));
+  let nonRendus = 0;
+  let totalFacturable = 0;
+
+  persons.forEach((person) => {
+    (person.effetsConfies || []).forEach((effect) => {
+      if (normalizeText(getEffectStatus(person, effect)) === "NON RENDU") {
+        nonRendus += 1;
+      }
+      if (isEffectChargeable(person, effect)) {
+        totalFacturable += getEffectReplacementCost(person, effect);
+      }
+    });
+  });
+
+  const criticalRows = critical.length
+    ? critical
+        .map(
+          (person) => `<tr>
+      <td>${escapeHtml(person.nom || "")}</td>
+      <td>${escapeHtml(person.prenom || "")}</td>
+      <td>${escapeHtml(getPersonSiteLabel(person) || "-")}</td>
+      <td class="alert-cell">${escapeHtml(getOverdueExitMessage(person) || "-")}</td>
+      <td>${(person.effetsConfies || []).filter((effect) => normalizeText(getEffectStatus(person, effect)) === "NON RENDU").length}</td>
+    </tr>`
+        )
+        .join("")
+    : `<tr><td colspan="5">AUCUN DOSSIER CRITIQUE</td></tr>`;
+
+  return `<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <title>ETAT DE CONTROLE</title>
+  <style>
+    :root{
+      --bg:#f2f6f9;
+      --card:#ffffff;
+      --line:#d3dee6;
+      --line-strong:#b8cad6;
+      --title:#193243;
+      --text:#294757;
+      --muted:#5a7585;
+      --accent:#3f6170;
+      --accent-soft:#e9f1f5;
+      --warn:#8d4d2f;
+      --warn-bg:#f8eee8;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      padding:20px;
+      font-family:"Segoe UI",Arial,sans-serif;
+      background:var(--bg);
+      color:var(--text);
+    }
+    .wrap{
+      max-width:1200px;
+      margin:0 auto;
+      background:var(--card);
+      border:1px solid var(--line);
+      border-radius:14px;
+      padding:18px;
+      box-shadow:0 8px 24px rgba(33,60,75,.08);
+    }
+    .head{
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-end;
+      gap:16px;
+      padding-bottom:10px;
+      border-bottom:1px solid var(--line);
+      margin-bottom:14px;
+    }
+    h1{
+      margin:0;
+      font-size:24px;
+      line-height:1.1;
+      color:var(--title);
+      letter-spacing:.01em;
+    }
+    .meta{
+      font-size:12px;
+      color:var(--muted);
+      text-transform:uppercase;
+      letter-spacing:.06em;
+      white-space:nowrap;
+    }
+    .kpis{
+      display:grid;
+      grid-template-columns:repeat(4,minmax(150px,1fr));
+      gap:10px;
+      margin-bottom:14px;
+    }
+    .kpi{
+      border:1px solid var(--line);
+      border-radius:10px;
+      padding:9px 11px;
+      background:var(--accent-soft);
+      font-size:11px;
+      color:var(--muted);
+      letter-spacing:.05em;
+      text-transform:uppercase;
+    }
+    .kpi b{
+      display:block;
+      margin-top:4px;
+      font-size:23px;
+      color:var(--title);
+      letter-spacing:0;
+      text-transform:none;
+    }
+    .kpi--warn{
+      background:var(--warn-bg);
+      border-color:#ecc2ae;
+      color:#8a5539;
+    }
+    .kpi--warn b{color:var(--warn)}
+    .table-wrap{
+      border:1px solid var(--line);
+      border-radius:10px;
+      overflow:hidden;
+    }
+    table{
+      width:100%;
+      border-collapse:collapse;
+      font-size:13px;
+    }
+    th,td{
+      border-bottom:1px solid var(--line);
+      padding:8px 9px;
+      text-align:left;
+      vertical-align:top;
+    }
+    th{
+      background:#edf4f8;
+      color:#35596b;
+      font-size:11px;
+      letter-spacing:.06em;
+      text-transform:uppercase;
+      border-bottom:1px solid var(--line-strong);
+    }
+    tbody tr:nth-child(even) td{background:#fbfdff}
+    tbody tr:last-child td{border-bottom:none}
+    .alert-cell{
+      color:#8a4e30;
+      font-weight:600;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+  <div class="head">
+    <h1>ETAT DE CONTROLE</h1>
+    <div class="meta">EDITE LE ${escapeHtml(formatCurrentUiTimestamp())}</div>
+  </div>
+  <div class="kpis">
+    <div class="kpi">DOSSIERS FILTRES<b>${persons.length}</b></div>
+    <div class="kpi kpi--warn">ALERTES SORTIE<b>${alerts.length}</b></div>
+    <div class="kpi">EFFETS NON RENDUS<b>${nonRendus}</b></div>
+    <div class="kpi kpi--warn">TOTAL FACTURABLE<b>${escapeHtml(formatAmountWithEuro(totalFacturable))}</b></div>
+  </div>
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th>NOM</th><th>PRENOM</th><th>SITE(S)</th><th>ALERTE</th><th>NON RENDUS</th></tr>
+    </thead>
+    <tbody>${criticalRows}</tbody>
+  </table>
+  </div>
+  </div>
+</body>
+</html>`;
+}
+
+function bindOverviewControlExport() {
+  document.querySelectorAll(".js-export-control").forEach((button) => {
+    if (!(button instanceof HTMLButtonElement)) {
+      return;
+    }
+    button.onclick = () => {
+      try {
+        const persons = getFilteredPersons();
+        const popup = window.open("about:blank", "_blank");
+        if (!popup) {
+          showDataStatus("AUTORISER L'OUVERTURE DE FENETRE POUR L'EXPORT");
+          return;
+        }
+        const html = buildControlReportHtml(persons);
+        popup.document.open();
+        popup.document.write(html);
+        popup.document.close();
+        showActionStatus("update", "ETAT DE CONTROLE OUVERT");
+      } catch (error) {
+        console.error("EXPORT ETAT DE CONTROLE IMPOSSIBLE", error);
+        showDataStatus("EXPORT ETAT DE CONTROLE IMPOSSIBLE");
+      }
+    };
+  });
+}
+
 function getTableColumnCount(target, fallback = 1) {
   const body = typeof target === "string" ? document.getElementById(target) : target;
   const table = body?.closest("table");
@@ -1303,25 +1864,34 @@ function compareEffectValues(left, right, isNumeric = false) {
 }
 
 function getOverviewSortValue(person, key) {
+  const currentEffects = getCurrentAssignedEffects(person);
+  const movementMap = getArrivalComplementMovementMap(person, person?.effetsConfies || []);
+  const movementCount = movementMap.size;
   switch (key) {
     case "nom":
       return person?.nom || "";
     case "prenom":
       return person?.prenom || "";
-    case "fonction":
-      return person?.fonction || "";
     case "site":
       return getPersonSiteLabel(person) || "";
+    case "typePersonnel":
+      return person?.typePersonnel || "";
     case "typeContrat":
       return person?.typeContrat || "";
+    case "dateEntree":
+      return person?.dateEntree || "";
+    case "dateSortiePrevue":
+      return person?.dateSortiePrevue || "";
+    case "dateSortieReelle":
+      return person?.dateSortieReelle || "";
     case "statutDossier":
       return getDossierStatus(person) || "";
     case "nbEffets":
-      return (person?.effetsConfies || []).length;
+      return currentEffects.length;
     case "nonRendus":
-      return (person?.effetsConfies || []).filter((effect) => getEffectStatus(person, effect) === "NON RENDU").length;
-    case "couts":
-      return (person?.effetsConfies || []).reduce((sum, effect) => sum + getEffectUnitValue(effect), 0);
+      return currentEffects.filter((effect) => getEffectStatus(person, effect) === "NON RENDU").length;
+    case "mouvements":
+      return movementCount;
     default:
       return "";
   }
@@ -1329,7 +1899,7 @@ function getOverviewSortValue(person, key) {
 
 function sortPersonsForOverview(persons) {
   const sort = getEffectTableSort("overviewPersons");
-  const numericKeys = new Set(["nbEffets", "nonRendus", "couts"]);
+  const numericKeys = new Set(["nbEffets", "nonRendus", "mouvements"]);
   return [...persons].sort((left, right) => {
     const primary = compareEffectValues(
       getOverviewSortValue(left, sort.key),
@@ -1529,6 +2099,13 @@ async function openPdfDocument(docType, personId) {
   const shouldArchive = isDocumentFullySigned(person, docType);
   const archiveMode = getDocumentArchiveMode(person, docType);
   const reusableArchive = shouldArchive ? findReusableArchivedDocument(person, docType) : null;
+  const reusableArchiveStorageRef = reusableArchive ? parseStorageSchemePath(reusableArchive.pdfPath) : null;
+  const canPromoteReusableArchiveToStorage =
+    Boolean(reusableArchive) &&
+    !reusableArchiveStorageRef &&
+    shouldArchive &&
+    getDataBackendMode() === "LOCAL_API" &&
+    isSupabaseConfigured();
 
   const popup = window.open("", "_blank");
   if (!popup) {
@@ -1544,10 +2121,13 @@ async function openPdfDocument(docType, personId) {
   }
 
   try {
-    if (reusableArchive) {
+    if (reusableArchive && !canPromoteReusableArchiveToStorage) {
       popup.location.href = getDocumentArchiveOpenPath(reusableArchive);
       showActionStatus("update", "PDF ARCHIVE REUTILISE");
       return;
+    }
+    if (canPromoteReusableArchiveToStorage) {
+      showDataStatus("PDF ARCHIVE LOCAL DETECTE - MIGRATION VERS SUPABASE EN COURS");
     }
 
     if (getDataBackendMode() !== "LOCAL_API") {
@@ -1573,16 +2153,38 @@ async function openPdfDocument(docType, personId) {
     const archivePdfPath = response.headers.get("X-Archive-Pdf-Path") || "";
     const archiveMetadataPath = response.headers.get("X-Archive-Metadata-Path") || "";
     const blob = await response.blob();
+
+    let hostedStoragePdfPath = "";
+    if (shouldArchive && getDataBackendMode() === "LOCAL_API" && person) {
+      try {
+        const uploadResult = await uploadPdfBlobToSupabaseStorage(docType, person, blob, archiveMode);
+        hostedStoragePdfPath = String(uploadResult?.storageRef || "");
+        if (hostedStoragePdfPath) {
+          console.info("[SUPABASE][PDF] final storage path", hostedStoragePdfPath);
+          showDataStatus("PDF ARCHIVE ENVOYE VERS SUPABASE STORAGE");
+        } else {
+          console.warn("[SUPABASE][PDF] upload returned empty storageRef");
+        }
+      } catch (uploadError) {
+        console.error("[SUPABASE][PDF] upload fail", uploadError);
+        const message = String(uploadError?.message || "ERREUR INCONNUE").slice(0, 220);
+        showDataStatus(`UPLOAD STORAGE PDF IMPOSSIBLE - ARCHIVAGE LOCAL CONSERVE (${message})`);
+      }
+    }
+
     const objectUrl = window.URL.createObjectURL(blob);
     hidePdfProgressModal();
     popup.location.href = objectUrl;
-    if (archiveSaved && person) {
-      registerArchivedDocument(person, docType, archivePdfPath, archiveMetadataPath, archiveMode).catch((error) => {
+    const finalArchivePath = hostedStoragePdfPath || archivePdfPath;
+    if (person && finalArchivePath) {
+      registerArchivedDocument(person, docType, finalArchivePath, archiveMetadataPath, archiveMode).catch((error) => {
         console.error(error);
         showDataStatus("ARCHIVAGE PDF IMPOSSIBLE");
       });
-    } else if (shouldArchive) {
+    } else if (shouldArchive && !finalArchivePath) {
       showDataStatus("PDF OUVERT - ARCHIVAGE NON REALISE");
+    } else if (!shouldArchive) {
+      showDataStatus("PDF OUVERT - DOCUMENT NON SIGNE, UPLOAD SUPABASE NON LANCE");
     }
     window.setTimeout(() => {
       try {
@@ -1617,26 +2219,91 @@ function bindDeletePersonButtons() {
   });
 }
 
-function bindFilterForms() {
-  document.querySelectorAll(".js-filter-form").forEach((form) => {
-    form.oninput = () => {
-      state.filters = readFilters(form);
-      renderPage();
-    };
-    form.onreset = () => {
-      window.setTimeout(() => {
-        state.filters = readFilters(form);
-        renderPage();
-      }, 0);
-    };
-  });
+function applyFiltersToForm(form) {
+  if (!form) {
+    return;
+  }
+  const filters = state.filters || DEFAULT_FILTERS;
+  const assign = (name, value) => {
+    const field = form.elements[name];
+    if (!field) {
+      return;
+    }
+    field.value = value || "";
+  };
+  assign("search", filters.search);
+  assign("site", filters.site);
+  assign("typePersonnel", filters.typePersonnel);
+  assign("typeContrat", filters.typeContrat);
+  assign("statutDossier", filters.statutDossier);
+  assign("statutObjet", filters.statutObjet);
+  assign("typeEffet", filters.typeEffet);
 }
 
+function bindFilterForms() {
+  document.querySelectorAll(".js-filter-form").forEach((form) => {
+    applyFiltersToForm(form);
+
+    const applyFullReset = () => {
+      state.filters = { ...DEFAULT_FILTERS };
+      state.urgentMode = false;
+      saveNavigationContext({ filters: state.filters, personId: "", urgentMode: false });
+      setCurrentPersonId("", "replace");
+      applyFiltersToForm(form);
+      updateUrgencyModeUi();
+      renderPage();
+    };
+
+    form.oninput = (event) => {
+      const target = event?.target instanceof HTMLElement ? event.target : null;
+      const searchField = form.elements.search;
+      const searchClearedByField =
+        target &&
+        searchField &&
+        target === searchField &&
+        !String(searchField.value || "").trim();
+      if (searchClearedByField) {
+        applyFullReset();
+        return;
+      }
+      state.filters = {
+        ...DEFAULT_FILTERS,
+        ...readFilters(form),
+      };
+      saveNavigationContext({ filters: state.filters, urgentMode: state.urgentMode });
+      renderPage();
+    };
+
+    form.onreset = () => {
+      window.setTimeout(() => {
+        applyFullReset();
+      }, 0);
+    };
+
+    const searchField = form.elements.search;
+    if (searchField) {
+      searchField.addEventListener("search", () => {
+        if (!String(searchField.value || "").trim()) {
+          applyFullReset();
+        }
+      });
+    }
+  });
+}
+function syncFilterFormsFromState() {
+  document.querySelectorAll(".js-filter-form").forEach((form) => applyFiltersToForm(form));
+}
 function bindArchiveFilterForm() {
   const form = document.getElementById("documents-archives-filter-form");
   if (!form) {
     return;
   }
+  const applyArchiveReset = () => {
+    form.reset();
+    window.setTimeout(() => {
+      renderDocumentsArchivePage();
+    }, 0);
+  };
   form.oninput = () => {
     renderDocumentsArchivePage();
   };
@@ -1645,6 +2312,14 @@ function bindArchiveFilterForm() {
       renderDocumentsArchivePage();
     }, 0);
   };
+  const searchField = form.elements.archiveSearch;
+  if (searchField) {
+    searchField.addEventListener("search", () => {
+      if (!String(searchField.value || "").trim()) {
+        applyArchiveReset();
+      }
+    });
+  }
 }
 
 function bindAddPersonForm() {
@@ -1703,7 +2378,7 @@ function bindAddPersonForm() {
     renderPage();
     showActionStatus("create", `PERSONNE AJOUTEE : ${person.nom} ${person.prenom}`);
     setCurrentPersonId(person.id);
-    window.location.href = `fiche-personne.html?personId=${person.id}`;
+    openPersonSheet(person.id);
   };
 }
 
@@ -1884,7 +2559,6 @@ function bindEffectForm() {
   const cancelButton = document.getElementById("effect-cancel-button");
   const typeField = form.elements.typeEffet;
   const referenceSiteField = form.elements.referenceSite;
-  const causeField = form.elements.causeRemplacement;
   const replacementDateField = form.elements.dateRemplacement;
   if (typeField) {
     typeField.onchange = () => {
@@ -1902,16 +2576,14 @@ function bindEffectForm() {
       syncReplacementCostField();
     };
   }
-  if (causeField) {
-    causeField.onchange = () => {
+  if (form.elements.statutManuel) {
+    form.elements.statutManuel.onchange = () => {
       syncReplacementCostField();
     };
   }
   if (replacementDateField) {
     replacementDateField.onchange = () => {
-      if (replacementDateField.value) {
-        form.elements.statutManuel.value = "REMPLACE";
-      }
+      syncReplacementCostField();
     };
   }
   if (form.elements.referenceEffet) {
@@ -1953,7 +2625,6 @@ function bindEffectForm() {
       : usesSiteField
         ? normalizeText(referenceSite || (availableReferenceSites.length === 1 ? availableReferenceSites[0] : ""))
         : "";
-    const causeRemplacement = normalizeText(formData.get("causeRemplacement"));
     const dateRemplacement = String(formData.get("dateRemplacement") || "");
     const coutRemplacement = normalizeAmount(formData.get("coutRemplacement"));
 
@@ -1971,6 +2642,7 @@ function bindEffectForm() {
     const vehiculeImmatriculation =
       typeEffet === "TELECOMMANDE URMET" ? normalizeText(formData.get("vehiculeImmatriculation")) : "";
 
+    const manualStatus = normalizeText(formData.get("statutManuel")) || "ACTIF";
     const effect = {
         id: effectId,
         typeEffet,
@@ -1979,12 +2651,9 @@ function bindEffectForm() {
         designation: usesReferenceCatalog ? reference?.designation || "" : "",
         numeroIdentification: normalizeText(formData.get("numeroIdentification")),
         vehiculeImmatriculation,
-        dateRemise: String(formData.get("dateRemise") || ""),
+      dateRemise: String(formData.get("dateRemise") || ""),
       dateRetour: String(formData.get("dateRetour") || ""),
-      statutManuel: dateRemplacement
-        ? "REMPLACE"
-        : normalizeText(formData.get("statutManuel")) || "ACTIF",
-      causeRemplacement,
+      statutManuel: manualStatus === "CASSE" ? "HS" : manualStatus,
       dateRemplacement,
       coutRemplacement,
       commentaire: normalizeText(formData.get("commentaire")),
@@ -2025,7 +2694,7 @@ function bindEffectForm() {
         : `EFFET AJOUTE : ${effectLabel}`
     );
 
-    await saveAndRedirectToArrivalComplement(person.id);
+    await saveAfterEffectChangeWithAvenantAlert();
   };
 
   form.onsubmit = async (event) => {
@@ -2088,22 +2757,21 @@ async function deleteEffect(personId, effectId) {
   renderPage();
   renderPersonSheet(personId);
   showActionStatus("delete", `EFFET SUPPRIME : ${effectId}`);
-  await saveAndRedirectToArrivalComplement(personId);
+  await saveAfterEffectChangeWithAvenantAlert();
 }
 
-async function saveAndRedirectToArrivalComplement(personId) {
+async function saveAfterEffectChangeWithAvenantAlert() {
   await saveDataToFile({
     silent: true,
     reloadAfter: false,
   });
   if (state.isDirty) {
-    showDataStatus("SAUVEGARDE IMPOSSIBLE - REDIRECTION ANNULEE");
+    showDataStatus("SAUVEGARDE IMPOSSIBLE - ALERTE ANNULEE");
     return;
   }
   window.alert(
     "DES MODIFICATIONS D'EFFETS ONT ETE EFFECTUEES. VOUS DEVEZ DONC PROCEDER A UNE NOUVELLE SIGNATURE DE L'AVENANT."
   );
-  window.location.href = `document-arrivee.html?personId=${encodeURIComponent(personId)}&mode=COMPLEMENTAIRE`;
 }
 
 function deletePerson(personId) {
@@ -2134,7 +2802,7 @@ function deletePerson(personId) {
   showActionStatus("delete", `PERSONNE SUPPRIMEE : ${person.nom} ${person.prenom}`);
 
   if (document.body.dataset.page === "person-sheet") {
-    window.location.href = "suivi-global.html";
+    window.location.href = "fiche-personne.html";
   }
 }
 
@@ -2168,7 +2836,6 @@ function startEditEffect(personId, effectId) {
   form.elements.dateRemise.value = effect.dateRemise || "";
   form.elements.dateRetour.value = effect.dateRetour || "";
   form.elements.statutManuel.value = effect.statutManuel || "";
-  form.elements.causeRemplacement.value = effect.causeRemplacement || "";
   form.elements.dateRemplacement.value = effect.dateRemplacement || "";
   form.elements.coutRemplacement.value = formatAmountWithEuro(effect.coutRemplacement);
   form.elements.commentaire.value = effect.commentaire || "";
@@ -2322,13 +2989,14 @@ function isCesKeyDesignation(designation) {
 
 function getReplacementCostValue(typeEffet, causeRemplacement, designation = "") {
   const normalizedType = normalizeText(typeEffet);
-  const normalizedCause = normalizeText(causeRemplacement) || "PERTE";
+  const normalizedCauseRaw = normalizeText(causeRemplacement) || "";
+  const normalizedCause = normalizedCauseRaw === "CASSE" || normalizedCauseRaw === "DETRUIT" ? "HS" : normalizedCauseRaw;
   if (!normalizedType) {
     return 0;
   }
 
   if (normalizedType === "CLE CES") {
-    return CHARGED_REPLACEMENT_CAUSES.includes(normalizedCause) ? 50 : 0;
+    return BILLABLE_EFFECT_CAUSES.includes(normalizedCause) ? 50 : 0;
   }
 
   const matchingEntry = (state.data?.listes?.coutsRemplacement || []).find(
@@ -2340,7 +3008,7 @@ function getReplacementCostValue(typeEffet, causeRemplacement, designation = "")
     return 0;
   }
 
-  if (!CHARGED_REPLACEMENT_CAUSES.includes(normalizedCause)) {
+  if (!BILLABLE_EFFECT_CAUSES.includes(normalizedCause)) {
     return 0;
   }
 
@@ -2381,33 +3049,35 @@ function getEffectUnitValue(effect) {
 }
 
 function getEffectReplacementCause(person, effect) {
-  const explicitCause = normalizeText(effect?.causeRemplacement);
-  if (explicitCause && explicitCause !== "NON RENDU") {
-    return explicitCause;
+  const status = normalizeText(getEffectStatus(person, effect));
+  if (status === "PERDU") {
+    return "PERTE";
   }
-
-  return "";
+  if (status === "DETRUIT") {
+    return "HS";
+  }
+  if (status === "VOL") {
+    return "VOL";
+  }
+  if (status === "NON RENDU") {
+    return "NON RENDU";
+  }
+  return status === "HS" ? "HS" : "";
 }
 
 function getEffectReplacementCost(person, effect) {
-  if (normalizeText(getEffectStatus(person, effect)) === "HS") {
+  const status = normalizeText(getEffectStatus(person, effect));
+  if (status === "HS") {
     return 0;
   }
 
-  const explicitCause = getEffectReplacementCause(person, effect);
-  const effectiveCause = explicitCause || (getEffectStatus(person, effect) === "NON RENDU" ? "NON RENDU" : "");
-  const cause = normalizeText(effectiveCause);
+  const cause = normalizeText(getEffectReplacementCause(person, effect));
   if (!cause) {
     return 0;
   }
 
   if (cause === "HS") {
     return 0;
-  }
-
-  const storedCost = normalizeAmount(effect?.coutRemplacement);
-  if (storedCost > 0) {
-    return storedCost;
   }
 
   return getReplacementCostValue(effect?.typeEffet, cause, effect?.designation || "");
@@ -2424,23 +3094,40 @@ function syncReplacementCostField() {
   }
 
   const typeEffet = form.elements.typeEffet?.value || "";
-  const causeRemplacement = form.elements.causeRemplacement?.value || "";
+  const manualStatus = normalizeText(form.elements.statutManuel?.value || "");
+  const billingCause = manualStatus === "PERDU"
+    ? "PERTE"
+    : manualStatus === "DETRUIT"
+      ? "HS"
+      : manualStatus === "VOL"
+        ? "VOL"
+        : "";
   const referenceId = form.elements.referenceEffet?.value || "";
   const reference = findReferenceById(referenceId);
   const designation =
     form.elements.designationLibre?.value || reference?.designation || "";
-  const statutManuel = normalizeText(form.elements.statutManuel?.value || "");
   const coutField = form.elements.coutRemplacement;
   if (!coutField) {
     return;
   }
 
-  if (statutManuel === "HS") {
+  if (!normalizeText(typeEffet)) {
     coutField.value = "0,00 €";
     return;
   }
 
-  coutField.value = formatAmountWithEuro(getReplacementCostValue(typeEffet, causeRemplacement, designation));
+  if (manualStatus === "HS") {
+    coutField.value = "0,00 €";
+    return;
+  }
+
+  // En mode ACTIF (ou sans cause), on affiche le cout previsionnel standard de remplacement.
+  const effectiveCause = billingCause || "PERTE";
+  let previewCost = getReplacementCostValue(typeEffet, effectiveCause, designation);
+  if (previewCost <= 0) {
+    previewCost = getEffectUnitValue({ typeEffet, designation });
+  }
+  coutField.value = formatAmountWithEuro(previewCost);
 }
 
 function bindReferenceListForms() {
@@ -2783,6 +3470,12 @@ function bindReferenceFilters() {
   if (!form) {
     return;
   }
+  const applyReferenceReset = () => {
+    form.reset();
+    window.setTimeout(() => {
+      renderReferenceEffectsTable();
+    }, 0);
+  };
 
   form.oninput = () => {
     renderReferenceEffectsTable();
@@ -2793,6 +3486,15 @@ function bindReferenceFilters() {
       renderReferenceEffectsTable();
     }, 0);
   };
+
+  const searchField = form.elements.referenceSearch;
+  if (searchField) {
+    searchField.addEventListener("search", () => {
+      if (!String(searchField.value || "").trim()) {
+        applyReferenceReset();
+      }
+    });
+  }
 }
 
 function bindMobileSignatureSettingsForm() {
@@ -2849,7 +3551,6 @@ function hydrateStaticLists() {
     fonctions = [],
     typesEffets = [],
     statutsObjetManuels = [],
-    causesRemplacement = [],
   } = state.data.listes;
 
   populateSelect('select[name="typePersonnel"]', typesPersonnel);
@@ -2864,9 +3565,8 @@ function hydrateStaticLists() {
   populateSelect('select[name="filterReferenceSite"]', sites);
   populateSelect('select[name="filterReferenceTypeEffet"]', typesEffets);
   populateSelect('select[name="statutManuel"]', statutsObjetManuels);
-  populateSelect('select[name="causeRemplacement"]', causesRemplacement);
   populateSelect('select[name="costTypeEffet"]', typesEffets);
-  populateSelect('select[name="costCauseRemplacement"]', causesRemplacement);
+  populateSelect('select[name="costCauseRemplacement"]', EFFECT_STATUS_CAUSES);
   renderSiteSelector("add-site-selector", "add", []);
   renderSiteSelector("sheet-site-selector", "sheet", getPersonSites(getCurrentPerson()));
   renderReferenceSitesSelector([]);
@@ -3040,18 +3740,70 @@ function renderEffectsChart(nodeId, persons) {
     return;
   }
 
+  const filters = state.filters || DEFAULT_FILTERS;
   const effects = getAllEffects(persons)
-    .filter(({ person, effect }) => effectMatchesSiteFilter(person, effect, state.filters?.site))
-    .map(({ effect }) => effect);
+    .filter(({ person, effect }) => {
+      if (!effectMatchesSiteFilter(person, effect, filters.site)) {
+        return false;
+      }
+      if (filters.typeEffet && normalizeText(effect?.typeEffet) !== filters.typeEffet) {
+        return false;
+      }
+      if (filters.statutObjet && getEffectStatus(person, effect) !== filters.statutObjet) {
+        return false;
+      }
+      return true;
+    })
+    .map(({ person, effect }) => ({ person, effect }));
   if (!effects.length) {
     node.innerHTML = '<div class="effects-chart__empty">AUCUNE DONNEE A AFFICHER</div>';
     return;
   }
 
   const counts = new Map();
-  effects.forEach((effect) => {
+  const totals = {
+    actif: 0,
+    nonRendu: 0,
+    restitue: 0,
+    perdu: 0,
+    vole: 0,
+    hs: 0,
+  };
+  const totalsCost = {
+    actif: 0,
+    nonRendu: 0,
+    restitue: 0,
+    perdu: 0,
+    vole: 0,
+    hs: 0,
+  };
+  let totalEntrustedCost = 0;
+  let totalFacturable = 0;
+  effects.forEach(({ person, effect }) => {
     const type = normalizeText(effect?.typeEffet) || "EFFET";
-    counts.set(type, (counts.get(type) || 0) + 1);
+    if (!counts.has(type)) {
+      counts.set(type, {
+        total: 0,
+        segments: {
+          actif: 0,
+          nonRendu: 0,
+          restitue: 0,
+          perdu: 0,
+          vole: 0,
+          hs: 0,
+        },
+      });
+    }
+
+    const row = counts.get(type);
+    row.total += 1;
+    const category = getEffectChartCategory(person, effect);
+    row.segments[category] += 1;
+    totals[category] += 1;
+    totalEntrustedCost += getReplacementCostValue(effect?.typeEffet, "NON RENDU", effect?.designation || "");
+    const replacementCost = getEffectReplacementCost(person, effect);
+    totalsCost[category] += replacementCost;
+    totalFacturable += replacementCost;
   });
 
   const rows = Array.from(counts.entries())
@@ -3060,22 +3812,51 @@ function renderEffectsChart(nodeId, persons) {
       if (typeOrder !== 0) {
         return typeOrder;
       }
-      return left[1] - right[1];
+      return left[1].total - right[1].total;
     });
 
-  const maxValue = Math.max(...rows.map(([, count]) => count), 1);
-  node.innerHTML = rows
-    .map(([type, count]) => {
-      const width = Math.max(8, Math.round((count / maxValue) * 100));
+  const maxValue = Math.max(...rows.map(([, row]) => row.total), 1);
+  const summaryMarkup = `
+    <div class="effects-chart__summary">
+      <span class="effects-chart__summary-item">TOTAL EFFETS CONFIES <strong>${effects.length}</strong><span class="effects-chart__summary-sub">COUT <strong>${formatAmountWithEuro(totalEntrustedCost)}</strong></span></span>
+      <span class="effects-chart__summary-item">TOTAL FACTURABLE <strong>${formatAmountWithEuro(totalFacturable)}</strong></span>
+    </div>`;
+  const legendMarkup = `
+    <div class="effects-chart__legend">
+      <span class="effects-chart__legend-item"><span class="effects-chart__legend-dot effects-chart__legend-dot--actif"></span>ACTIF <strong>${totals.actif}</strong><span class="effects-chart__legend-cost">${formatAmountWithEuro(totalsCost.actif)}</span></span>
+      <span class="effects-chart__legend-item"><span class="effects-chart__legend-dot effects-chart__legend-dot--nonRendu"></span>NON RENDU <strong>${totals.nonRendu}</strong><span class="effects-chart__legend-cost">${formatAmountWithEuro(totalsCost.nonRendu)}</span></span>
+      <span class="effects-chart__legend-item"><span class="effects-chart__legend-dot effects-chart__legend-dot--restitue"></span>RENDU <strong>${totals.restitue}</strong><span class="effects-chart__legend-cost">${formatAmountWithEuro(totalsCost.restitue)}</span></span>
+      <span class="effects-chart__legend-item"><span class="effects-chart__legend-dot effects-chart__legend-dot--perdu"></span>PERDU <strong>${totals.perdu}</strong><span class="effects-chart__legend-cost">${formatAmountWithEuro(totalsCost.perdu)}</span></span>
+      <span class="effects-chart__legend-item"><span class="effects-chart__legend-dot effects-chart__legend-dot--vole"></span>VOLE <strong>${totals.vole}</strong><span class="effects-chart__legend-cost">${formatAmountWithEuro(totalsCost.vole)}</span></span>
+      <span class="effects-chart__legend-item"><span class="effects-chart__legend-dot effects-chart__legend-dot--hs"></span>HS <strong>${totals.hs}</strong><span class="effects-chart__legend-cost">${formatAmountWithEuro(totalsCost.hs)}</span></span>
+    </div>`;
+  const rowsMarkup = rows
+    .map(([type, row]) => {
+      const width = Math.max(8, Math.round((row.total / maxValue) * 100));
+      const segmentMarkup = [
+        ["actif", "ACTIF"],
+        ["nonRendu", "NON RENDU"],
+        ["restitue", "RENDU"],
+        ["perdu", "PERDU"],
+        ["vole", "VOLE"],
+        ["hs", "HS"],
+      ]
+        .filter(([key]) => row.segments[key] > 0)
+        .map(
+          ([key, label]) =>
+            `<span class="effects-chart__segment effects-chart__segment--${key}" style="width:${(row.segments[key] / row.total) * 100}%" title="${label} : ${row.segments[key]}"></span>`
+        )
+        .join("");
       return `<div class="effects-chart__row">
         <span class="effects-chart__label">${escapeHtml(type)}</span>
         <span class="effects-chart__track" aria-hidden="true">
-          <span class="effects-chart__bar" style="width:${width}%"></span>
+          <span class="effects-chart__bar-group" style="width:${width}%">${segmentMarkup}</span>
         </span>
-        <strong class="effects-chart__value">${count}</strong>
+        <strong class="effects-chart__value">${row.total}</strong>
       </div>`;
     })
     .join("");
+  node.innerHTML = `${summaryMarkup}${legendMarkup}${rowsMarkup}`;
 }
 
 function renderGlobalEffectsChart(persons) {
@@ -3139,6 +3920,42 @@ function isDocumentFullySigned(person, docType) {
   return Boolean(getSignatureValue(person, docType, "personnel")) && Boolean(getSignatureValue(person, docType, "representant"));
 }
 
+function validateFinalSignatureBeforeSave(person, docType) {
+  if (!person) {
+    return { ok: false, message: "AUCUNE PERSONNE SELECTIONNEE" };
+  }
+  if (normalizeText(docType) !== "EXIT") {
+    return { ok: true, message: "" };
+  }
+
+  const effects = person.effetsConfies || [];
+  const hasInvalidRestitution = effects.some(
+    (effect) =>
+      normalizeText(getEffectStatus(person, effect)) === "RESTITUE" &&
+      !normalizeDateString(effect?.dateRetour || "")
+  );
+  if (hasInvalidRestitution) {
+    return {
+      ok: false,
+      message: "VERROU SIGNATURE: AU MOINS UN EFFET RESTITUE N'A PAS DE DATE DE RETOUR",
+    };
+  }
+
+  const nonRendus = effects.filter((effect) => normalizeText(getEffectStatus(person, effect)) === "NON RENDU");
+  const totalFacturable = effects
+    .filter((effect) => isEffectChargeable(person, effect))
+    .reduce((sum, effect) => sum + getEffectReplacementCost(person, effect), 0);
+
+  if (nonRendus.length > 0 && totalFacturable <= 0) {
+    return {
+      ok: false,
+      message: "VERROU SIGNATURE: DES EFFETS NON RENDUS SONT PRESENTS MAIS LE TOTAL FACTURABLE EST A ZERO",
+    };
+  }
+
+  return { ok: true, message: "" };
+}
+
 function getDocumentArchiveDate(person, docType) {
   return normalizeText(docType) === "EXIT"
     ? person?.dateSortieReelle || person?.dateSortiePrevue || getTodayIsoDate()
@@ -3147,6 +3964,10 @@ function getDocumentArchiveDate(person, docType) {
 
 function getDocumentArchiveEntryMode(entry) {
   return normalizeText(entry?.documentMode || "STANDARD");
+}
+
+function getDocumentArchiveVersionLabel(entry) {
+  return getDocumentArchiveEntryMode(entry) === "COMPLEMENTAIRE" ? "AVENANT" : "INITIAL";
 }
 
 function getDocumentArchiveMode(person, docType) {
@@ -3218,8 +4039,11 @@ function getMovementBadgeVariant(movement) {
   const normalized = normalizeText(movement);
   if (normalized === "RENDU") return "retour";
   if (normalized === "PERDU") return "perdu";
+  if (normalized === "DETRUIT") return "hs";
   if (normalized === "VOLE") return "vole";
   if (normalized === "HS") return "hs";
+  if (normalized === "NON RENDU") return "non-rendu";
+  if (normalized === "SUPPRIME") return "supprime";
   if (normalized === "MODIFIE") return "modifie";
   return "ajout";
 }
@@ -3228,10 +4052,60 @@ function getMovementRowVariant(movement) {
   const normalized = normalizeText(movement);
   if (normalized === "RENDU") return "returned";
   if (normalized === "PERDU") return "lost";
+  if (normalized === "DETRUIT") return "hs";
   if (normalized === "VOLE") return "stolen";
   if (normalized === "HS") return "hs";
+  if (normalized === "SUPPRIME") return "removed";
   if (normalized === "MODIFIE") return "updated";
   return "added";
+}
+
+function getArrivalDeletedEffects(person, currentEffects) {
+  const latestSignedArrival = getLatestSignedArrivalArchiveForPerson(person?.id);
+  if (!latestSignedArrival?.fingerprint) {
+    return [];
+  }
+
+  let baselineEffects = [];
+  try {
+    const payload = JSON.parse(String(latestSignedArrival.fingerprint || ""));
+    baselineEffects = Array.isArray(payload?.effects) ? payload.effects : [];
+  } catch (error) {
+    baselineEffects = [];
+  }
+  if (!baselineEffects.length) {
+    return [];
+  }
+
+  const currentById = new Set(
+    (currentEffects || [])
+      .map((effect) => String(effect?.id || "").trim())
+      .filter(Boolean)
+  );
+  const currentByStable = new Set(
+    (currentEffects || [])
+      .map((effect) => getEffectStableKey(effect))
+      .filter(Boolean)
+  );
+
+  return baselineEffects
+    .filter((baselineEffect) => {
+      const baselineId = String(baselineEffect?.id || "").trim();
+      if (baselineId && currentById.has(baselineId)) {
+        return false;
+      }
+      const baselineStable = getEffectStableKey(baselineEffect);
+      if (baselineStable && currentByStable.has(baselineStable)) {
+        return false;
+      }
+      return true;
+    })
+    .map((baselineEffect, index) => ({
+      ...baselineEffect,
+      id: `DEL-${person?.id || "P"}-${index}-${String(baselineEffect?.id || "").trim() || getEffectStableKey(baselineEffect)}`,
+      __movementOverride: "SUPPRIME",
+      __archivedDeleted: true,
+    }));
 }
 
 function normalizeDateString(value) {
@@ -3359,6 +4233,44 @@ function getArrivalComplementMovementMap(person, effects) {
   return movements;
 }
 
+function getEffectMovementLabel(person, effect, movementMap = null) {
+  const forcedMovement = normalizeText(effect?.__movementOverride || "");
+  if (forcedMovement) {
+    return forcedMovement;
+  }
+  const key = getEffectMovementKey(effect);
+  if (movementMap instanceof Map && key) {
+    const fromMap = String(movementMap.get(key) || "").trim();
+    if (fromMap) {
+      return fromMap;
+    }
+  }
+
+  if (String(effect?.dateRetour || "").trim()) {
+    return "RENDU";
+  }
+
+  const effectStatus = normalizeText(getEffectStatus(person, effect));
+  const effectCause = normalizeText(getEffectReplacementCause(person, effect));
+
+  if (effectStatus === "DETRUIT") {
+    return "HS";
+  }
+  if (effectStatus === "HS") {
+    return "HS";
+  }
+  if (effectCause === "VOL") {
+    return "VOLE";
+  }
+  if (effectStatus === "PERDU" || effectCause === "PERTE") {
+    return "PERDU";
+  }
+  if (effectStatus === "NON RENDU") {
+    return "NON RENDU";
+  }
+  return "";
+}
+
 function getDocumentFingerprint(person, docType) {
   if (!person) {
     return "";
@@ -3395,6 +4307,7 @@ function getDocumentFingerprint(person, docType) {
   });
 
   return JSON.stringify({
+    layoutVersion: PDF_LAYOUT_VERSION,
     docType: normalizedDocType,
     personId: String(person.id || ""),
     nom: normalizeText(person.nom),
@@ -3425,6 +4338,10 @@ function getDocumentArchiveOpenPath(entry) {
   if (/^https?:\/\//i.test(raw)) {
     return raw;
   }
+  const storageRef = parseStorageSchemePath(raw);
+  if (storageRef) {
+    return getSupabaseStoragePublicUrl(storageRef.bucket, storageRef.objectPath) || "";
+  }
   return raw.replace(/^\/+/, "");
 }
 
@@ -3444,9 +4361,9 @@ function archiveEntryMatchesSite(entry, site) {
 function buildDocumentArchiveEntry(person, docType, pdfPath, metadataPath, archiveMode = "STANDARD") {
   const effects = person?.effetsConfies || [];
   const documentMode = normalizeText(archiveMode || "STANDARD");
-  const baseId = `DOC-${getDocumentTypeLabel(docType)}-${person?.id || ""}-${documentMode}`;
+  const baseId = `DOC-${getDocumentTypeLabel(docType)}-${person?.id || ""}`;
   return {
-    id: documentMode === "COMPLEMENTAIRE" ? `${baseId}-${Date.now()}` : baseId,
+    id: baseId,
     personId: String(person?.id || ""),
     nom: String(person?.nom || ""),
     prenom: String(person?.prenom || ""),
@@ -3509,6 +4426,15 @@ function upsertDocumentArchiveEntry(entry) {
   } else {
     state.data.documentsArchives.push(entry);
   }
+  state.data.documentsArchives = state.data.documentsArchives.filter((currentEntry) => {
+    if (String(currentEntry.id || "") === String(entry.id || "")) {
+      return true;
+    }
+    return !(
+      String(currentEntry.personId || "") === String(entry.personId || "") &&
+      normalizeText(currentEntry.typeDocument) === normalizeText(entry.typeDocument)
+    );
+  });
   sortDocumentsArchives();
 }
 
@@ -3612,7 +4538,7 @@ function renderDocumentsArchivePage() {
         <td>${escapeHtml(getDocumentArchiveSignatureStatus(entry))}</td>
         <td>${escapeHtml(String(entry.totalEffets ?? "-"))}</td>
         <td>${formatAmountWithEuro(entry.totalFacturable || 0)}</td>
-        <td>${escapeHtml(entry.pdfPath || getDocumentArchiveStoragePath(entry))}</td>
+        <td>${escapeHtml(getDocumentArchiveVersionLabel(entry))}</td>
         <td>${openPath ? `<a class="archive-pdf-button" href="${escapeHtml(openPath)}" target="_blank" rel="noopener" aria-label="OUVRIR PDF"><span class="archive-pdf-button__icon" aria-hidden="true"><img src="assets/images/ui/icone-pdf.png" alt="" class="archive-pdf-button__image" /></span></a>` : "-"}</td>
       </tr>`;
       }
@@ -3625,7 +4551,12 @@ function getSignatureValue(person, docType, signer) {
   if (!person?.signatures?.[docType]) {
     return "";
   }
-  return String(person.signatures[docType][signer]?.image || "");
+  const rawValue = String(person.signatures[docType][signer]?.image || "");
+  const storageRef = parseStorageSchemePath(rawValue);
+  if (storageRef) {
+    return getSupabaseStoragePublicUrl(storageRef.bucket, storageRef.objectPath) || "";
+  }
+  return rawValue;
 }
 
 function getRepresentativeInfo(person, docType) {
@@ -3773,7 +4704,7 @@ function getSignatureValidationDate(person, docType, signer) {
   return String(person.signatures[docType][signer]?.validatedAt || "");
 }
 
-function setSignatureValue(person, docType, signer, value, validatedAt = "") {
+function setSignatureValue(person, docType, signer, value, validatedAt = "", storageRef = "", storagePublicUrl = "") {
   if (!person) {
     return;
   }
@@ -3786,6 +4717,8 @@ function setSignatureValue(person, docType, signer, value, validatedAt = "") {
   person.signatures[docType][signer] = {
     image: String(value || ""),
     validatedAt: String(validatedAt || ""),
+    storageRef: String(storageRef || ""),
+    storagePublicUrl: String(storagePublicUrl || ""),
   };
 }
 
@@ -3998,7 +4931,38 @@ function bindSignatureCanvases() {
       }
       const wasFullySigned = isDocumentFullySigned(person, docType);
       const nextValue = stateRef.pendingDataUrl || "";
-      setSignatureValue(person, docType, signer, nextValue, nextValue ? getCurrentSignatureTimestamp() : "");
+      const validatedAt = nextValue ? getCurrentSignatureTimestamp() : "";
+      let signatureStorageRef = "";
+      let signatureStoragePublicUrl = "";
+      if (nextValue && isSupabaseConfigured()) {
+        try {
+          const signatureUpload = await uploadSignatureImageToSupabaseStorage(docType, person, signer, nextValue);
+          signatureStorageRef = String(signatureUpload?.storageRef || "");
+          signatureStoragePublicUrl = String(signatureUpload?.publicUrl || "");
+          if (signatureStorageRef) {
+            console.info("[SUPABASE][SIGNATURE] final storage path", signatureStorageRef);
+          }
+        } catch (signatureUploadError) {
+          console.error("[SUPABASE][SIGNATURE] upload fail", signatureUploadError);
+          const message = String(signatureUploadError?.message || "ERREUR INCONNUE").slice(0, 160);
+          showDataStatus(`UPLOAD SIGNATURE SUPABASE IMPOSSIBLE (${message})`);
+        }
+      }
+      setSignatureValue(
+        person,
+        docType,
+        signer,
+        nextValue,
+        validatedAt,
+        signatureStorageRef,
+        signatureStoragePublicUrl
+      );
+      if (docType === "arrival") {
+        renderArrivalDocument(person.id);
+      } else if (docType === "exit") {
+        renderExitDocument(person.id);
+      }
+      refreshDocumentSignatureCanvases(docType);
       if (document.body.dataset.page === "mobile-signature" && nextValue) {
         const request = getCurrentMobileSignatureRequest();
         if (
@@ -4098,6 +5062,11 @@ function bindSignatureCanvases() {
         }
         const docType = String(canvas.getAttribute("data-doc-type") || "");
         const signer = String(canvas.getAttribute("data-signer") || "");
+        const currentSignerHasSignature = Boolean(getSignatureValue(person, docType, signer));
+        const otherSigner = signer === "personnel" ? "representant" : "personnel";
+        const otherSignerHasSignature = Boolean(getSignatureValue(person, docType, otherSigner));
+        const pendingValue = String(stateRef.pendingDataUrl || "");
+        const willFinalizeDocument = Boolean(pendingValue) && (otherSignerHasSignature || currentSignerHasSignature);
         if (
           signer === "representant" &&
           document.body.dataset.page !== "mobile-signature" &&
@@ -4107,6 +5076,14 @@ function bindSignatureCanvases() {
           window.alert("VOUS DEVEZ IDENTIFIER L'IDENTITE DU REPRESENTANT DE L'ETABLISSEMENT POUR VALIDATION.");
           updateRepresentativeSignatureActionState(docType);
           return;
+        }
+        if (willFinalizeDocument) {
+          const check = validateFinalSignatureBeforeSave(person, docType);
+          if (!check.ok) {
+            showDataStatus(check.message);
+            window.alert(check.message);
+            return;
+          }
         }
         await saveSignature();
       };
@@ -4122,7 +5099,7 @@ function bindSignatureCanvases() {
         }
         stateRef.pendingDataUrl = "";
         clearSignatureCanvas(canvas);
-        setSignatureValue(person, docType, signer, "", "");
+        setSignatureValue(person, docType, signer, "", "", "", "");
         if (document.body.dataset.page === "mobile-signature") {
           const request = getCurrentMobileSignatureRequest();
           if (
@@ -4187,6 +5164,8 @@ function renderMobileSignaturePage() {
   const dateNode = document.getElementById("mobile-signature-date");
   const statusNode = document.getElementById("mobile-signature-request-status");
   const panelNode = document.getElementById("mobile-signature-panel");
+  const mobileCostsHead = document.getElementById("mobile-costs-head");
+  const mobileCostsBody = document.getElementById("mobile-costs-body");
   const saveButton = document.querySelector(".js-signature-save");
   const clearButton = document.querySelector(".js-signature-clear");
   const canvas = document.querySelector(".js-signature-canvas");
@@ -4271,6 +5250,10 @@ function renderMobileSignaturePage() {
     }
   }
 
+  if (mobileCostsHead && mobileCostsBody) {
+    renderDocumentCostsTable(mobileCostsHead, mobileCostsBody);
+  }
+
   fillMobileSignatureShareLink(valid ? request : null);
 }
 
@@ -4294,7 +5277,7 @@ function renderPersonPicker() {
 
   const page = document.body.dataset.page || "";
   const useDirectNavigation = page === "arrival-document" || page === "exit-document";
-  const useSuggestionBox = useDirectNavigation && suggestionBox;
+  const useSuggestionBox = Boolean(suggestionBox);
   const options = state.data.personnes
     .map((person) => {
       const label = getPersonPickerLabel(person);
@@ -4316,11 +5299,13 @@ function renderPersonPicker() {
     }
 
     const query = normalizeText(rawQuery);
+    if (!query) {
+      suggestionBox.innerHTML = "";
+      suggestionBox.hidden = true;
+      return;
+    }
     const matches = state.data.personnes
       .filter((person) => {
-        if (!query) {
-          return true;
-        }
         return normalizeText(getPersonPickerLabel(person)).includes(query);
       })
       .slice(0, 8);
@@ -4367,17 +5352,23 @@ function renderPersonPicker() {
     picker.blur();
   };
 
+  const applyFullResetFromPicker = () => {
+    state.filters = { ...DEFAULT_FILTERS };
+    saveNavigationContext({ filters: state.filters, personId: "" });
+    if (useDirectNavigation) {
+      hideSuggestions();
+      applyDocumentNavigation("");
+      return true;
+    }
+    setCurrentPersonId("", "replace");
+    renderPage();
+    return true;
+  };
+
   const applyPickerSelection = (mode = "push") => {
     const rawValue = String(picker.value || "");
     if (!rawValue.trim()) {
-      if (useDirectNavigation) {
-        hideSuggestions();
-        applyDocumentNavigation("");
-        return true;
-      }
-      setCurrentPersonId("", mode);
-      renderPage();
-      return false;
+      return applyFullResetFromPicker();
     }
 
     const normalizedSearch = normalizeText(rawValue);
@@ -4411,11 +5402,9 @@ function renderPersonPicker() {
     const rawValue = String(picker.value || "");
     if (!rawValue.trim()) {
       if (useDirectNavigation) {
-        renderSuggestions("");
-        return;
+        hideSuggestions();
       }
-      setCurrentPersonId("", "replace");
-      renderPage();
+      applyFullResetFromPicker();
       return;
     }
     if (useSuggestionBox) {
@@ -4435,11 +5424,20 @@ function renderPersonPicker() {
   };
   picker.onfocus = () => {
     if (useSuggestionBox) {
-      renderSuggestions(picker.value);
+      hideSuggestions();
     }
   };
   picker.onchange = () => applyPickerSelection("push");
-  picker.onsearch = () => applyPickerSelection("push");
+  picker.onsearch = () => {
+    if (!String(picker.value || "").trim()) {
+      if (useSuggestionBox) {
+        hideSuggestions();
+      }
+      applyFullResetFromPicker();
+      return;
+    }
+    applyPickerSelection("push");
+  };
   picker.onblur = () => {
     if (document.activeElement === picker) {
       return;
@@ -4450,7 +5448,7 @@ function renderPersonPicker() {
       }, 120);
     }
     if (useDirectNavigation && !String(picker.value || "").trim()) {
-      applyDocumentNavigation("");
+      applyFullResetFromPicker();
       return;
     }
     applyPickerSelection("replace");
@@ -4493,6 +5491,17 @@ function getFilteredPersons() {
   return state.data.personnes.filter((person) => matchesFilters(person, state.filters));
 }
 
+function hasUrgencyCondition(person) {
+  if (!person) {
+    return false;
+  }
+  const hasOverdueExitAlert = hasOverdueExit(person);
+  const hasNonRendu = (person.effetsConfies || []).some(
+    (effect) => normalizeText(getEffectStatus(person, effect)) === "NON RENDU"
+  );
+  return hasOverdueExitAlert && hasNonRendu;
+}
+
 function matchesFilters(person, filters) {
   const dossierStatus = getDossierStatus(person);
   const effects = (person.effetsConfies || []).map((effect) => ({
@@ -4506,6 +5515,7 @@ function matchesFilters(person, filters) {
   if (filters.statutDossier && dossierStatus !== filters.statutDossier) return false;
   if (filters.typeEffet && !effects.some((effect) => normalizeText(effect.typeEffet) === filters.typeEffet)) return false;
   if (filters.statutObjet && !effects.some((effect) => effect.statutAffiche === filters.statutObjet)) return false;
+  if (state.urgentMode && !hasUrgencyCondition(person)) return false;
   if (!filters.search) return true;
 
   const personText = [person.nom, person.prenom, getPersonSiteLabel(person), person.typePersonnel, person.typeContrat]
@@ -4539,10 +5549,11 @@ function renderOverview(persons) {
   let missingEffectsCount = 0;
 
   persons.forEach((person) => {
+    const allEffects = person.effetsConfies || [];
     if (getDossierStatus(person) === "EN POSTE") {
       inPostCount += 1;
     }
-    (person.effetsConfies || []).forEach((effect) => {
+    allEffects.forEach((effect) => {
       totalEffectsCount += 1;
       if (getEffectStatus(person, effect) === "NON RENDU") {
         missingEffectsCount += 1;
@@ -4564,28 +5575,36 @@ function renderOverview(persons) {
 
   if (body) {
     const sortedPersons = sortPersonsForOverview(persons);
-    const rowsHtml = buildOverviewRows(sortedPersons.slice(0, 8));
-    renderTableRowsProgressively(body, [rowsHtml], buildEmptyTableRow("overview-table-body", "AUCUNE DONNEE A AFFICHER", 9), 1);
+    const rowsHtml = buildOverviewRows(sortedPersons);
+    renderTableRowsProgressively(body, [rowsHtml], buildEmptyTableRow("overview-table-body", "AUCUNE DONNEE A AFFICHER", 13), 1);
     bindPersonRowActions();
+    bindDeletePersonButtons();
     updateSortableHeaders("overviewPersons");
   }
 
   if (alertsSection && alertsList) {
     const alerts = persons
       .filter((person) => hasOverdueExit(person))
-      .map((person) => ({
-        id: person.id,
-        nom: person.nom,
-        prenom: person.prenom,
-        message: getOverdueExitMessage(person),
-      }));
+      .map((person) => {
+        const alertMeta = getOverdueExitAlertMeta(person);
+        return {
+          id: person.id,
+          nom: person.nom,
+          prenom: person.prenom,
+          message: alertMeta.message,
+          type: alertMeta.type,
+        };
+      });
 
     alertsSection.hidden = alerts.length === 0;
     alertsList.innerHTML = alerts
       .map(
-        (alert) => `<button type="button" class="overview-alert-item js-open-person-alert" data-person-id="${alert.id}">
-          <strong>${escapeHtml(`${alert.nom} ${alert.prenom}`.trim())}</strong>
-          <span>${escapeHtml(alert.message)}</span>
+        (alert) => `<button type="button" class="overview-alert-item overview-alert-item--${alert.type || "dateSortiePrevue"} js-open-person-alert" data-person-id="${alert.id}">
+          <span class="overview-alert-item__icon overview-alert-item__icon--${alert.type || "dateSortiePrevue"}" aria-hidden="true">${alert.type === "dateSortieReelle" ? "✕" : "!"}</span>
+          <span class="overview-alert-item__content">
+            <strong>${escapeHtml(`${alert.nom} ${alert.prenom}`.trim())}</strong>
+            <span>${escapeHtml(alert.message)}</span>
+          </span>
         </button>`
       )
       .join("");
@@ -4594,7 +5613,7 @@ function renderOverview(persons) {
       button.onclick = () => {
         const personId = button.getAttribute("data-person-id") || "";
         if (personId) {
-          window.location.href = `fiche-personne.html?personId=${personId}`;
+          openPersonSheet(personId);
         }
       };
     });
@@ -4603,68 +5622,13 @@ function renderOverview(persons) {
 
 function buildOverviewRows(persons) {
   if (!persons.length) {
-    return buildEmptyTableRow("overview-table-body", "AUCUNE DONNEE A AFFICHER", 9);
+    return buildEmptyTableRow("overview-table-body", "AUCUNE DONNEE A AFFICHER", 13);
   }
-  const rows = persons
+  return persons
     .map((person) => {
-      const nonRendus = (person.effetsConfies || []).filter(
-        (effect) => getEffectStatus(person, effect) === "NON RENDU"
-      ).length;
-      const totalCost = (person.effetsConfies || []).reduce(
-        (sum, effect) => sum + getEffectUnitValue(effect),
-        0
-      );
-      const alertClass = hasOverdueExit(person) ? " is-alert-row" : "";
-      return `<tr class="js-person-row${alertClass}" data-person-id="${person.id}">
-        <td>${person.nom}</td>
-        <td>${person.prenom}</td>
-        <td>${person.fonction || ""}</td>
-        <td>${getPersonSiteMarkup(person)}</td>
-        <td>${person.typeContrat || ""}</td>
-        <td>${getDossierStatusCellMarkup(getDossierStatus(person))}</td>
-        <td>${(person.effetsConfies || []).length}</td>
-        <td>${nonRendus > 0 ? '<span class="row-alert-dot" aria-hidden="true"></span>' : ""}${nonRendus}</td>
-        <td>${formatAmountWithEuro(totalCost)}</td>
-      </tr>`;
-    })
-    .join("");
-  const totalEffects = persons.reduce((sum, person) => sum + (person.effetsConfies || []).length, 0);
-  const totalCost = persons.reduce(
-    (sum, person) =>
-      sum + (person.effetsConfies || []).reduce((innerSum, effect) => innerSum + getEffectUnitValue(effect), 0),
-    0
-  );
-  const totalNonRendus = persons.reduce(
-    (sum, person) =>
-      sum +
-      (person.effetsConfies || []).filter((effect) => getEffectStatus(person, effect) === "NON RENDU").length,
-    0
-  );
-
-  return `${rows}
-    <tr class="table-total-row">
-      <td colspan="6">TOTAL</td>
-      <td>${totalEffects}</td>
-      <td>${totalNonRendus}</td>
-      <td>${formatAmountWithEuro(totalCost)}</td>
-    </tr>`;
-}
-
-function renderGlobalTable(persons) {
-  const body = document.getElementById("global-table-body");
-  if (!body) {
-    return;
-  }
-
-  if (!persons.length) {
-    body.innerHTML = buildEmptyTableRow(body, "AUCUNE DONNEE A AFFICHER", 13);
-    return;
-  }
-
-  const rowsHtml = persons
-    .map((person) => {
-      const totalEffects = (person.effetsConfies || []).length;
-      const nonRendus = (person.effetsConfies || []).filter(
+      const currentEffects = getCurrentAssignedEffects(person);
+      const totalEffects = currentEffects.length;
+      const nonRendus = currentEffects.filter(
         (effect) => getEffectStatus(person, effect) === "NON RENDU"
       ).length;
       const movementMap = getArrivalComplementMovementMap(person, person.effetsConfies || []);
@@ -4689,7 +5653,72 @@ function renderGlobalTable(persons) {
             `<span class="movement-badge movement-badge--${getMovementBadgeVariant(movement)}">${movement} ${count}</span>`
         )
         .join(" ");
-      const alertClass = hasOverdueExit(person) ? " is-alert-row" : "";
+      const alertType = getOverdueExitAlertMeta(person).type;
+      const alertClass = alertType ? ` is-alert-row is-alert-row--${alertType}` : "";
+      return `<tr class="js-person-row${alertClass}" data-person-id="${person.id}">
+        <td>${person.nom}</td>
+        <td>${person.prenom}</td>
+        <td>${getPersonSiteMarkup(person)}</td>
+        <td>${person.typePersonnel || ""}</td>
+        <td>${person.typeContrat || ""}</td>
+        <td>${formatDate(person.dateEntree)}</td>
+        <td>${formatDate(person.dateSortiePrevue)}</td>
+        <td>${formatDate(person.dateSortieReelle)}</td>
+        <td>${getDossierStatusCellMarkup(getDossierStatus(person))}</td>
+        <td>${totalEffects}</td>
+        <td>${nonRendus > 0 ? '<span class="row-alert-dot" aria-hidden="true"></span>' : ""}${nonRendus}</td>
+        <td>${movementMarkup || "-"}</td>
+        <td>
+          <a class="table-link js-open-person-link" data-person-id="${person.id}" href="fiche-personne.html?personId=${person.id}">VOIR</a>
+          <button type="button" class="table-link js-delete-person" data-person-id="${person.id}">SUPPRIMER</button>
+        </td>
+      </tr>`;
+    })
+    .join("");
+}
+
+function renderGlobalTable(persons) {
+  const body = document.getElementById("global-table-body");
+  if (!body) {
+    return;
+  }
+
+  if (!persons.length) {
+    body.innerHTML = buildEmptyTableRow(body, "AUCUNE DONNEE A AFFICHER", 13);
+    return;
+  }
+
+  const rowsHtml = persons
+    .map((person) => {
+      const currentEffects = getCurrentAssignedEffects(person);
+      const totalEffects = currentEffects.length;
+      const nonRendus = currentEffects.filter(
+        (effect) => getEffectStatus(person, effect) === "NON RENDU"
+      ).length;
+      const movementMap = getArrivalComplementMovementMap(person, person.effetsConfies || []);
+      const movementCounts = {
+        AJOUTE: 0,
+        MODIFIE: 0,
+        RENDU: 0,
+        PERDU: 0,
+        VOLE: 0,
+        HS: 0,
+      };
+      movementMap.forEach((movement) => {
+        const normalized = normalizeText(movement);
+        if (Object.prototype.hasOwnProperty.call(movementCounts, normalized)) {
+          movementCounts[normalized] += 1;
+        }
+      });
+      const movementMarkup = Object.entries(movementCounts)
+        .filter(([, count]) => count > 0)
+        .map(
+          ([movement, count]) =>
+            `<span class="movement-badge movement-badge--${getMovementBadgeVariant(movement)}">${movement} ${count}</span>`
+        )
+        .join(" ");
+      const alertType = getOverdueExitAlertMeta(person).type;
+      const alertClass = alertType ? ` is-alert-row is-alert-row--${alertType}` : "";
       return `<tr class="js-person-row${alertClass}" data-person-id="${person.id}">
         <td>${person.nom}</td>
         <td>${person.prenom}</td>
@@ -4704,7 +5733,7 @@ function renderGlobalTable(persons) {
         <td>${nonRendus > 0 ? '<span class="row-alert-dot" aria-hidden="true"></span>' : ""}${nonRendus}</td>
         <td>${movementMarkup || "-"}</td>
         <td>
-          <a class="table-link" href="fiche-personne.html?personId=${person.id}">VOIR</a>
+          <a class="table-link js-open-person-link" data-person-id="${person.id}" href="fiche-personne.html?personId=${person.id}">VOIR</a>
           <button type="button" class="table-link js-delete-person" data-person-id="${person.id}">SUPPRIMER</button>
         </td>
       </tr>`;
@@ -4758,13 +5787,27 @@ function bindPersonRowActions() {
         return;
       }
 
-      window.location.href = `fiche-personne.html?personId=${personId}`;
+      openPersonSheet(personId);
     });
 
     body.dataset.bound = "true";
   });
 }
 
+function bindOpenPersonLinks() {
+  document.querySelectorAll(".js-open-person-link").forEach((link) => {
+    if (link.dataset.bound === "true") {
+      return;
+    }
+    link.addEventListener("click", () => {
+      const personId = link.getAttribute("data-person-id") || "";
+      if (personId) {
+        setCurrentPersonId(personId, "replace");
+      }
+    });
+    link.dataset.bound = "true";
+  });
+}
 function getSheetEffectTypeIconVariant(typeEffet) {
   const normalizedType = normalizeText(typeEffet);
   if (normalizedType === "CLE CES") {
@@ -4862,7 +5905,7 @@ function renderPersonSheet(personId) {
     alertNode.hidden = true;
     alertNode.textContent = "";
     applySheetPersonStatus(statusNode, "EN ATTENTE");
-    body.innerHTML = buildEmptyTableRow(body, "AUCUN EFFET A AFFICHER", 10);
+    body.innerHTML = buildEmptyTableRow(body, "AUCUN EFFET A AFFICHER", 11);
     fillSheetForm(null);
     if (totalNode) totalNode.textContent = "0";
     if (returnedNode) returnedNode.textContent = "0";
@@ -4895,28 +5938,40 @@ function renderPersonSheet(personId) {
   fillSheetForm(person);
 
   const effects = person.effetsConfies || [];
-  const sortedEffects = sortEffectsForTable(person, effects, "sheetEffects");
+  const currentEffects = getCurrentAssignedEffects(person);
+  const sortedEffects = sortEffectsForTable(person, currentEffects, "sheetEffects");
+  const movementMap = getArrivalComplementMovementMap(person, currentEffects);
   const returned = effects.filter((effect) => getEffectStatus(person, effect) === "RESTITUE").length;
-  const missing = effects.filter((effect) => getEffectStatus(person, effect) === "NON RENDU").length;
-  const totalCost = effects.reduce((sum, effect) => sum + getEffectReplacementCost(person, effect), 0);
-  const totalEffectsUnitValue = effects.reduce((sum, effect) => sum + getEffectUnitValue(effect), 0);
+  const missing = currentEffects.filter((effect) => getEffectStatus(person, effect) === "NON RENDU").length;
+  const totalCost = currentEffects.reduce((sum, effect) => sum + getEffectReplacementCost(person, effect), 0);
+  const totalEffectsUnitValue = currentEffects.reduce((sum, effect) => sum + getEffectUnitValue(effect), 0);
 
-  if (totalNode) totalNode.textContent = String(effects.length);
+  if (totalNode) totalNode.textContent = String(currentEffects.length);
   if (returnedNode) returnedNode.textContent = String(returned);
   if (missingNode) missingNode.textContent = String(missing);
   if (costNode) costNode.textContent = formatAmountWithEuro(totalCost);
-  renderSheetEffectTypeKpis(effects);
-  if (totalTypesNode) totalTypesNode.textContent = String(effects.length);
+  renderSheetEffectTypeKpis(currentEffects);
+  if (totalTypesNode) totalTypesNode.textContent = String(currentEffects.length);
   if (totalTypesAmountNode) totalTypesAmountNode.textContent = formatAmountWithEuro(totalEffectsUnitValue);
 
   body.innerHTML = sortedEffects.length
     ? `${sortedEffects
         .map((effect) => {
           const effectStatus = getEffectStatus(person, effect);
-          const effectCause = getEffectReplacementCause(person, effect);
           const effectDesignation = getEffectDisplayDesignation(effect);
           const effectSite = getEffectDisplaySite(effect);
           const effectUnitValue = getEffectUnitValue(effect);
+          const movement =
+            movementMap.get(getEffectMovementKey(effect)) ||
+            movementMap.get(getEffectStableKey(effect)) ||
+            getEffectMovementLabel(person, effect);
+          const movementBadge = movement
+            ? `<span class="movement-badge movement-badge--${getMovementBadgeVariant(movement)}">${movement}</span>`
+            : "";
+          const statusWithDot =
+            effectStatus === "NON RENDU"
+              ? `<span>${effectStatus}</span><span class="row-alert-dot row-alert-dot--inside" aria-hidden="true"></span>`
+              : `<span>${effectStatus}</span>`;
           return `<tr class="js-effect-row" data-person-id="${person.id}" data-effect-id="${effect.id}">
             <td>${effect.typeEffet || ""}</td>
             <td>${effectDesignation}</td>
@@ -4924,8 +5979,8 @@ function renderPersonSheet(personId) {
             <td>${effect.numeroIdentification || ""}</td>
             <td>${formatDate(effect.dateRemise)}</td>
             <td>${formatDate(effect.dateRetour)}</td>
-            <td><span class="${getStatusClass(effectStatus)}"><span>${effectStatus}</span>${effectStatus === "NON RENDU" ? '<span class="row-alert-dot row-alert-dot--inside" aria-hidden="true"></span>' : ""}</span></td>
-            <td>${effectCause}</td>
+            <td><span class="status-text-inline">${statusWithDot}</span></td>
+            <td class="movement-cell">${movementBadge}</td>
             <td>${formatDate(effect.dateRemplacement)}</td>
             <td>${formatAmountWithEuro(effectUnitValue)}</td>
             <td>${effect.commentaire || ""}</td>
@@ -5103,7 +6158,7 @@ function renderArrivalDocument(personId) {
     sitesNode.textContent = "-";
     dateEntreeNode.textContent = "-";
     dateSortiePrevueNode.textContent = "-";
-    body.innerHTML = buildEmptyTableRow(body, "AUCUN EFFET A AFFICHER", 5);
+    body.innerHTML = buildEmptyTableRow(body, "AUCUN EFFET A AFFICHER", 6);
     renderArrivalCostsTable(costsHead, costsBody);
     totalEffectsNode.textContent = "0";
     totalValueNode.textContent = "0,00 €";
@@ -5128,11 +6183,13 @@ function renderArrivalDocument(personId) {
     isComplement = true;
   }
 
-  const effectsForDisplay = isComplement
+  const activeEffects = isComplement
     ? allEffects
     : allEffects.filter((effect) => Boolean(effect.dateRemise));
+  const deletedEffects = isComplement ? getArrivalDeletedEffects(person, allEffects) : [];
+  const effectsForDisplay = [...activeEffects, ...deletedEffects];
   const sortedEffects = sortEffectsForTable(person, effectsForDisplay, "arrivalEffects");
-  const totalValue = sortedEffects.reduce((sum, effect) => sum + getEffectUnitValue(effect), 0);
+  const totalValue = activeEffects.reduce((sum, effect) => sum + getEffectUnitValue(effect), 0);
 
   titleNode.textContent = isComplement
     ? "AVENANT DE REMISE DES EFFETS CONFIES"
@@ -5168,7 +6225,11 @@ function renderArrivalDocument(personId) {
     ? `${sortedEffects
         .map(
           (effect) => {
-            const movement = isComplement ? String(complementMovements.get(getEffectMovementKey(effect)) || "") : "";
+            const movement = getEffectMovementLabel(
+              person,
+              effect,
+              isComplement ? complementMovements : null
+            );
             const movementBadge = movement
               ? `<span class="movement-badge movement-badge--${getMovementBadgeVariant(movement)}">${movement}</span>`
               : "";
@@ -5177,7 +6238,8 @@ function renderArrivalDocument(personId) {
               : "";
             return `<tr${rowClass}>
             <td>${effect.typeEffet || ""}</td>
-            <td>${getEffectDisplayDesignation(effect) || "-"} ${movementBadge}</td>
+            <td>${getEffectDisplayDesignation(effect) || "-"}</td>
+            <td class="movement-cell">${movementBadge}</td>
             <td>${effect.numeroIdentification || "-"}</td>
             <td>${formatDate(effect.dateRemise) || "-"}</td>
             <td>${formatAmountWithEuro(getEffectUnitValue(effect))}</td>
@@ -5186,13 +6248,13 @@ function renderArrivalDocument(personId) {
         )
         .join("")}
         <tr class="table-total-row">
-          <td colspan="4">TOTAL DES EFFETS REMIS</td>
+          <td colspan="5">TOTAL DES EFFETS REMIS</td>
           <td>${formatAmountWithEuro(totalValue)}</td>
         </tr>`
-    : buildEmptyTableRow(body, "AUCUN EFFET A AFFICHER", 5);
+    : buildEmptyTableRow(body, "AUCUN EFFET A AFFICHER", 6);
 
   renderArrivalCostsTable(costsHead, costsBody);
-  totalEffectsNode.textContent = String(sortedEffects.length);
+  totalEffectsNode.textContent = String(activeEffects.length);
   totalValueNode.textContent = formatAmountWithEuro(totalValue);
   updateSortableHeaders("arrivalEffects");
   syncDocumentMobileSignatureLink("arrival", person.id, "personnel");
@@ -5212,12 +6274,7 @@ function getArrivalCostTypes() {
 }
 
 function getArrivalCostCauses() {
-  const baseOrder = ["HS", "PERTE", "CASSE", "VOL", "NON RENDU"];
-  const causes = Array.isArray(state.data?.listes?.causesRemplacement)
-    ? state.data.listes.causesRemplacement.map(normalizeText).filter(Boolean)
-    : [];
-  const merged = Array.from(new Set([...baseOrder, ...causes]));
-  return merged.filter((value) => value !== "REMPLACE");
+  return [...EFFECT_STATUS_CAUSES];
 }
 
 function getArrivalCostDesignation(typeEffet) {
@@ -5320,7 +6377,7 @@ function renderExitDocument(personId) {
     dateEntreeNode.textContent = "-";
     dateSortiePrevueNode.textContent = "-";
     dateSortieReelleNode.textContent = "-";
-    body.innerHTML = buildEmptyTableRow(body, "AUCUN EFFET A AFFICHER", 8);
+    body.innerHTML = buildEmptyTableRow(body, "AUCUN EFFET A AFFICHER", 9);
     totalEffectsNode.textContent = "0";
     totalReturnedNode.textContent = "0";
     totalChargeableNode.textContent = "0";
@@ -5339,11 +6396,22 @@ function renderExitDocument(personId) {
     return;
   }
 
-  const effects = person.effetsConfies || [];
+  const effects = (person.effetsConfies || []).filter((effect) => {
+    const hasType = Boolean(normalizeText(effect?.typeEffet));
+    const hasDesignation = Boolean(normalizeText(getEffectDisplayDesignation(effect)));
+    const hasId = Boolean(normalizeText(effect?.numeroIdentification));
+    const hasDateRemise = Boolean(String(effect?.dateRemise || "").trim());
+    const hasDateRetour = Boolean(String(effect?.dateRetour || "").trim());
+    const hasStatus = Boolean(normalizeText(getEffectStatus(person, effect)));
+    const hasAmount = getEffectReplacementCost(person, effect) > 0;
+    return hasType || hasDesignation || hasId || hasDateRemise || hasDateRetour || hasStatus || hasAmount;
+  });
+  const isPdfMode = isPdfRenderMode();
   const sortedEffects = sortEffectsForTable(person, effects, "exitEffects");
   const totalReturned = effects.filter((effect) => getEffectStatus(person, effect) === "RESTITUE").length;
   const chargeableEffects = effects.filter((effect) => isEffectChargeable(person, effect));
   const totalValue = chargeableEffects.reduce((sum, effect) => sum + getEffectReplacementCost(person, effect), 0);
+  const todayIso = getTodayIsoDate();
 
   dateNode.textContent = formatDateTimeForDocument(new Date().toISOString());
   referenceNode.textContent = `SOR-${person.id || "-"}`;
@@ -5371,32 +6439,81 @@ function renderExitDocument(personId) {
   body.innerHTML = sortedEffects.length
     ? `${sortedEffects
         .map(
-          (effect) => `<tr>
+          (effect) => {
+            const movement = getEffectMovementLabel(person, effect);
+            const movementBadge = movement
+              ? `<span class="movement-badge movement-badge--${getMovementBadgeVariant(movement)}">${movement}</span>`
+              : "";
+            const currentStatus = normalizeText(getEffectStatus(person, effect));
+            const retourDateIso = normalizeDateString(effect.dateRetour || "");
+            const canToggleReturnToday =
+              !["PERDU", "HS", "VOL"].includes(currentStatus) &&
+              (!retourDateIso || retourDateIso === todayIso);
+            return `<tr>
             <td>${effect.typeEffet || ""}</td>
             <td>${getEffectDisplayDesignation(effect)}</td>
             <td>${effect.numeroIdentification || ""}</td>
             <td>${formatDate(effect.dateRemise)}</td>
             <td>${formatDate(effect.dateRetour)}</td>
             <td>${getEffectStatus(person, effect)}</td>
-            <td>${getEffectReplacementCause(person, effect)}</td>
+            <td class="movement-cell">${movementBadge}</td>
+            <td class="movement-cell">${
+              !isPdfMode && canToggleReturnToday
+                ? `<label class="return-today-toggle"><input type="checkbox" class="js-exit-return-today" data-effect-id="${escapeHtml(effect.id || "")}" ${retourDateIso === todayIso ? "checked" : ""} /><span>RENDU</span></label>`
+                : "-"
+            }</td>
             <td>${formatAmountWithEuro(getEffectReplacementCost(person, effect))}</td>
-          </tr>`
+          </tr>`;
+          }
         )
         .join("")}
         <tr class="table-total-row">
-          <td colspan="7">TOTAL FACTURABLE DES EFFETS</td>
+          <td colspan="${isPdfMode ? "7" : "8"}">TOTAL FACTURABLE DES EFFETS</td>
           <td>${formatAmountWithEuro(totalValue)}</td>
         </tr>`
-    : buildEmptyTableRow(body, "AUCUN EFFET A AFFICHER", 8);
+    : buildEmptyTableRow(body, "AUCUN EFFET A AFFICHER", 9);
 
   totalEffectsNode.textContent = String(effects.length);
   totalReturnedNode.textContent = String(totalReturned);
   totalChargeableNode.textContent = String(chargeableEffects.length);
   totalValueNode.textContent = formatAmountWithEuro(totalValue);
   renderDocumentCostsTable(costsHead, costsBody);
+  bindExitReturnTodayToggles();
   updateSortableHeaders("exitEffects");
   syncDocumentMobileSignatureLink("exit", person.id, "personnel");
   syncDocumentMobileSignatureLink("exit", person.id, "representant");
+}
+
+function bindExitReturnTodayToggles() {
+  const body = document.getElementById("exit-effects-body");
+  if (!body) {
+    return;
+  }
+  if (body.dataset.returnBound === "true") {
+    return;
+  }
+  body.addEventListener("change", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement) || !target.classList.contains("js-exit-return-today")) {
+      return;
+    }
+    const person = getCurrentPerson();
+    if (!person) {
+      return;
+    }
+    const effectId = String(target.dataset.effectId || "");
+    const effect = (person.effetsConfies || []).find((entry) => String(entry.id || "") === effectId);
+    if (!effect) {
+      return;
+    }
+    effect.dateRetour = target.checked ? getTodayIsoDate() : "";
+    markDirty();
+    renderPage();
+    renderExitDocument(person.id);
+    renderPersonSheet(person.id);
+    showActionStatus("update", target.checked ? "EFFET MARQUE RENDU CE JOUR" : "RETOUR DU JOUR ANNULE");
+  });
+  body.dataset.returnBound = "true";
 }
 
 function getAvailableReferenceSites(person) {
@@ -5593,22 +6710,33 @@ function isPastDate(value) {
   return Number.isFinite(target.getTime()) && target < todayOnly;
 }
 
-function getOverdueExitMessage(person) {
+function getOverdueExitAlertMeta(person) {
   if (person?.dateSortiePrevue && !person?.dateSortieReelle && isPastDate(person.dateSortiePrevue)) {
-    return `ALERTE : DATE DE SORTIE PREVUE DEPASSEE (${formatDate(person.dateSortiePrevue)})`;
+    return {
+      type: "dateSortiePrevue",
+      message: `ALERTE : DATE DE SORTIE PREVUE DEPASSEE (${formatDate(person.dateSortiePrevue)})`,
+    };
   }
   if (person?.dateSortieReelle && isPastDate(person.dateSortieReelle)) {
-    return `ALERTE : DATE DE SORTIE REELLE DEPASSEE (${formatDate(person.dateSortieReelle)})`;
+    return {
+      type: "dateSortieReelle",
+      message: `ALERTE : DATE DE SORTIE REELLE DEPASSEE (${formatDate(person.dateSortieReelle)})`,
+    };
   }
-  return "";
+  return { type: "", message: "" };
+}
+
+function getOverdueExitMessage(person) {
+  return getOverdueExitAlertMeta(person).message;
 }
 
 function hasOverdueExit(person) {
-  return Boolean(getOverdueExitMessage(person));
+  return Boolean(getOverdueExitAlertMeta(person).message);
 }
 
 function isExitDue(person) {
-  if (person?.dateSortieReelle) {
+  const today = getTodayIsoDate();
+  if (person?.dateSortieReelle && String(person.dateSortieReelle) <= today) {
     return true;
   }
   if (person?.dateSortiePrevue && isPastDate(person.dateSortiePrevue)) {
@@ -5618,11 +6746,11 @@ function isExitDue(person) {
 }
 
 function getEffectStatus(person, effect) {
-  if (effect.dateRemplacement || normalizeText(effect.statutManuel) === "REMPLACE") return "REMPLACE";
   if (effect.dateRetour) return "RESTITUE";
 
   const manualStatus = normalizeText(effect.statutManuel);
-  if (["PERDU", "CASSE", "HS"].includes(manualStatus)) return manualStatus;
+  if (manualStatus === "CASSE" || manualStatus === "DETRUIT") return "HS";
+  if (["PERDU", "HS", "VOL"].includes(manualStatus)) return manualStatus;
   if (isExitDue(person)) return "NON RENDU";
   return manualStatus || "ACTIF";
 }
@@ -5651,6 +6779,35 @@ function getAllEffects(persons) {
   return persons.flatMap((person) =>
     (person.effetsConfies || []).map((effect) => ({ person, effect }))
   );
+}
+
+function isCurrentAssignedEffect(person, effect) {
+  const status = normalizeText(getEffectStatus(person, effect));
+  return !["RESTITUE", "PERDU", "HS", "DETRUIT", "VOL"].includes(status);
+}
+
+function getCurrentAssignedEffects(person) {
+  return (person?.effetsConfies || []).filter((effect) => isCurrentAssignedEffect(person, effect));
+}
+
+function getEffectChartCategory(person, effect) {
+  const status = normalizeText(getEffectStatus(person, effect));
+  if (status === "NON RENDU") {
+    return "nonRendu";
+  }
+  if (status === "RESTITUE") {
+    return "restitue";
+  }
+  if (status === "PERDU") {
+    return "perdu";
+  }
+  if (status === "VOL") {
+    return "vole";
+  }
+  if (status === "HS") {
+    return "hs";
+  }
+  return "actif";
 }
 
 function getNextId(prefix, items) {
@@ -5728,20 +6885,25 @@ function renderMobileSignatureSettings() {
     return;
   }
 
+  const setStatusWithUrl = (prefix, url) => {
+    const safeUrl = escapeHtml(url);
+    statusNode.innerHTML = `${prefix} : <a href="${safeUrl}" target="_blank" rel="noopener">${safeUrl}</a>`;
+  };
+
   if (configured) {
-    statusNode.textContent = `URL PUBLIQUE ACTIVE : ${configured}`;
+    setStatusWithUrl("URL PUBLIQUE ACTIVE", configured);
     return;
   }
 
   const currentOrigin = normalizeHttpUrl(window.location.origin || "");
   if (currentOrigin && !isLikelyLocalUrl(currentOrigin)) {
-    statusNode.textContent = `MODE AUTO HEBERGE : ${currentOrigin}`;
+    setStatusWithUrl("MODE AUTO HEBERGE", currentOrigin);
     return;
   }
 
   const autoBase = normalizeHttpUrl(state.mobileSignatureNetworkInfo?.preferredUrl || "");
   if (autoBase) {
-    statusNode.textContent = `MODE AUTO RESEAU LOCAL : ${autoBase}`;
+    setStatusWithUrl("MODE AUTO RESEAU LOCAL", autoBase);
     return;
   }
 
@@ -6527,18 +7689,51 @@ async function saveDataToFile(options = {}) {
     return;
   }
 
+  const isEventCall =
+    options &&
+    typeof options === "object" &&
+    typeof options.preventDefault === "function";
+  const resolvedOptions = isEventCall ? {} : options;
+
   const {
     silent = false,
     reloadAfter = true,
     successText = "data.json MIS A JOUR",
     alertText = "",
     closeAfterAlert = false,
-  } = options;
+    promptDownload = !silent,
+  } = resolvedOptions;
+
+  const downloadDataJson = () => {
+    try {
+      const blob = new Blob([JSON.stringify(state.data, null, 2)], {
+        type: "application/json;charset=utf-8",
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "data.json";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 800);
+    } catch (error) {
+      console.error(error);
+      window.alert("TELECHARGEMENT DE data.json IMPOSSIBLE");
+    }
+  };
 
   try {
     const mode = getDataBackendMode();
+    const shouldMirrorToSupabase = mode === "LOCAL_API" && isSupabaseConfigured();
+    let saveStatusText = successText;
+    let saveAlertText = alertText || "data.json A ETE MIS A JOUR";
+    let saveSource = "LOCAL";
     if (mode === "SUPABASE") {
       await saveSupabaseStateData(state.data);
+      saveStatusText = "DONNEES SUPABASE SAUVEGARDEES";
+      saveAlertText = alertText || "DONNEES SUPABASE MISES A JOUR";
+      saveSource = "SUPABASE";
     } else if (mode === "LOCAL_API") {
       const response = await fetch("/api/save", {
         method: "POST",
@@ -6551,6 +7746,12 @@ async function saveDataToFile(options = {}) {
       if (!response.ok) {
         throw new Error("Sauvegarde locale impossible");
       }
+      if (shouldMirrorToSupabase) {
+        await saveSupabaseStateData(state.data);
+        saveStatusText = "DONNEES LOCALES ET SUPABASE SAUVEGARDEES";
+        saveAlertText = alertText || "DONNEES LOCALES ET SUPABASE MISES A JOUR";
+        saveSource = "LOCAL + SUPABASE";
+      }
     } else {
       throw new Error("SUPABASE NON CONFIGURE");
     }
@@ -6559,14 +7760,25 @@ async function saveDataToFile(options = {}) {
     state.isDirty = false;
     clearUndoStack();
     renderDirtyState();
-    showDataStatus(mode === "SUPABASE" ? "DONNEES SUPABASE SAUVEGARDEES" : successText);
+    state.lastSaveInfo = {
+      at: getCurrentSignatureTimestamp(),
+      source: saveSource,
+    };
+    const saveConfirmation = `SAUVEGARDEE LE ${formatCurrentUiTimestamp()} - SOURCE: ${saveSource}`;
+    showDataStatus(saveConfirmation);
     if (!silent) {
-      window.alert(alertText || (mode === "SUPABASE" ? "DONNEES SUPABASE MISES A JOUR" : "data.json A ETE MIS A JOUR"));
+      window.alert(saveAlertText);
+      if (promptDownload) {
+        downloadDataJson();
+      }
       if (closeAfterAlert) {
-        try {
-          window.close();
-        } catch (error) {
-          // ignore close errors
+        const canCloseWindow = Boolean(window.opener && !window.opener.closed);
+        if (canCloseWindow) {
+          try {
+            window.close();
+          } catch (error) {
+            // ignore close errors
+          }
         }
       }
     }
@@ -6584,8 +7796,8 @@ async function saveDataToFile(options = {}) {
 
 function resetUiWithoutData() {
   const targets = [
-    { id: "overview-table-body", colspan: 9 },
-    { id: "global-table-body", colspan: 12 },
+    { id: "overview-table-body", colspan: 13 },
+    { id: "global-table-body", colspan: 13 },
     { id: "sheet-effects-body", colspan: 11 },
     { id: "reference-sites-body", colspan: 2 },
     { id: "reference-typesPersonnel-body", colspan: 2 },
@@ -6798,3 +8010,29 @@ function renderDirtyState() {
 
 loadData();
   const getSheetTargetPersonId = () => state.currentSheetPersonId || getCurrentPersonId();
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
