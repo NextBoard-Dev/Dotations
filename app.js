@@ -7783,7 +7783,7 @@ async function saveDataToFile(options = {}) {
     showDataStatus(saveConfirmation);
     if (!silent) {
       window.alert(saveAlertText);
-      if (promptDownload) {
+      if (promptDownload && saveSource === "LOCAL") {
         downloadDataJson();
       }
       if (closeAfterAlert) {
