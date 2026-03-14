@@ -820,7 +820,22 @@ async function getAbsoluteMobileSignatureUrl(request) {
   }
   const relativeUrl = getMobileSignaturePageUrl(request);
   const baseUrl = await getMobileSignatureBaseUrl();
-  return new URL(relativeUrl, `${String(baseUrl || window.location.origin).replace(/\/$/, "")}/`).href;
+  let resolvedBaseUrl = String(baseUrl || window.location.origin || "").trim();
+  try {
+    const parsed = new URL(resolvedBaseUrl, window.location.origin);
+    if (/\.[a-z0-9]+$/i.test(parsed.pathname)) {
+      parsed.pathname = parsed.pathname.replace(/[^/]+$/, "");
+    }
+    if (!parsed.pathname.endsWith("/")) {
+      parsed.pathname = `${parsed.pathname}/`;
+    }
+    parsed.search = "";
+    parsed.hash = "";
+    resolvedBaseUrl = parsed.href;
+  } catch (error) {
+    resolvedBaseUrl = `${resolvedBaseUrl.replace(/\/$/, "").replace(/\/[^/]+\.[a-z0-9]+$/i, "")}/`;
+  }
+  return new URL(relativeUrl, resolvedBaseUrl).href;
 }
 
 async function fillMobileSignatureShareLink(request) {
