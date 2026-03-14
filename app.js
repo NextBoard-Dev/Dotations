@@ -7738,6 +7738,17 @@ function tryCloseCurrentWindow() {
   }
 }
 
+function scheduleCloseAttempts() {
+  tryCloseCurrentWindow();
+  [250, 800, 1600].forEach((delay) => {
+    window.setTimeout(() => {
+      if (!window.closed) {
+        tryCloseCurrentWindow();
+      }
+    }, delay);
+  });
+}
+
 async function saveDataToFile(options = {}) {
   if (!state.data) {
     showDataStatus("AUCUNE DONNEE A SAUVEGARDER");
@@ -7827,7 +7838,7 @@ async function saveDataToFile(options = {}) {
         downloadDataJson();
       }
       if (closeAfterAlert) {
-        tryCloseCurrentWindow();
+        scheduleCloseAttempts();
       }
     }
     if (reloadAfter) {
