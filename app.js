@@ -7698,6 +7698,46 @@ function escapeHtml(value) {
     .replace(/'/g, "&#39;");
 }
 
+function tryCloseCurrentWindow() {
+  try {
+    window.close();
+  } catch (error) {
+    // ignore close errors
+  }
+  if (window.closed) {
+    return;
+  }
+  try {
+    window.open("", "_self");
+    window.close();
+  } catch (error) {
+    // ignore close errors
+  }
+  if (window.closed) {
+    return;
+  }
+  if (window.history.length > 1) {
+    try {
+      window.history.back();
+    } catch (error) {
+      // ignore history errors
+    }
+  }
+  if (window.closed) {
+    return;
+  }
+  try {
+    const currentUrl = new URL(window.location.href);
+    const fallbackPath = currentUrl.pathname.replace(/[^/]*$/, "index.html");
+    const fallbackUrl = `${currentUrl.origin}${fallbackPath}`;
+    if (window.location.href !== fallbackUrl) {
+      window.location.replace(fallbackUrl);
+    }
+  } catch (error) {
+    // ignore redirect errors
+  }
+}
+
 async function saveDataToFile(options = {}) {
   if (!state.data) {
     showDataStatus("AUCUNE DONNEE A SAUVEGARDER");
@@ -7787,14 +7827,7 @@ async function saveDataToFile(options = {}) {
         downloadDataJson();
       }
       if (closeAfterAlert) {
-        const canCloseWindow = Boolean(window.opener && !window.opener.closed);
-        if (canCloseWindow) {
-          try {
-            window.close();
-          } catch (error) {
-            // ignore close errors
-          }
-        }
+        tryCloseCurrentWindow();
       }
     }
     if (reloadAfter) {
