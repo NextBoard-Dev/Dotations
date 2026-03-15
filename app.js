@@ -24,6 +24,7 @@ const state = {
   pdfGenerationActive: false,
   mobileSignaturePollTimerId: 0,
   mobileSignatureNetworkInfo: null,
+  unsavedGuardsBound: false,
   tableSorts: {
     sheetEffects: { key: "typeEffet", dir: "asc" },
     arrivalEffects: { key: "typeEffet", dir: "asc" },
@@ -707,6 +708,10 @@ function openPersonSheet(personId) {
   if (!normalizedId) {
     return;
   }
+  if (shouldBlockDocumentNavigationForUnsavedChanges()) {
+    showMandatorySaveAlert();
+    return;
+  }
   setCurrentPersonId(normalizedId, "replace");
   window.location.href = `fiche-personne.html?personId=${normalizedId}`;
 }
@@ -990,6 +995,7 @@ async function loadData() {
   restoreNavigationContext();
   applyActiveNav();
   bindHistoryNavigation();
+  bindUnsavedChangeGuards();
   bindGlobalShortcuts();
   bindLoadButton();
   bindSaveButtons();
@@ -2499,6 +2505,10 @@ function bindPersonSheetForm() {
         showDataStatus("AUCUNE PERSONNE SELECTIONNEE");
         return;
       }
+      if (shouldBlockDocumentNavigationForUnsavedChanges()) {
+        showMandatorySaveAlert();
+        return;
+      }
       window.location.href = `document-arrivee.html?personId=${personId}`;
     };
   }
@@ -2508,6 +2518,10 @@ function bindPersonSheetForm() {
       const personId = getSheetTargetPersonId();
       if (!personId) {
         showDataStatus("AUCUNE PERSONNE SELECTIONNEE");
+        return;
+      }
+      if (shouldBlockDocumentNavigationForUnsavedChanges()) {
+        showMandatorySaveAlert();
         return;
       }
       window.location.href = `document-sortie.html?personId=${personId}`;
@@ -2817,6 +2831,10 @@ function deletePerson(personId) {
   showActionStatus("delete", `PERSONNE SUPPRIMEE : ${person.nom} ${person.prenom}`);
 
   if (document.body.dataset.page === "person-sheet") {
+    if (shouldBlockDocumentNavigationForUnsavedChanges()) {
+      showMandatorySaveAlert();
+      return;
+    }
     window.location.href = "fiche-personne.html";
   }
 }
@@ -5028,7 +5046,8 @@ function bindSignatureCanvases() {
             ? "SIGNATURE VALIDEE"
             : "SIGNATURE SUPPRIMEE";
       showActionStatus(nextValue ? "update" : "delete", saveText);
-      const mustAlertAndClose = Boolean(nextValue);
+      const isMobileSignaturePage = document.body.dataset.page === "mobile-signature";
+      const mustAlertAndClose = Boolean(nextValue) && isMobileSignaturePage;
       await saveDataToFile({
         silent: !mustAlertAndClose,
         reloadAfter: !mustAlertAndClose,
@@ -8035,6 +8054,68 @@ function clearWorkingData() {
   } catch (error) {
     console.error(error);
   }
+}
+
+function isDocumentEntryOrExitPage() {
+  const page = String(document.body?.dataset?.page || "");
+  return page === "arrival-document" || page === "exit-document";
+}
+
+function shouldBlockDocumentNavigationForUnsavedChanges() {
+  return Boolean(state.isDirty && isDocumentEntryOrExitPage());
+}
+
+function showMandatorySaveAlert() {
+  window.alert("SAUVEGARDE OBLIGATOIRE AVANT DE CHANGER D'ONGLET OU DE QUITTER CETTE PAGE.");
+}
+
+function bindUnsavedChangeGuards() {
+  if (state.unsavedGuardsBound) {
+    return;
+  }
+
+  window.addEventListener("beforeunload", (event) => {
+    if (!state.isDirty) {
+      return;
+    }
+    event.preventDefault();
+    event.returnValue = "";
+  });
+
+  document.addEventListener("click", (event) => {
+    if (!shouldBlockDocumentNavigationForUnsavedChanges()) {
+      return;
+    }
+    const target = event.target;
+    if (!(target instanceof Element)) {
+      return;
+    }
+    const anchor = target.closest("a[href]");
+    if (!(anchor instanceof HTMLAnchorElement)) {
+      return;
+    }
+    if (anchor.target === "_blank" || anchor.hasAttribute("download")) {
+      return;
+    }
+    const rawHref = String(anchor.getAttribute("href") || "").trim();
+    if (!rawHref || rawHref.startsWith("#") || rawHref.toLowerCase().startsWith("javascript:")) {
+      return;
+    }
+    const nextUrl = new URL(anchor.href, window.location.href);
+    const currentUrl = new URL(window.location.href);
+    const samePage =
+      nextUrl.origin === currentUrl.origin &&
+      nextUrl.pathname === currentUrl.pathname &&
+      nextUrl.search === currentUrl.search;
+    if (samePage) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    showMandatorySaveAlert();
+  });
+
+  state.unsavedGuardsBound = true;
 }
 
 function bindGlobalShortcuts() {
