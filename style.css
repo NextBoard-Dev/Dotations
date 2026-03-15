@@ -2755,6 +2755,15 @@ body[data-pdf-mode="true"] .signature-box__status {
   box-shadow: 0 14px 28px rgba(15, 30, 38, 0.12);
 }
 
+.mobile-signature-card__eyebrow { order: 1; }
+.mobile-signature-card__title { order: 2; }
+.mobile-signature-card__subtitle { order: 3; }
+.mobile-signature-card__meta { order: 4; }
+.mobile-signature-card__status { order: 5; }
+.mobile-signature-card__panel { order: 6; }
+.mobile-signature-share { order: 7; }
+.mobile-signature-card__clauses { order: 8; }
+
 .mobile-signature-card__eyebrow {
   margin: 0;
   font-size: 11px;
