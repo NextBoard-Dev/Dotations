@@ -1453,7 +1453,7 @@ body[data-page="exit-document"] .picker-suggestions {
   height: 15px;
   transform: translateY(-50%);
   pointer-events: none;
-  background: url("assets/images/ui/icone-recherche.png") center / contain no-repeat;
+  background: url("https://dphrvdhqhgycmllietuk.supabase.co/storage/v1/object/public/ui-assets/ui/icone-recherche.png") center / contain no-repeat;
   filter: drop-shadow(0 2px 4px rgba(79, 108, 122, 0.18));
 }
 
@@ -1823,7 +1823,7 @@ body[data-page="global"] .form-actions--filters {
 }
 
 .status-pill--sheet-active::before {
-  background-image: url("assets/images/ui/icone-statut-actif.png");
+  background-image: url("https://dphrvdhqhgycmllietuk.supabase.co/storage/v1/object/public/ui-assets/ui/icone-statut-actif.png");
 }
 
 .status-pill--sheet-warning {
@@ -1831,7 +1831,7 @@ body[data-page="global"] .form-actions--filters {
 }
 
 .status-pill--sheet-warning::before {
-  background-image: url("assets/images/ui/icone-statut-sortie-prevue.png");
+  background-image: url("https://dphrvdhqhgycmllietuk.supabase.co/storage/v1/object/public/ui-assets/ui/icone-statut-sortie-prevue.png");
 }
 
 .status-pill--sheet-exit {
@@ -1839,7 +1839,7 @@ body[data-page="global"] .form-actions--filters {
 }
 
 .status-pill--sheet-exit::before {
-  background-image: url("assets/images/ui/icone-statut-sorti.png");
+  background-image: url("https://dphrvdhqhgycmllietuk.supabase.co/storage/v1/object/public/ui-assets/ui/icone-statut-sorti.png");
 }
 
 .status-pill--sheet-pending {
@@ -1847,7 +1847,7 @@ body[data-page="global"] .form-actions--filters {
 }
 
 .status-pill--sheet-pending::before {
-  background-image: url("assets/images/ui/icone-statut-sortie-prevue.png");
+  background-image: url("https://dphrvdhqhgycmllietuk.supabase.co/storage/v1/object/public/ui-assets/ui/icone-statut-sortie-prevue.png");
   opacity: 0.42;
 }
 
@@ -2311,19 +2311,19 @@ body[data-page="overview"] .data-table td {
 }
 
 .status-icon-inline--active {
-  background-image: url("assets/images/ui/icone-statut-actif.png");
+  background-image: url("https://dphrvdhqhgycmllietuk.supabase.co/storage/v1/object/public/ui-assets/ui/icone-statut-actif.png");
 }
 
 .status-icon-inline--warning {
-  background-image: url("assets/images/ui/icone-statut-sortie-prevue.png");
+  background-image: url("https://dphrvdhqhgycmllietuk.supabase.co/storage/v1/object/public/ui-assets/ui/icone-statut-sortie-prevue.png");
 }
 
 .status-icon-inline--exit {
-  background-image: url("assets/images/ui/icone-statut-sorti.png");
+  background-image: url("https://dphrvdhqhgycmllietuk.supabase.co/storage/v1/object/public/ui-assets/ui/icone-statut-sorti.png");
 }
 
 .status-icon-inline--pending {
-  background-image: url("assets/images/ui/icone-statut-sortie-prevue.png");
+  background-image: url("https://dphrvdhqhgycmllietuk.supabase.co/storage/v1/object/public/ui-assets/ui/icone-statut-sortie-prevue.png");
   opacity: 0.42;
 }
 
@@ -2987,6 +2987,7 @@ body[data-pdf-mode="true"] .signature-box__meta-value--pdf {
     grid-column: span 1;
   }
 }
+
 
 
 
