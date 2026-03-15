@@ -4886,8 +4886,36 @@ function bindRepresentativeFields() {
         nom: representative?.nom || "",
         fonction: representative?.fonction || "",
       });
+      if (representative) {
+        const currentSignature = person.signatures?.[docType]?.representant || {};
+        if (!String(currentSignature.validatedAt || "")) {
+          setSignatureValue(
+            person,
+            docType,
+            "representant",
+            String(currentSignature.image || ""),
+            getCurrentSignatureTimestamp(),
+            String(currentSignature.storageRef || ""),
+            String(currentSignature.storagePublicUrl || "")
+          );
+        }
+      }
+      const representantNameNode = document.getElementById(`${docType}-signature-representant-name`);
+      const representantFunctionNode = document.getElementById(`${docType}-signature-representant-function`);
+      const signatureRepresentantDateNode = document.getElementById(`${docType}-signature-representant-date`);
+      if (representantNameNode) {
+        representantNameNode.textContent = representative?.nom || "-";
+      }
+      if (representantFunctionNode) {
+        representantFunctionNode.textContent = representative?.fonction || "-";
+      }
+      if (signatureRepresentantDateNode) {
+        signatureRepresentantDateNode.textContent =
+          formatSignatureTimestamp(getSignatureValidationDate(person, docType, "representant")) || "-";
+      }
       markDirty();
-      renderPage();
+      updateRepresentativeSignatureActionState(docType);
+      syncDocumentMobileSignatureLink(docType, person.id, "representant");
       showActionStatus("update", "REPRESENTANT MIS A JOUR");
     };
 
