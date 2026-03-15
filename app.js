@@ -4554,7 +4554,7 @@ function renderDocumentsArchivePage() {
         <td>${escapeHtml(String(entry.totalEffets ?? "-"))}</td>
         <td>${formatAmountWithEuro(entry.totalFacturable || 0)}</td>
         <td>${escapeHtml(getDocumentArchiveVersionLabel(entry))}</td>
-        <td>${openPath ? `<a class="archive-pdf-button" href="${escapeHtml(openPath)}" target="_blank" rel="noopener" aria-label="OUVRIR PDF"><span class="archive-pdf-button__icon" aria-hidden="true"><img src="assets/images/ui/icone-pdf.png" alt="" class="archive-pdf-button__image" /></span></a>` : "-"}</td>
+        <td>${openPath ? `<a class="archive-pdf-button" href="${escapeHtml(openPath)}" target="_blank" rel="noopener" aria-label="OUVRIR PDF"><span class="archive-pdf-button__icon" aria-hidden="true"><img src="https://dphrvdhqhgycmllietuk.supabase.co/storage/v1/object/public/ui-assets/ui/icone-pdf.png" alt="" class="archive-pdf-button__image" /></span></a>` : "-"}</td>
       </tr>`;
       }
     );
@@ -5846,19 +5846,19 @@ function getSheetEffectTypeIconVariant(typeEffet) {
 function getSheetEffectTypeIconSvg(typeEffet) {
   const variant = getSheetEffectTypeIconVariant(typeEffet);
   if (variant === "cle-ces") {
-    return '<img src="assets/images/sidebar/icone-cle-ces.png" alt="" loading="lazy">';
+    return '<img src="https://dphrvdhqhgycmllietuk.supabase.co/storage/v1/object/public/ui-assets/sidebar/icone-cle-ces.png" alt="" loading="lazy">';
   }
   if (variant === "badge") {
-    return '<img src="assets/images/sidebar/icone-badge.png" alt="" loading="lazy">';
+    return '<img src="https://dphrvdhqhgycmllietuk.supabase.co/storage/v1/object/public/ui-assets/sidebar/icone-badge.png" alt="" loading="lazy">';
   }
   if (variant === "telecommande") {
-    return '<img src="assets/images/sidebar/icone-telecommande.png" alt="" loading="lazy">';
+    return '<img src="https://dphrvdhqhgycmllietuk.supabase.co/storage/v1/object/public/ui-assets/sidebar/icone-telecommande.png" alt="" loading="lazy">';
   }
   if (variant === "carte") {
-    return '<img src="assets/images/sidebar/icone-carte.png" alt="" loading="lazy">';
+    return '<img src="https://dphrvdhqhgycmllietuk.supabase.co/storage/v1/object/public/ui-assets/sidebar/icone-carte.png" alt="" loading="lazy">';
   }
   if (variant === "cle") {
-    return '<img src="assets/images/sidebar/icone-cle.png" alt="" loading="lazy">';
+    return '<img src="https://dphrvdhqhgycmllietuk.supabase.co/storage/v1/object/public/ui-assets/sidebar/icone-cle.png" alt="" loading="lazy">';
   }
   return `<svg viewBox="0 0 24 24" focusable="false">
     <rect x="5" y="5" width="14" height="14" rx="3" fill="currentColor"></rect>
@@ -8069,6 +8069,7 @@ function renderDirtyState() {
 
 loadData();
   const getSheetTargetPersonId = () => state.currentSheetPersonId || getCurrentPersonId();
+
 
 
 
