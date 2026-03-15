@@ -714,6 +714,82 @@ function performPageNavigation(url, mode = "href") {
   window.location.href = url;
 }
 
+function capturePersonSheetDraftToState() {
+  const form = document.getElementById("person-sheet-form");
+  const person = getCurrentPerson();
+  if (!(form instanceof HTMLFormElement) || !person) {
+    return false;
+  }
+
+  const formData = new FormData(form);
+  const draft = {
+    nom: normalizeText(formData.get("sheetNom")),
+    prenom: normalizeText(formData.get("sheetPrenom")),
+    fonction: normalizeText(formData.get("sheetFonction")),
+    sitesAffectation: readSelectedSites(form, "sheet"),
+    typePersonnel: normalizeText(formData.get("sheetTypePersonnel")),
+    typeContrat: normalizeText(formData.get("sheetTypeContrat")),
+    dateEntree: String(formData.get("sheetDateEntree") || ""),
+    dateSortiePrevue: String(formData.get("sheetDateSortiePrevue") || ""),
+    dateSortieReelle: String(formData.get("sheetDateSortieReelle") || ""),
+  };
+
+  const changed =
+    person.nom !== draft.nom ||
+    person.prenom !== draft.prenom ||
+    normalizeText(person.fonction) !== draft.fonction ||
+    !haveSameSites(getPersonSites(person), draft.sitesAffectation) ||
+    normalizeText(person.typePersonnel) !== draft.typePersonnel ||
+    normalizeText(person.typeContrat) !== draft.typeContrat ||
+    String(person.dateEntree || "") !== draft.dateEntree ||
+    String(person.dateSortiePrevue || "") !== draft.dateSortiePrevue ||
+    String(person.dateSortieReelle || "") !== draft.dateSortieReelle;
+
+  if (!changed) {
+    return false;
+  }
+
+  person.nom = draft.nom;
+  person.prenom = draft.prenom;
+  person.fonction = draft.fonction;
+  person.sitesAffectation = draft.sitesAffectation;
+  person.site = getPersonSiteLabel(person);
+  person.typePersonnel = draft.typePersonnel;
+  person.typeContrat = draft.typeContrat;
+  person.dateEntree = draft.dateEntree;
+  person.dateSortiePrevue = draft.dateSortiePrevue;
+  person.dateSortieReelle = draft.dateSortieReelle;
+  markDirty();
+  return true;
+}
+
+function captureMobileSignatureSettingsDraftToState() {
+  const form = document.getElementById("mobile-signature-settings-form");
+  if (!(form instanceof HTMLFormElement) || !state.data?.meta) {
+    return false;
+  }
+  const rawValue = String(form.elements.mobileSignatureBaseUrl?.value || "").trim();
+  const normalized = normalizeHttpUrl(rawValue);
+  if (rawValue && !normalized) {
+    return false;
+  }
+  const currentValue = String(state.data.meta.signatureMobileBaseUrl || "");
+  if (currentValue === normalized) {
+    return false;
+  }
+  state.data.meta.signatureMobileBaseUrl = normalized;
+  state.mobileSignatureNetworkInfo = null;
+  markDirty();
+  return true;
+}
+
+function capturePendingEditsBeforeNavigation() {
+  let captured = false;
+  captured = capturePersonSheetDraftToState() || captured;
+  captured = captureMobileSignatureSettingsDraftToState() || captured;
+  return captured;
+}
+
 function runAutoSaveBeforeNavigation() {
   if (!state.isDirty || !state.data) {
     return Promise.resolve(false);
@@ -738,6 +814,7 @@ function navigateWithAutoSave(url, mode = "href") {
   if (!url) {
     return;
   }
+  capturePendingEditsBeforeNavigation();
   if (!state.isDirty) {
     performPageNavigation(url, mode);
     return;
@@ -8130,7 +8207,11 @@ function bindAutoSaveOnNavigation() {
         nextUrl.origin === currentUrl.origin &&
         nextUrl.pathname === currentUrl.pathname &&
         nextUrl.search === currentUrl.search;
-      if (samePage || !state.isDirty) {
+      if (samePage) {
+        return;
+      }
+      capturePendingEditsBeforeNavigation();
+      if (!state.isDirty) {
         return;
       }
       event.preventDefault();
