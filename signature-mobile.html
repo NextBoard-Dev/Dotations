@@ -4,7 +4,9 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Signature mobile</title>
-    <link rel="stylesheet" href="style.css?v=20260304-007" />
+        <link rel="icon" href="favicon.ico" type="image/x-icon" />
+    <link rel="alternate icon" href="favicon-dark.ico" type="image/x-icon" />
+    <link rel="stylesheet" href="style.css?v=20260315-1605" />
   </head>
   <body data-page="mobile-signature">
     <main class="mobile-signature-page">
@@ -25,6 +27,23 @@
         </div>
 
         <p class="mobile-signature-card__status" id="mobile-signature-request-status">CHARGEMENT...</p>
+        <div class="mobile-signature-card__panel" id="mobile-signature-panel">
+          <p class="mobile-signature-card__hint">VEUILLEZ SIGNER DANS LA ZONE CI-DESSOUS.</p>
+          <div class="signature-box signature-box--mobile">
+            <div class="signature-box__area">
+              <canvas class="signature-box__canvas js-signature-canvas" data-doc-type="arrival" data-signer="personnel"></canvas>
+            </div>
+            <div class="signature-box__actions signature-box__actions--mobile">
+              <button type="button" class="button button--primary js-signature-save" data-doc-type="arrival" data-signer="personnel">
+                VALIDER LA SIGNATURE
+              </button>
+              <button type="button" class="button button--secondary js-signature-clear" data-doc-type="arrival" data-signer="personnel">
+                EFFACER
+              </button>
+            </div>
+            <p class="signature-box__status" id="mobile-signature-personnel-status">AUCUNE SIGNATURE</p>
+          </div>
+        </div>
         <div class="mobile-signature-share" id="mobile-signature-share" hidden>
           <p class="mobile-signature-share__label">LIEN A OUVRIR SUR LE TELEPHONE</p>
           <div class="mobile-signature-share__row">
@@ -61,27 +80,12 @@
             </div>
           </div>
         </div>
-
-        <div class="mobile-signature-card__panel" id="mobile-signature-panel">
-          <p class="mobile-signature-card__hint">VEUILLEZ SIGNER DANS LA ZONE CI-DESSOUS.</p>
-          <div class="signature-box signature-box--mobile">
-            <div class="signature-box__area">
-              <canvas class="signature-box__canvas js-signature-canvas" data-doc-type="arrival" data-signer="personnel"></canvas>
-            </div>
-            <div class="signature-box__actions signature-box__actions--mobile">
-              <button type="button" class="button button--primary js-signature-save" data-doc-type="arrival" data-signer="personnel">
-                VALIDER LA SIGNATURE
-              </button>
-              <button type="button" class="button button--secondary js-signature-clear" data-doc-type="arrival" data-signer="personnel">
-                EFFACER
-              </button>
-            </div>
-            <p class="signature-box__status" id="mobile-signature-personnel-status">AUCUNE SIGNATURE</p>
-          </div>
-        </div>
       </section>
     </main>
 
-    <script src="app.js?v=20260314-1451"></script>
+    <script src="app.js?v=20260315-1605"></script>
   </body>
 </html>
+
+
+

@@ -24,6 +24,9 @@ const state = {
   pdfGenerationActive: false,
   mobileSignaturePollTimerId: 0,
   mobileSignatureNetworkInfo: null,
+  autoSaveNavigationBound: false,
+  autoSaveInFlightPromise: null,
+  autoSaveTimerId: 0,
   tableSorts: {
     sheetEffects: { key: "typeEffet", dir: "asc" },
     arrivalEffects: { key: "typeEffet", dir: "asc" },
@@ -701,6 +704,153 @@ function setCurrentPersonId(personId, mode = "replace") {
   saveNavigationContext({ personId: personId || "" });
 }
 
+function performPageNavigation(url, mode = "href") {
+  if (!url) {
+    return;
+  }
+  if (mode === "replace") {
+    window.location.replace(url);
+    return;
+  }
+  window.location.href = url;
+}
+
+function capturePersonSheetDraftToState() {
+  const form = document.getElementById("person-sheet-form");
+  const person = getCurrentPerson();
+  if (!(form instanceof HTMLFormElement) || !person) {
+    return false;
+  }
+
+  const formData = new FormData(form);
+  const draft = {
+    nom: normalizeText(formData.get("sheetNom")),
+    prenom: normalizeText(formData.get("sheetPrenom")),
+    fonction: normalizeText(formData.get("sheetFonction")),
+    sitesAffectation: readSelectedSites(form, "sheet"),
+    typePersonnel: normalizeText(formData.get("sheetTypePersonnel")),
+    typeContrat: normalizeText(formData.get("sheetTypeContrat")),
+    dateEntree: String(formData.get("sheetDateEntree") || ""),
+    dateSortiePrevue: String(formData.get("sheetDateSortiePrevue") || ""),
+    dateSortieReelle: String(formData.get("sheetDateSortieReelle") || ""),
+  };
+
+  const changed =
+    person.nom !== draft.nom ||
+    person.prenom !== draft.prenom ||
+    normalizeText(person.fonction) !== draft.fonction ||
+    !haveSameSites(getPersonSites(person), draft.sitesAffectation) ||
+    normalizeText(person.typePersonnel) !== draft.typePersonnel ||
+    normalizeText(person.typeContrat) !== draft.typeContrat ||
+    String(person.dateEntree || "") !== draft.dateEntree ||
+    String(person.dateSortiePrevue || "") !== draft.dateSortiePrevue ||
+    String(person.dateSortieReelle || "") !== draft.dateSortieReelle;
+
+  if (!changed) {
+    return false;
+  }
+
+  person.nom = draft.nom;
+  person.prenom = draft.prenom;
+  person.fonction = draft.fonction;
+  person.sitesAffectation = draft.sitesAffectation;
+  person.site = getPersonSiteLabel(person);
+  person.typePersonnel = draft.typePersonnel;
+  person.typeContrat = draft.typeContrat;
+  person.dateEntree = draft.dateEntree;
+  person.dateSortiePrevue = draft.dateSortiePrevue;
+  person.dateSortieReelle = draft.dateSortieReelle;
+  markDirty();
+  return true;
+}
+
+function captureMobileSignatureSettingsDraftToState() {
+  const form = document.getElementById("mobile-signature-settings-form");
+  if (!(form instanceof HTMLFormElement) || !state.data?.meta) {
+    return false;
+  }
+  const rawValue = String(form.elements.mobileSignatureBaseUrl?.value || "").trim();
+  const normalized = normalizeHttpUrl(rawValue);
+  if (rawValue && !normalized) {
+    return false;
+  }
+  const currentValue = String(state.data.meta.signatureMobileBaseUrl || "");
+  if (currentValue === normalized) {
+    return false;
+  }
+  state.data.meta.signatureMobileBaseUrl = normalized;
+  state.mobileSignatureNetworkInfo = null;
+  markDirty();
+  return true;
+}
+
+function capturePendingEditsBeforeNavigation() {
+  return capturePersonSheetDraftToState() || captureMobileSignatureSettingsDraftToState();
+}
+
+function runAutoSaveBeforeNavigation() {
+  if (!state.isDirty || !state.data) {
+    return Promise.resolve(false);
+  }
+  if (state.autoSaveInFlightPromise) {
+    return state.autoSaveInFlightPromise;
+  }
+  state.autoSaveInFlightPromise = saveDataToFile({
+    silent: true,
+    reloadAfter: false,
+    promptDownload: false,
+    successText: "DONNEES SAUVEGARDEES",
+  })
+    .catch(() => undefined)
+    .finally(() => {
+      state.autoSaveInFlightPromise = null;
+    });
+  return state.autoSaveInFlightPromise.then(() => !state.isDirty);
+}
+
+function scheduleBackgroundAutoSave() {
+  if (!state.isDirty || !state.data) {
+    return;
+  }
+  if (state.autoSaveTimerId) {
+    window.clearTimeout(state.autoSaveTimerId);
+    state.autoSaveTimerId = 0;
+  }
+  state.autoSaveTimerId = window.setTimeout(() => {
+    state.autoSaveTimerId = 0;
+    runAutoSaveBeforeNavigation();
+  }, 280);
+}
+
+function navigateWithAutoSave(url, mode = "href") {
+  if (!url) {
+    return;
+  }
+  capturePendingEditsBeforeNavigation();
+  if (!state.isDirty) {
+    performPageNavigation(url, mode);
+    return;
+  }
+  const maxWaitMs = 220;
+  let navigationDone = false;
+  const navigateNow = () => {
+    if (navigationDone) {
+      return;
+    }
+    navigationDone = true;
+    performPageNavigation(url, mode);
+  };
+  const fallbackTimer = window.setTimeout(() => {
+    navigateNow();
+  }, maxWaitMs);
+  runAutoSaveBeforeNavigation().finally(() => {
+    if (navigationDone) {
+      return;
+    }
+    window.clearTimeout(fallbackTimer);
+    navigateNow();
+  });
+}
 
 function openPersonSheet(personId) {
   const normalizedId = String(personId || "");
@@ -708,7 +858,7 @@ function openPersonSheet(personId) {
     return;
   }
   setCurrentPersonId(normalizedId, "replace");
-  window.location.href = `fiche-personne.html?personId=${normalizedId}`;
+  navigateWithAutoSave(`fiche-personne.html?personId=${normalizedId}`);
 }
 
 function getCurrentMobileSignatureToken() {
@@ -987,9 +1137,11 @@ async function openMobileSignatureRequest(docType, personId, signer = "personnel
 
 async function loadData() {
   bindPdfModalCleanup();
+  reorderOverviewSearchBlock();
   restoreNavigationContext();
   applyActiveNav();
   bindHistoryNavigation();
+  bindAutoSaveOnNavigation();
   bindGlobalShortcuts();
   bindLoadButton();
   bindSaveButtons();
@@ -1022,10 +1174,32 @@ async function loadData() {
     hydrateStaticLists();
     renderPage();
     showDataStatus("DONNEES EN COURS REPRISES - SAUVEGARDER POUR LES RENDRE DEFINITIVES");
+    scheduleBackgroundAutoSave();
     return;
   }
 
   await reloadData("OUVERTURE DES DONNEES...");
+}
+
+function reorderOverviewSearchBlock() {
+  if (document.body?.dataset?.page !== "overview") {
+    return;
+  }
+  const container = document.querySelector(".overview-top-fixed");
+  if (!(container instanceof HTMLElement)) {
+    return;
+  }
+  const sections = Array.from(container.querySelectorAll(":scope > section.section"));
+  const getHeading = (section) =>
+    normalizeText(section.querySelector(".section__heading h3")?.textContent || "");
+  const searchSection = sections.find((section) => getHeading(section) === "RECHERCHE ET FILTRES");
+  const overviewSection = sections.find((section) => getHeading(section) === "VUE D'ENSEMBLE");
+  if (!(searchSection instanceof HTMLElement) || !(overviewSection instanceof HTMLElement)) {
+    return;
+  }
+  if (searchSection.compareDocumentPosition(overviewSection) & Node.DOCUMENT_POSITION_PRECEDING) {
+    container.insertBefore(searchSection, overviewSection);
+  }
 }
 
 function applyPdfModeFromQuery() {
@@ -2499,7 +2673,7 @@ function bindPersonSheetForm() {
         showDataStatus("AUCUNE PERSONNE SELECTIONNEE");
         return;
       }
-      window.location.href = `document-arrivee.html?personId=${personId}`;
+      navigateWithAutoSave(`document-arrivee.html?personId=${personId}`);
     };
   }
 
@@ -2510,7 +2684,7 @@ function bindPersonSheetForm() {
         showDataStatus("AUCUNE PERSONNE SELECTIONNEE");
         return;
       }
-      window.location.href = `document-sortie.html?personId=${personId}`;
+      navigateWithAutoSave(`document-sortie.html?personId=${personId}`);
     };
   }
 
@@ -2817,7 +2991,7 @@ function deletePerson(personId) {
   showActionStatus("delete", `PERSONNE SUPPRIMEE : ${person.nom} ${person.prenom}`);
 
   if (document.body.dataset.page === "person-sheet") {
-    window.location.href = "fiche-personne.html";
+    navigateWithAutoSave("fiche-personne.html");
   }
 }
 
@@ -4554,7 +4728,7 @@ function renderDocumentsArchivePage() {
         <td>${escapeHtml(String(entry.totalEffets ?? "-"))}</td>
         <td>${formatAmountWithEuro(entry.totalFacturable || 0)}</td>
         <td>${escapeHtml(getDocumentArchiveVersionLabel(entry))}</td>
-        <td>${openPath ? `<a class="archive-pdf-button" href="${escapeHtml(openPath)}" target="_blank" rel="noopener" aria-label="OUVRIR PDF"><span class="archive-pdf-button__icon" aria-hidden="true"><img src="assets/images/ui/icone-pdf.png" alt="" class="archive-pdf-button__image" /></span></a>` : "-"}</td>
+        <td>${openPath ? `<a class="archive-pdf-button" href="${escapeHtml(openPath)}" target="_blank" rel="noopener" aria-label="OUVRIR PDF"><span class="archive-pdf-button__icon" aria-hidden="true"><img src="https://dphrvdhqhgycmllietuk.supabase.co/storage/v1/object/public/ui-assets/ui/icone-pdf.png" alt="" class="archive-pdf-button__image" /></span></a>` : "-"}</td>
       </tr>`;
       }
     );
@@ -4886,8 +5060,36 @@ function bindRepresentativeFields() {
         nom: representative?.nom || "",
         fonction: representative?.fonction || "",
       });
+      if (representative) {
+        const currentSignature = person.signatures?.[docType]?.representant || {};
+        if (!String(currentSignature.validatedAt || "")) {
+          setSignatureValue(
+            person,
+            docType,
+            "representant",
+            String(currentSignature.image || ""),
+            getCurrentSignatureTimestamp(),
+            String(currentSignature.storageRef || ""),
+            String(currentSignature.storagePublicUrl || "")
+          );
+        }
+      }
+      const representantNameNode = document.getElementById(`${docType}-signature-representant-name`);
+      const representantFunctionNode = document.getElementById(`${docType}-signature-representant-function`);
+      const signatureRepresentantDateNode = document.getElementById(`${docType}-signature-representant-date`);
+      if (representantNameNode) {
+        representantNameNode.textContent = representative?.nom || "-";
+      }
+      if (representantFunctionNode) {
+        representantFunctionNode.textContent = representative?.fonction || "-";
+      }
+      if (signatureRepresentantDateNode) {
+        signatureRepresentantDateNode.textContent =
+          formatSignatureTimestamp(getSignatureValidationDate(person, docType, "representant")) || "-";
+      }
       markDirty();
-      renderPage();
+      updateRepresentativeSignatureActionState(docType);
+      syncDocumentMobileSignatureLink(docType, person.id, "representant");
       showActionStatus("update", "REPRESENTANT MIS A JOUR");
     };
 
@@ -5000,7 +5202,8 @@ function bindSignatureCanvases() {
             ? "SIGNATURE VALIDEE"
             : "SIGNATURE SUPPRIMEE";
       showActionStatus(nextValue ? "update" : "delete", saveText);
-      const mustAlertAndClose = Boolean(nextValue);
+      const isMobileSignaturePage = document.body.dataset.page === "mobile-signature";
+      const mustAlertAndClose = Boolean(nextValue) && isMobileSignaturePage;
       await saveDataToFile({
         silent: !mustAlertAndClose,
         reloadAfter: !mustAlertAndClose,
@@ -5846,19 +6049,19 @@ function getSheetEffectTypeIconVariant(typeEffet) {
 function getSheetEffectTypeIconSvg(typeEffet) {
   const variant = getSheetEffectTypeIconVariant(typeEffet);
   if (variant === "cle-ces") {
-    return '<img src="assets/images/sidebar/icone-cle-ces.png" alt="" loading="lazy">';
+    return '<img src="https://dphrvdhqhgycmllietuk.supabase.co/storage/v1/object/public/ui-assets/sidebar/icone-cle-ces.png" alt="" loading="lazy">';
   }
   if (variant === "badge") {
-    return '<img src="assets/images/sidebar/icone-badge.png" alt="" loading="lazy">';
+    return '<img src="https://dphrvdhqhgycmllietuk.supabase.co/storage/v1/object/public/ui-assets/sidebar/icone-badge.png" alt="" loading="lazy">';
   }
   if (variant === "telecommande") {
-    return '<img src="assets/images/sidebar/icone-telecommande.png" alt="" loading="lazy">';
+    return '<img src="https://dphrvdhqhgycmllietuk.supabase.co/storage/v1/object/public/ui-assets/sidebar/icone-telecommande.png" alt="" loading="lazy">';
   }
   if (variant === "carte") {
-    return '<img src="assets/images/sidebar/icone-carte.png" alt="" loading="lazy">';
+    return '<img src="https://dphrvdhqhgycmllietuk.supabase.co/storage/v1/object/public/ui-assets/sidebar/icone-carte.png" alt="" loading="lazy">';
   }
   if (variant === "cle") {
-    return '<img src="assets/images/sidebar/icone-cle.png" alt="" loading="lazy">';
+    return '<img src="https://dphrvdhqhgycmllietuk.supabase.co/storage/v1/object/public/ui-assets/sidebar/icone-cle.png" alt="" loading="lazy">';
   }
   return `<svg viewBox="0 0 24 24" focusable="false">
     <rect x="5" y="5" width="14" height="14" rx="3" fill="currentColor"></rect>
@@ -7727,6 +7930,10 @@ function tryCloseCurrentWindow() {
     return;
   }
   try {
+    if (document.body.dataset.page === "mobile-signature") {
+      window.location.replace("about:blank");
+      return;
+    }
     const currentUrl = new URL(window.location.href);
     const fallbackPath = currentUrl.pathname.replace(/[^/]*$/, "index.html");
     const fallbackUrl = `${currentUrl.origin}${fallbackPath}`;
@@ -8005,6 +8212,51 @@ function clearWorkingData() {
   }
 }
 
+function bindAutoSaveOnNavigation() {
+  if (state.autoSaveNavigationBound) {
+    return;
+  }
+
+  document.addEventListener(
+    "click",
+    (event) => {
+      const target = event.target;
+      if (!(target instanceof Element)) {
+        return;
+      }
+      const anchor = target.closest("a[href]");
+      if (!(anchor instanceof HTMLAnchorElement)) {
+        return;
+      }
+      if (anchor.target === "_blank" || anchor.hasAttribute("download")) {
+        return;
+      }
+      const rawHref = String(anchor.getAttribute("href") || "").trim();
+      if (!rawHref || rawHref.startsWith("#") || rawHref.toLowerCase().startsWith("javascript:")) {
+        return;
+      }
+      const nextUrl = new URL(anchor.href, window.location.href);
+      const currentUrl = new URL(window.location.href);
+      const samePage =
+        nextUrl.origin === currentUrl.origin &&
+        nextUrl.pathname === currentUrl.pathname &&
+        nextUrl.search === currentUrl.search;
+      if (samePage) {
+        return;
+      }
+      capturePendingEditsBeforeNavigation();
+      if (!state.isDirty) {
+        return;
+      }
+      event.preventDefault();
+      navigateWithAutoSave(nextUrl.href);
+    },
+    true
+  );
+
+  state.autoSaveNavigationBound = true;
+}
+
 function bindGlobalShortcuts() {
   if (state.shortcutsBound) {
     return;
@@ -8055,6 +8307,7 @@ function markDirty() {
   state.isDirty = true;
   saveWorkingData();
   renderDirtyState();
+  scheduleBackgroundAutoSave();
 }
 
 function renderDirtyState() {
@@ -8069,6 +8322,7 @@ function renderDirtyState() {
 
 loadData();
   const getSheetTargetPersonId = () => state.currentSheetPersonId || getCurrentPersonId();
+
 
 
 
