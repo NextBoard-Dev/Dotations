@@ -1197,7 +1197,7 @@ function reorderOverviewSearchBlock() {
   if (!(searchSection instanceof HTMLElement) || !(overviewSection instanceof HTMLElement)) {
     return;
   }
-  if (searchSection.compareDocumentPosition(overviewSection) & Node.DOCUMENT_POSITION_FOLLOWING) {
+  if (searchSection.compareDocumentPosition(overviewSection) & Node.DOCUMENT_POSITION_PRECEDING) {
     container.insertBefore(searchSection, overviewSection);
   }
 }
