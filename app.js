@@ -785,10 +785,7 @@ function captureMobileSignatureSettingsDraftToState() {
 }
 
 function capturePendingEditsBeforeNavigation() {
-  let captured = false;
-  captured = capturePersonSheetDraftToState() || captured;
-  captured = captureMobileSignatureSettingsDraftToState() || captured;
-  return captured;
+  return capturePersonSheetDraftToState() || captureMobileSignatureSettingsDraftToState();
 }
 
 function runAutoSaveBeforeNavigation() {
@@ -854,7 +851,6 @@ function navigateWithAutoSave(url, mode = "href") {
     navigateNow();
   });
 }
-
 
 function openPersonSheet(personId) {
   const normalizedId = String(personId || "");
