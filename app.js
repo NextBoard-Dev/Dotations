@@ -1137,6 +1137,7 @@ async function openMobileSignatureRequest(docType, personId, signer = "personnel
 
 async function loadData() {
   bindPdfModalCleanup();
+  reorderOverviewSearchBlock();
   restoreNavigationContext();
   applyActiveNav();
   bindHistoryNavigation();
@@ -1178,6 +1179,27 @@ async function loadData() {
   }
 
   await reloadData("OUVERTURE DES DONNEES...");
+}
+
+function reorderOverviewSearchBlock() {
+  if (document.body?.dataset?.page !== "overview") {
+    return;
+  }
+  const container = document.querySelector(".overview-top-fixed");
+  if (!(container instanceof HTMLElement)) {
+    return;
+  }
+  const sections = Array.from(container.querySelectorAll(":scope > section.section"));
+  const getHeading = (section) =>
+    normalizeText(section.querySelector(".section__heading h3")?.textContent || "");
+  const searchSection = sections.find((section) => getHeading(section) === "RECHERCHE ET FILTRES");
+  const overviewSection = sections.find((section) => getHeading(section) === "VUE D'ENSEMBLE");
+  if (!(searchSection instanceof HTMLElement) || !(overviewSection instanceof HTMLElement)) {
+    return;
+  }
+  if (searchSection.compareDocumentPosition(overviewSection) & Node.DOCUMENT_POSITION_FOLLOWING) {
+    container.insertBefore(searchSection, overviewSection);
+  }
 }
 
 function applyPdfModeFromQuery() {
