@@ -7755,6 +7755,10 @@ function tryCloseCurrentWindow() {
     return;
   }
   try {
+    if (document.body.dataset.page === "mobile-signature") {
+      window.location.replace("about:blank");
+      return;
+    }
     const currentUrl = new URL(window.location.href);
     const fallbackPath = currentUrl.pathname.replace(/[^/]*$/, "index.html");
     const fallbackUrl = `${currentUrl.origin}${fallbackPath}`;
