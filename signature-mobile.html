@@ -40,6 +40,24 @@
           </div>
         </div>
 
+        <div class="mobile-signature-card__panel" id="mobile-signature-panel">
+          <p class="mobile-signature-card__hint">VEUILLEZ SIGNER DANS LA ZONE CI-DESSOUS.</p>
+          <div class="signature-box signature-box--mobile">
+            <div class="signature-box__area">
+              <canvas class="signature-box__canvas js-signature-canvas" data-doc-type="arrival" data-signer="personnel"></canvas>
+            </div>
+            <div class="signature-box__actions signature-box__actions--mobile">
+              <button type="button" class="button button--primary js-signature-save" data-doc-type="arrival" data-signer="personnel">
+                VALIDER LA SIGNATURE
+              </button>
+              <button type="button" class="button button--secondary js-signature-clear" data-doc-type="arrival" data-signer="personnel">
+                EFFACER
+              </button>
+            </div>
+            <p class="signature-box__status" id="mobile-signature-personnel-status">AUCUNE SIGNATURE</p>
+          </div>
+        </div>
+
         <div class="mobile-signature-card__clauses">
           <div class="section__subheading section__subheading--stacked">
             <h4>CLAUSES DE RESTITUTION ET DE FACTURATION</h4>
@@ -61,24 +79,6 @@
                 </tbody>
               </table>
             </div>
-          </div>
-        </div>
-
-        <div class="mobile-signature-card__panel" id="mobile-signature-panel">
-          <p class="mobile-signature-card__hint">VEUILLEZ SIGNER DANS LA ZONE CI-DESSOUS.</p>
-          <div class="signature-box signature-box--mobile">
-            <div class="signature-box__area">
-              <canvas class="signature-box__canvas js-signature-canvas" data-doc-type="arrival" data-signer="personnel"></canvas>
-            </div>
-            <div class="signature-box__actions signature-box__actions--mobile">
-              <button type="button" class="button button--primary js-signature-save" data-doc-type="arrival" data-signer="personnel">
-                VALIDER LA SIGNATURE
-              </button>
-              <button type="button" class="button button--secondary js-signature-clear" data-doc-type="arrival" data-signer="personnel">
-                EFFACER
-              </button>
-            </div>
-            <p class="signature-box__status" id="mobile-signature-personnel-status">AUCUNE SIGNATURE</p>
           </div>
         </div>
       </section>
