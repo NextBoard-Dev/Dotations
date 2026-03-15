@@ -26,6 +26,7 @@ const state = {
   mobileSignatureNetworkInfo: null,
   autoSaveNavigationBound: false,
   autoSaveInFlightPromise: null,
+  autoSaveTimerId: 0,
   tableSorts: {
     sheetEffects: { key: "typeEffet", dir: "asc" },
     arrivalEffects: { key: "typeEffet", dir: "asc" },
@@ -810,6 +811,20 @@ function runAutoSaveBeforeNavigation() {
   return state.autoSaveInFlightPromise.then(() => !state.isDirty);
 }
 
+function scheduleBackgroundAutoSave() {
+  if (!state.isDirty || !state.data) {
+    return;
+  }
+  if (state.autoSaveTimerId) {
+    window.clearTimeout(state.autoSaveTimerId);
+    state.autoSaveTimerId = 0;
+  }
+  state.autoSaveTimerId = window.setTimeout(() => {
+    state.autoSaveTimerId = 0;
+    runAutoSaveBeforeNavigation();
+  }, 280);
+}
+
 function navigateWithAutoSave(url, mode = "href") {
   if (!url) {
     return;
@@ -1162,6 +1177,7 @@ async function loadData() {
     hydrateStaticLists();
     renderPage();
     showDataStatus("DONNEES EN COURS REPRISES - SAUVEGARDER POUR LES RENDRE DEFINITIVES");
+    scheduleBackgroundAutoSave();
     return;
   }
 
@@ -8273,6 +8289,7 @@ function markDirty() {
   state.isDirty = true;
   saveWorkingData();
   renderDirtyState();
+  scheduleBackgroundAutoSave();
 }
 
 function renderDirtyState() {
