@@ -258,6 +258,9 @@ body[data-page="overview"] .overview-top-fixed {
   background: linear-gradient(180deg, #ebe6dc 0%, #d9e2e7 100%);
   padding-bottom: 0;
   box-shadow: none;
+  backface-visibility: hidden;
+  transform: translateZ(0);
+  contain: paint;
 }
 
 body[data-page="person-sheet"] .main-content {
@@ -271,6 +274,9 @@ body[data-page="person-sheet"] .person-sheet-top-fixed {
   background: linear-gradient(180deg, #ebe6dc 0%, #d9e2e7 100%);
   padding-bottom: 0;
   box-shadow: none;
+  backface-visibility: hidden;
+  transform: translateZ(0);
+  contain: paint;
 }
 
 body[data-page="arrival-document"] .main-content,
@@ -286,6 +292,9 @@ body[data-page="exit-document"] .document-top-fixed {
   background: linear-gradient(180deg, #ebe6dc 0%, #d9e2e7 100%);
   padding-bottom: 0;
   box-shadow: none;
+  backface-visibility: hidden;
+  transform: translateZ(0);
+  contain: paint;
 }
 
 body[data-page="documents-archives"] .main-content {
@@ -299,6 +308,9 @@ body[data-page="documents-archives"] .archives-top-fixed {
   background: linear-gradient(180deg, #ebe6dc 0%, #d9e2e7 100%);
   padding-bottom: 0;
   box-shadow: none;
+  backface-visibility: hidden;
+  transform: translateZ(0);
+  contain: paint;
 }
 
 body[data-page="global"] .main-content {
@@ -312,6 +324,9 @@ body[data-page="global"] .global-top-fixed {
   background: linear-gradient(180deg, #ebe6dc 0%, #d9e2e7 100%);
   padding-bottom: 0;
   box-shadow: none;
+  backface-visibility: hidden;
+  transform: translateZ(0);
+  contain: paint;
 }
 
 body[data-page="reference-bases"] .main-content {
@@ -325,6 +340,9 @@ body[data-page="reference-bases"] .reference-top-fixed {
   background: linear-gradient(180deg, #ebe6dc 0%, #d9e2e7 100%);
   padding-bottom: 0;
   box-shadow: none;
+  backface-visibility: hidden;
+  transform: translateZ(0);
+  contain: paint;
 }
 
 body[data-pdf-mode="true"] {
