@@ -1990,24 +1990,24 @@ function buildControlReportHtml(persons) {
   <title>ETAT DE CONTROLE</title>
   <style>
     :root{
-      --bg:#f2f6f9;
+      --bg:#eaf1f6;
       --card:#ffffff;
-      --line:#d3dee6;
-      --line-strong:#b8cad6;
+      --line:#cfdce6;
+      --line-strong:#aec3d1;
       --title:#193243;
       --text:#294757;
       --muted:#5a7585;
       --accent:#3f6170;
-      --accent-soft:#e9f1f5;
+      --accent-soft:#edf4f8;
       --warn:#8d4d2f;
       --warn-bg:#f8eee8;
     }
     *{box-sizing:border-box}
     body{
       margin:0;
-      padding:20px;
+      padding:18px;
       font-family:"Segoe UI",Arial,sans-serif;
-      background:var(--bg);
+      background:linear-gradient(180deg,#edf3f7 0%, #e6eef4 100%);
       color:var(--text);
     }
     .wrap{
@@ -2015,32 +2015,50 @@ function buildControlReportHtml(persons) {
       margin:0 auto;
       background:var(--card);
       border:1px solid var(--line);
-      border-radius:14px;
+      border-radius:16px;
       padding:18px;
-      box-shadow:0 8px 24px rgba(33,60,75,.08);
+      box-shadow:0 10px 30px rgba(30,58,73,.1);
+      position:relative;
+      overflow:hidden;
+    }
+    .wrap::before{
+      content:"";
+      position:absolute;
+      top:0;
+      left:0;
+      right:0;
+      height:4px;
+      background:linear-gradient(90deg,#2f5668 0%, #4d7587 100%);
     }
     .head{
       display:flex;
       justify-content:space-between;
       align-items:flex-end;
       gap:16px;
-      padding-bottom:10px;
+      padding-bottom:12px;
       border-bottom:1px solid var(--line);
-      margin-bottom:14px;
+      margin-bottom:16px;
+      position:relative;
+      z-index:1;
     }
     h1{
       margin:0;
-      font-size:24px;
+      font-size:33px;
       line-height:1.1;
       color:var(--title);
-      letter-spacing:.01em;
+      letter-spacing:.015em;
+      text-transform:uppercase;
     }
     .meta{
-      font-size:12px;
+      font-size:11px;
       color:var(--muted);
       text-transform:uppercase;
       letter-spacing:.06em;
       white-space:nowrap;
+      border:1px solid #c4d2dc;
+      border-radius:999px;
+      padding:6px 10px;
+      background:#f3f8fb;
     }
     .head-right{
       display:flex;
@@ -2050,51 +2068,81 @@ function buildControlReportHtml(persons) {
     }
     .print-button{
       border:1px solid rgba(63,97,112,.55);
-      background:var(--accent);
+      background:linear-gradient(180deg,#456b7e 0%, #355765 100%);
       color:#fff;
       border-radius:9px;
-      padding:7px 12px;
+      padding:8px 14px;
       font-size:11px;
-      letter-spacing:.05em;
+      letter-spacing:.06em;
       text-transform:uppercase;
       cursor:pointer;
-      box-shadow:0 4px 12px rgba(63,97,112,.22);
+      box-shadow:0 6px 16px rgba(42,70,84,.24);
+      font-weight:700;
     }
-    .print-button:hover{background:#2e4c5a}
+    .print-button:hover{background:linear-gradient(180deg,#3e6273 0%, #2f4f5d 100%)}
     .kpis{
       display:grid;
       grid-template-columns:repeat(4,minmax(150px,1fr));
-      gap:10px;
-      margin-bottom:14px;
+      gap:11px;
+      margin-bottom:16px;
     }
     .kpi{
       border:1px solid var(--line);
-      border-radius:10px;
-      padding:9px 11px;
+      border-radius:12px;
+      padding:10px 12px;
       background:var(--accent-soft);
       font-size:11px;
       color:var(--muted);
       letter-spacing:.05em;
       text-transform:uppercase;
+      position:relative;
+      overflow:hidden;
+    }
+    .kpi::before{
+      content:"";
+      position:absolute;
+      inset:0 auto 0 0;
+      width:4px;
+      background:#8ea9b7;
+    }
+    .kpi__label{
+      display:flex;
+      align-items:center;
+      gap:6px;
+    }
+    .kpi__icon{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      width:18px;
+      height:18px;
+      border-radius:50%;
+      border:1px solid #aac0ce;
+      background:#f6fbff;
+      font-size:11px;
     }
     .kpi b{
       display:block;
-      margin-top:4px;
-      font-size:23px;
+      margin-top:5px;
+      font-size:34px;
       color:var(--title);
       letter-spacing:0;
       text-transform:none;
+      line-height:1;
+      font-weight:700;
     }
     .kpi--warn{
       background:var(--warn-bg);
       border-color:#ecc2ae;
       color:#8a5539;
     }
+    .kpi--warn::before{background:#d49e85}
     .kpi--warn b{color:var(--warn)}
     .table-wrap{
       border:1px solid var(--line);
       border-radius:10px;
       overflow:hidden;
+      background:#fff;
     }
     table{
       width:100%;
@@ -2108,14 +2156,16 @@ function buildControlReportHtml(persons) {
       vertical-align:top;
     }
     th{
-      background:#edf4f8;
-      color:#35596b;
+      background:#e8f0f5;
+      color:#2f5668;
       font-size:11px;
       letter-spacing:.06em;
       text-transform:uppercase;
       border-bottom:1px solid var(--line-strong);
+      font-weight:700;
     }
-    tbody tr:nth-child(even) td{background:#fbfdff}
+    tbody tr:nth-child(even) td{background:#f9fcfe}
+    tbody tr:hover td{background:#f3f8fb}
     tbody tr:last-child td{border-bottom:none}
     .alert-cell{
       color:#8a4e30;
@@ -2199,7 +2249,8 @@ function buildControlReportHtml(persons) {
       border-color:#7e99aa;
     }
     .alert-details__content{
-      padding:8px;
+      padding:10px;
+      background:#fbfdff;
     }
     .details-empty{
       font-size:12px;
@@ -2217,7 +2268,7 @@ function buildControlReportHtml(persons) {
       border-bottom:1px solid #d7e2ea;
     }
     .details-table th{
-      background:#f2f7fa;
+      background:#edf4f9;
       color:#3b6173;
       font-size:10px;
       letter-spacing:.05em;
@@ -2232,6 +2283,8 @@ function buildControlReportHtml(persons) {
       body{
         background:#fff;
         padding:0;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
       }
       .wrap{
         max-width:none;
@@ -2239,6 +2292,12 @@ function buildControlReportHtml(persons) {
         box-shadow:none;
         border-radius:0;
         padding:0;
+      }
+      .meta{
+        background:#fff;
+      }
+      .kpi b{
+        font-size:28px;
       }
       .print-button{
         display:none !important;
@@ -2255,6 +2314,9 @@ function buildControlReportHtml(persons) {
       tr{
         break-inside:avoid;
       }
+      tbody tr:hover td{
+        background:inherit;
+      }
     }
   </style>
 </head>
@@ -2268,10 +2330,10 @@ function buildControlReportHtml(persons) {
     </div>
   </div>
   <div class="kpis">
-    <div class="kpi">DOSSIERS FILTRES<b>${persons.length}</b></div>
-    <div class="kpi kpi--warn">ALERTES SORTIE<b>${alerts.length}</b></div>
-    <div class="kpi">EFFETS NON RENDUS<b>${nonRendus}</b></div>
-    <div class="kpi kpi--warn">TOTAL FACTURABLE<b>${escapeHtml(formatAmountWithEuro(totalFacturable))}</b></div>
+    <div class="kpi"><span class="kpi__label"><span class="kpi__icon">P</span>DOSSIERS FILTRES</span><b>${persons.length}</b></div>
+    <div class="kpi kpi--warn"><span class="kpi__label"><span class="kpi__icon">!</span>ALERTES SORTIE</span><b>${alerts.length}</b></div>
+    <div class="kpi"><span class="kpi__label"><span class="kpi__icon">NR</span>EFFETS NON RENDUS</span><b>${nonRendus}</b></div>
+    <div class="kpi kpi--warn"><span class="kpi__label"><span class="kpi__icon">EUR</span>TOTAL FACTURABLE</span><b>${escapeHtml(formatAmountWithEuro(totalFacturable))}</b></div>
   </div>
   <div class="table-wrap">
   <table>
