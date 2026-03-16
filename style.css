@@ -1236,6 +1236,25 @@ body[data-page="reference-bases"] #reference-effect-form .form-actions .button {
   min-width: 220px;
 }
 
+body[data-page="reference-bases"] #reference-filter-form {
+  grid-template-columns: minmax(320px, 1.25fr) minmax(180px, 0.62fr) minmax(180px, 0.62fr) auto;
+  align-items: end;
+}
+
+body[data-page="reference-bases"] #reference-filter-form .field--search {
+  grid-column: auto;
+}
+
+body[data-page="reference-bases"] #reference-filter-form .form-actions--filters {
+  grid-column: auto;
+  justify-self: end;
+  margin: 0;
+}
+
+body[data-page="reference-bases"] #reference-filter-form .form-actions--filters .button {
+  min-width: 150px;
+}
+
 .effects-chart {
   display: grid;
   gap: 8px;
@@ -3416,6 +3435,20 @@ body[data-pdf-mode="true"] .signature-box__meta-value--pdf {
 
   body[data-page="reference-bases"] #reference-effect-form .form-actions .button {
     min-width: 190px;
+  }
+
+  body[data-page="reference-bases"] #reference-filter-form {
+    grid-template-columns: minmax(280px, 1.05fr) minmax(160px, 0.6fr) minmax(160px, 0.6fr) auto;
+  }
+
+  body[data-page="reference-bases"] #reference-filter-form .field--search {
+    grid-column: auto;
+  }
+
+  body[data-page="reference-bases"] #reference-filter-form .form-actions--filters {
+    grid-column: auto;
+    justify-self: end;
+    margin: 0;
   }
 }
 
