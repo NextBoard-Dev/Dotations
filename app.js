@@ -1752,7 +1752,35 @@ function bindSaveButtons() {
 
 function bindPdfButtons() {
   document.querySelectorAll(".js-open-pdf").forEach((button) => {
-    button.onclick = () => openPdfDocument(button.getAttribute("data-doc-type") || "", getCurrentPersonId());
+    button.onclick = () => {
+      const docType = String(button.getAttribute("data-doc-type") || "");
+      const person = getCurrentPerson();
+      if (!person) {
+        showDataStatus("AUCUNE PERSONNE SELECTIONNEE");
+        return;
+      }
+      if (!isDocumentFullySigned(person, docType)) {
+        window.alert("OUVRIR EN PDF IMPOSSIBLE : LE DOCUMENT DOIT ETRE SIGNE PAR LE PERSONNEL ET LE REPRESENTANT.");
+        return;
+      }
+      openPdfDocument(docType, getCurrentPersonId());
+    };
+  });
+}
+
+function updateDocumentPdfButtonsState() {
+  const person = getCurrentPerson();
+  document.querySelectorAll(".js-open-pdf").forEach((button) => {
+    const docType = String(button.getAttribute("data-doc-type") || "");
+    const canOpen = Boolean(person && isDocumentFullySigned(person, docType));
+    button.classList.toggle("is-disabled", !canOpen);
+    button.setAttribute("aria-disabled", canOpen ? "false" : "true");
+    button.setAttribute(
+      "title",
+      canOpen
+        ? "OUVRIR EN PDF"
+        : "INDISPONIBLE : SIGNATURES PERSONNEL ET REPRESENTANT OBLIGATOIRES"
+    );
   });
 }
 
@@ -4266,6 +4294,7 @@ function renderPage() {
     renderReferenceBases();
   }
 
+  updateDocumentPdfButtonsState();
   renderDirtyState();
 }
 
