@@ -117,6 +117,22 @@ function pulseSaveButtons() {
 }
 redirectToLocalServerIfNeeded();
 applyPdfModeFromQuery();
+enforceInitialTopScroll();
+
+function enforceInitialTopScroll() {
+  if (window.history && "scrollRestoration" in window.history) {
+    window.history.scrollRestoration = "manual";
+  }
+  const scrollTop = () => {
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  };
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", scrollTop, { once: true });
+  } else {
+    scrollTop();
+  }
+  window.addEventListener("pageshow", scrollTop, { once: true });
+}
 
 function normalizeText(value) {
   return String(value || "")
