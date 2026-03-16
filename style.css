@@ -1255,6 +1255,22 @@ body[data-page="reference-bases"] #reference-filter-form .form-actions--filters 
   min-width: 150px;
 }
 
+body[data-page="reference-bases"] #replacement-cost-form {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: end;
+}
+
+body[data-page="reference-bases"] #replacement-cost-form .form-actions {
+  grid-column: auto;
+  align-self: end;
+  justify-self: end;
+  margin: 0;
+}
+
+body[data-page="reference-bases"] #replacement-cost-form .form-actions .button {
+  min-width: 200px;
+}
+
 .effects-chart {
   display: grid;
   gap: 8px;
@@ -3446,6 +3462,16 @@ body[data-pdf-mode="true"] .signature-box__meta-value--pdf {
   }
 
   body[data-page="reference-bases"] #reference-filter-form .form-actions--filters {
+    grid-column: auto;
+    justify-self: end;
+    margin: 0;
+  }
+
+  body[data-page="reference-bases"] #replacement-cost-form {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) auto;
+  }
+
+  body[data-page="reference-bases"] #replacement-cost-form .form-actions {
     grid-column: auto;
     justify-self: end;
     margin: 0;
