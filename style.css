@@ -250,100 +250,118 @@ textarea {
 
 body[data-page="overview"] .main-content {
   overflow: visible;
+  padding-top: 0;
 }
 
 body[data-page="overview"] .overview-top-fixed {
   position: sticky;
-  top: var(--main-content-top-gap);
+  top: 0;
   z-index: 60;
   background: linear-gradient(180deg, #ebe6dc 0%, #d9e2e7 100%);
+  padding-top: var(--main-content-top-gap);
   padding-bottom: 0;
   box-shadow: none;
   backface-visibility: hidden;
   transform: translateZ(0);
   contain: paint;
+  isolation: isolate;
 }
 
 body[data-page="person-sheet"] .main-content {
   overflow: visible;
+  padding-top: 0;
 }
 
 body[data-page="person-sheet"] .person-sheet-top-fixed {
   position: sticky;
-  top: var(--main-content-top-gap);
+  top: 0;
   z-index: 60;
   background: linear-gradient(180deg, #ebe6dc 0%, #d9e2e7 100%);
+  padding-top: var(--main-content-top-gap);
   padding-bottom: 0;
   box-shadow: none;
   backface-visibility: hidden;
   transform: translateZ(0);
   contain: paint;
+  isolation: isolate;
 }
 
 body[data-page="arrival-document"] .main-content,
 body[data-page="exit-document"] .main-content {
   overflow: visible;
+  padding-top: 0;
 }
 
 body[data-page="arrival-document"] .document-top-fixed,
 body[data-page="exit-document"] .document-top-fixed {
   position: sticky;
-  top: var(--main-content-top-gap);
+  top: 0;
   z-index: 60;
   background: linear-gradient(180deg, #ebe6dc 0%, #d9e2e7 100%);
+  padding-top: var(--main-content-top-gap);
   padding-bottom: 0;
   box-shadow: none;
   backface-visibility: hidden;
   transform: translateZ(0);
   contain: paint;
+  isolation: isolate;
 }
 
 body[data-page="documents-archives"] .main-content {
   overflow: visible;
+  padding-top: 0;
 }
 
 body[data-page="documents-archives"] .archives-top-fixed {
   position: sticky;
-  top: var(--main-content-top-gap);
+  top: 0;
   z-index: 60;
   background: linear-gradient(180deg, #ebe6dc 0%, #d9e2e7 100%);
+  padding-top: var(--main-content-top-gap);
   padding-bottom: 0;
   box-shadow: none;
   backface-visibility: hidden;
   transform: translateZ(0);
   contain: paint;
+  isolation: isolate;
 }
 
 body[data-page="global"] .main-content {
   overflow: visible;
+  padding-top: 0;
 }
 
 body[data-page="global"] .global-top-fixed {
   position: sticky;
-  top: var(--main-content-top-gap);
+  top: 0;
   z-index: 60;
   background: linear-gradient(180deg, #ebe6dc 0%, #d9e2e7 100%);
+  padding-top: var(--main-content-top-gap);
   padding-bottom: 0;
   box-shadow: none;
   backface-visibility: hidden;
   transform: translateZ(0);
   contain: paint;
+  isolation: isolate;
 }
 
 body[data-page="reference-bases"] .main-content {
   overflow: visible;
+  padding-top: 0;
 }
 
 body[data-page="reference-bases"] .reference-top-fixed {
   position: sticky;
-  top: var(--main-content-top-gap);
+  top: 0;
   z-index: 60;
   background: linear-gradient(180deg, #ebe6dc 0%, #d9e2e7 100%);
+  padding-top: var(--main-content-top-gap);
   padding-bottom: 0;
   box-shadow: none;
   backface-visibility: hidden;
   transform: translateZ(0);
   contain: paint;
+  isolation: isolate;
 }
 
 body[data-pdf-mode="true"] {
