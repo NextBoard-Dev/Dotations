@@ -1145,6 +1145,7 @@ body.has-modal-open {
   box-shadow: var(--shadow);
   padding: var(--card-padding);
   backdrop-filter: blur(8px);
+  animation: card-enter 160ms ease-out both;
 }
 
 .kpi-grid,
@@ -1517,6 +1518,7 @@ body[data-page="reference-bases"] .table-wrap--reference-large {
   background: #fffdfa;
   color: var(--text-main);
   font-size: 11px;
+  transition: border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
 }
 
 .field input,
@@ -1600,6 +1602,7 @@ body[data-page="exit-document"] .picker-suggestions {
 .reference-mini-form select:focus {
   outline: 2px solid rgba(79, 108, 122, 0.26);
   border-color: var(--accent);
+  transform: scale(1.01);
 }
 
 .status-field[readonly] {
@@ -1672,6 +1675,7 @@ body[data-page="exit-document"] .picker-suggestions {
   color: #fff;
   border-color: rgba(63, 97, 112, 0.55);
   box-shadow: 0 4px 12px rgba(63, 97, 112, 0.26);
+  animation: reset-ready-pulse 260ms ease-out 1;
 }
 
 .field--search,
@@ -1891,6 +1895,46 @@ body[data-page="global"] .form-actions--filters {
   background: rgba(201, 125, 71, 0.22);
   color: #7a3f1f;
   border-color: rgba(201, 125, 71, 0.45);
+}
+
+@keyframes card-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes reset-ready-pulse {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 4px 12px rgba(63, 97, 112, 0.2);
+  }
+  50% {
+    transform: scale(1.03);
+    box-shadow: 0 6px 16px rgba(63, 97, 112, 0.3);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 4px 12px rgba(63, 97, 112, 0.26);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card,
+  .field input,
+  .field select,
+  .field textarea,
+  .reference-mini-form input,
+  .reference-mini-form select,
+  #effect-reset-fields-button.is-ready {
+    animation: none !important;
+    transition: none !important;
+    transform: none !important;
+  }
 }
 
 .button--pdf {
