@@ -7377,7 +7377,7 @@ function getDefaultEffectSiteReference(person, effect) {
   return "";
 }
 
-function getReferenceSitesForType(typeEffet) {
+function getReferenceSitesForType(typeEffet, person = null) {
   const normalizedTypeEffet = normalizeText(typeEffet);
   if (!normalizedTypeEffet || !Array.isArray(state.data?.listes?.referencesEffets)) {
     return [];
@@ -7400,7 +7400,20 @@ function getReferenceSitesForType(typeEffet) {
     .map(normalizeText)
     .filter(Boolean);
 
-  return Array.from(new Set(sites));
+  const uniqueSites = Array.from(new Set(sites));
+  if (!person) {
+    return uniqueSites.filter((site) => site !== ALL_SITES_VALUE);
+  }
+
+  const personSites = normalizeSites(getAvailableReferenceSites(person));
+  if (!personSites.length || personSites.includes(ALL_SITES_VALUE)) {
+    return uniqueSites.filter((site) => site !== ALL_SITES_VALUE);
+  }
+
+  const scopedSites = uniqueSites.filter(
+    (site) => site !== ALL_SITES_VALUE && personSites.includes(site)
+  );
+  return scopedSites;
 }
 
 function hydrateEffectReferenceSiteSelect(person, selectedSite = "", typeEffet = "") {
@@ -7421,10 +7434,7 @@ function hydrateEffectReferenceSiteSelect(person, selectedSite = "", typeEffet =
 
   let sites = getAvailableReferenceSites(person);
   if (typeUsesReferenceCatalog(normalizedType)) {
-    const referenceSites = getReferenceSitesForType(normalizedType);
-    if (referenceSites.length) {
-      sites = referenceSites;
-    }
+    sites = getReferenceSitesForType(normalizedType, person);
   }
   if (normalizedType === "CARTE TURBOSELF") {
     sites = Array.from(new Set([ALL_SITES_VALUE, ...sites.filter((site) => site !== ALL_SITES_VALUE)]));
