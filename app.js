@@ -8142,8 +8142,11 @@ function syncSelectOptions(select, values, emptyLabel = "TOUS") {
 }
 
 function renderReferenceCounts() {
+  const realSitesCount = (state.data?.listes?.sites || []).filter(
+    (site) => normalizeText(site) !== ALL_SITES_VALUE
+  ).length;
   const mapping = {
-    "reference-count-sites": state.data?.listes?.sites?.length || 0,
+    "reference-count-sites": realSitesCount,
     "reference-count-typesPersonnel": state.data?.listes?.typesPersonnel?.length || 0,
     "reference-count-typesContrats": state.data?.listes?.typesContrats?.length || 0,
     "reference-count-fonctions": state.data?.listes?.fonctions?.length || 0,
