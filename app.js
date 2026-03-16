@@ -1940,15 +1940,36 @@ function buildControlReportHtml(persons) {
     };
   };
 
+  const getAlertVisualMeta = (person, details) => {
+    const alertMeta = getOverdueExitAlertMeta(person);
+    const isCritical = alertMeta.type === "dateSortieReelle" || details.total > 0 || details.count >= 2;
+    if (isCritical) {
+      return {
+        levelClass: "alert-badge--critical",
+        icon: "⛔",
+        label: "CRITIQUE",
+      };
+    }
+    return {
+      levelClass: "alert-badge--warning",
+      icon: "⚠",
+      label: "SURVEILLANCE",
+    };
+  };
+
   const criticalRows = critical.length
     ? critical
         .map((person) => {
           const details = buildAlertEffectDetails(person);
+          const visual = getAlertVisualMeta(person, details);
           return `<tr>
       <td>${escapeHtml(person.nom || "")}</td>
       <td>${escapeHtml(person.prenom || "")}</td>
       <td>${escapeHtml(getPersonSiteLabel(person) || "-")}</td>
-      <td class="alert-cell">${escapeHtml(getOverdueExitMessage(person) || "-")}</td>
+      <td class="alert-cell">
+        <span class="alert-badge ${visual.levelClass}"><span class="alert-badge__icon">${visual.icon}</span>${visual.label}</span>
+        <span class="alert-message">${escapeHtml(getOverdueExitMessage(person) || "-")}</span>
+      </td>
       <td>${details.count}</td>
       <td class="amount-cell">${escapeHtml(formatAmountWithEuro(details.total))}</td>
       <td>
@@ -2021,6 +2042,25 @@ function buildControlReportHtml(persons) {
       letter-spacing:.06em;
       white-space:nowrap;
     }
+    .head-right{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      margin-left:auto;
+    }
+    .print-button{
+      border:1px solid rgba(63,97,112,.55);
+      background:var(--accent);
+      color:#fff;
+      border-radius:9px;
+      padding:7px 12px;
+      font-size:11px;
+      letter-spacing:.05em;
+      text-transform:uppercase;
+      cursor:pointer;
+      box-shadow:0 4px 12px rgba(63,97,112,.22);
+    }
+    .print-button:hover{background:#2e4c5a}
     .kpis{
       display:grid;
       grid-template-columns:repeat(4,minmax(150px,1fr));
@@ -2081,6 +2121,36 @@ function buildControlReportHtml(persons) {
       color:#8a4e30;
       font-weight:600;
     }
+    .alert-message{
+      display:block;
+      margin-top:5px;
+    }
+    .alert-badge{
+      display:inline-flex;
+      align-items:center;
+      gap:5px;
+      border-radius:999px;
+      padding:3px 8px;
+      font-size:10px;
+      letter-spacing:.05em;
+      text-transform:uppercase;
+      border:1px solid transparent;
+      line-height:1.1;
+    }
+    .alert-badge__icon{
+      font-size:12px;
+      line-height:1;
+    }
+    .alert-badge--critical{
+      background:#f5dede;
+      color:#7c2f2f;
+      border-color:#d89a9a;
+    }
+    .alert-badge--warning{
+      background:#f8eee2;
+      color:#8a542f;
+      border-color:#e2c19f;
+    }
     .amount-cell{
       white-space:nowrap;
       font-weight:700;
@@ -2131,13 +2201,48 @@ function buildControlReportHtml(persons) {
       text-transform:uppercase;
     }
     .details-table tr:last-child td{border-bottom:none}
+    @media print{
+      @page{
+        size:A4 portrait;
+        margin:9mm;
+      }
+      body{
+        background:#fff;
+        padding:0;
+      }
+      .wrap{
+        max-width:none;
+        border:0;
+        box-shadow:none;
+        border-radius:0;
+        padding:0;
+      }
+      .print-button{
+        display:none !important;
+      }
+      table{
+        font-size:11px;
+      }
+      th,td{
+        padding:6px 6px;
+      }
+      .alert-details{
+        break-inside:avoid;
+      }
+      tr{
+        break-inside:avoid;
+      }
+    }
   </style>
 </head>
 <body>
   <div class="wrap">
   <div class="head">
     <h1>ETAT DE CONTROLE</h1>
-    <div class="meta">EDITE LE ${escapeHtml(formatCurrentUiTimestamp())}</div>
+    <div class="head-right">
+      <button type="button" class="print-button" onclick="window.print()">EXPORTER / IMPRIMER</button>
+      <div class="meta">EDITE LE ${escapeHtml(formatCurrentUiTimestamp())}</div>
+    </div>
   </div>
   <div class="kpis">
     <div class="kpi">DOSSIERS FILTRES<b>${persons.length}</b></div>
@@ -2154,6 +2259,24 @@ function buildControlReportHtml(persons) {
   </table>
   </div>
   </div>
+  <script>
+    (function () {
+      var detailsNodes = Array.prototype.slice.call(document.querySelectorAll('details.alert-details'));
+      function openAllForPrint() {
+        detailsNodes.forEach(function (node) {
+          node.dataset.wasOpen = node.open ? '1' : '0';
+          node.open = true;
+        });
+      }
+      function restoreAfterPrint() {
+        detailsNodes.forEach(function (node) {
+          node.open = node.dataset.wasOpen === '1';
+        });
+      }
+      window.addEventListener('beforeprint', openAllForPrint);
+      window.addEventListener('afterprint', restoreAfterPrint);
+    })();
+  </script>
 </body>
 </html>`;
 }
