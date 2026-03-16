@@ -4481,7 +4481,13 @@ function getDocumentTypeLabel(docType) {
 }
 
 function isDocumentFullySigned(person, docType) {
-  return Boolean(getSignatureValue(person, docType, "personnel")) && Boolean(getSignatureValue(person, docType, "representant"));
+  const hasPersonnelSignature =
+    Boolean(getSignatureValue(person, docType, "personnel")) &&
+    Boolean(getSignatureValidationDate(person, docType, "personnel"));
+  const hasRepresentativeSignature =
+    Boolean(getSignatureValue(person, docType, "representant")) &&
+    Boolean(getSignatureValidationDate(person, docType, "representant"));
+  return hasPersonnelSignature && hasRepresentativeSignature;
 }
 
 function validateFinalSignatureBeforeSave(person, docType) {
