@@ -1787,6 +1787,8 @@ body[data-page="exit-document"] .picker-suggestions {
   min-width: 0;
   width: 100%;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .button:disabled {
@@ -3131,6 +3133,16 @@ body[data-pdf-mode="true"] .signature-box__meta-value--pdf {
   .signature-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .form-actions--effect-submit {
+    gap: 6px;
+  }
+
+  .form-actions--effect-submit .button {
+    font-size: 9px;
+    letter-spacing: 0.03em;
+    padding: 0 6px;
+  }
 }
 
 @media (max-width: 640px) {
@@ -3194,6 +3206,16 @@ body[data-pdf-mode="true"] .signature-box__meta-value--pdf {
   .field--wide,
   .field--search {
     grid-column: span 1;
+  }
+
+  .form-actions--effect-submit {
+    gap: 4px;
+  }
+
+  .form-actions--effect-submit .button {
+    font-size: 8px;
+    letter-spacing: 0.01em;
+    padding: 0 4px;
   }
 }
 
