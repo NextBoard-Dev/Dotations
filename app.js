@@ -7377,7 +7377,7 @@ function getDefaultEffectSiteReference(person, effect) {
   return "";
 }
 
-function getReferenceSitesForType(typeEffet, person = null) {
+function getReferenceSitesForType(typeEffet) {
   const normalizedTypeEffet = normalizeText(typeEffet);
   if (!normalizedTypeEffet || !Array.isArray(state.data?.listes?.referencesEffets)) {
     return [];
@@ -7400,20 +7400,7 @@ function getReferenceSitesForType(typeEffet, person = null) {
     .map(normalizeText)
     .filter(Boolean);
 
-  const uniqueSites = Array.from(new Set(sites));
-  if (!person) {
-    return uniqueSites.filter((site) => site !== ALL_SITES_VALUE);
-  }
-
-  const personSites = normalizeSites(getAvailableReferenceSites(person));
-  if (!personSites.length || personSites.includes(ALL_SITES_VALUE)) {
-    return uniqueSites.filter((site) => site !== ALL_SITES_VALUE);
-  }
-
-  const scopedSites = uniqueSites.filter(
-    (site) => site !== ALL_SITES_VALUE && personSites.includes(site)
-  );
-  return scopedSites;
+  return Array.from(new Set(sites)).filter((site) => site !== ALL_SITES_VALUE);
 }
 
 function hydrateEffectReferenceSiteSelect(person, selectedSite = "", typeEffet = "") {
@@ -7434,7 +7421,7 @@ function hydrateEffectReferenceSiteSelect(person, selectedSite = "", typeEffet =
 
   let sites = getAvailableReferenceSites(person);
   if (typeUsesReferenceCatalog(normalizedType)) {
-    sites = getReferenceSitesForType(normalizedType, person);
+    sites = getReferenceSitesForType(normalizedType);
   }
   if (normalizedType === "CARTE TURBOSELF") {
     sites = Array.from(new Set([ALL_SITES_VALUE, ...sites.filter((site) => site !== ALL_SITES_VALUE)]));
@@ -7451,11 +7438,7 @@ function hydrateReferenceSelect(siteSource, typeEffet = "", selectedId = "", ref
     return;
   }
 
-  const selectedSites = Array.isArray(siteSource)
-    ? normalizeSites(siteSource)
-    : siteSource && typeof siteSource === "object"
-      ? getPersonSites(siteSource)
-      : normalizeSites(siteSource ? [siteSource] : []);
+  void siteSource;
   const normalizedTypeEffet = normalizeText(typeEffet);
   const baseOption = '<option value="">SELECTIONNER</option>';
   if (!typeUsesReferenceCatalog(normalizedTypeEffet)) {
@@ -7464,17 +7447,10 @@ function hydrateReferenceSelect(siteSource, typeEffet = "", selectedId = "", ref
     return;
   }
   const normalizedReferenceSite = normalizeText(referenceSite);
-  const visibleSiteCount = selectedSites.filter((site) => site !== ALL_SITES_VALUE).length;
+  const visibleSiteCount = getReferenceSitesForType(normalizedTypeEffet).length;
   const options = state.data.listes.referencesEffets
     .filter((reference) => {
       if (normalizedReferenceSite && !referenceHasSite(reference, normalizedReferenceSite)) {
-        return false;
-      }
-      if (
-        selectedSites.length &&
-        !selectedSites.includes(ALL_SITES_VALUE) &&
-        !selectedSites.some((site) => referenceHasSite(reference, site))
-      ) {
         return false;
       }
       if (
