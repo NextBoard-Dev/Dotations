@@ -9426,12 +9426,20 @@ function markDirty() {
 
 function renderDirtyState() {
   const node = document.getElementById("dirty-status");
-  if (!node) {
-    return;
+  if (node) {
+    node.hidden = false;
+    node.textContent = state.isDirty ? "MODIFICATIONS NON SAUVEGARDEES" : "DONNEES SAUVEGARDEES";
+    node.classList.toggle("is-saved", !state.isDirty);
   }
-  node.hidden = false;
-  node.textContent = state.isDirty ? "MODIFICATIONS NON SAUVEGARDEES" : "DONNEES SAUVEGARDEES";
-  node.classList.toggle("is-saved", !state.isDirty);
+
+  document.querySelectorAll(".js-save-data").forEach((button) => {
+    if (!(button instanceof HTMLButtonElement)) {
+      return;
+    }
+    button.classList.toggle("button--primary", state.isDirty);
+    button.classList.toggle("button--secondary", !state.isDirty);
+    button.title = state.isDirty ? "SAUVEGARDER LES MODIFICATIONS" : "AUCUNE MODIFICATION EN ATTENTE";
+  });
 }
 
 loadData();
