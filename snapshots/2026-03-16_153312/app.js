@@ -4160,7 +4160,7 @@ function bindReferenceFilters() {
     }, 0);
   };
 
-  const searchField = form.elements.filterReferenceSearch;
+  const searchField = form.elements.referenceSearch;
   if (searchField) {
     searchField.addEventListener("search", () => {
       if (!String(searchField.value || "").trim()) {
