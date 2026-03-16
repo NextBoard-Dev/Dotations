@@ -3128,7 +3128,7 @@ function bindEffectForm() {
     const usesSiteField = typeUsesSiteField(typeEffet);
     const referenceEffetId = usesReferenceCatalog ? String(formData.get("referenceEffet") || "") : "";
     const reference = findReferenceById(referenceEffetId);
-    const designationLibre = usesReferenceCatalog ? normalizeText(formData.get("designationLibre")) : "";
+    const designationLibre = normalizeText(formData.get("designationLibre"));
     const availableReferenceSites = getAvailableReferenceSites(person);
     const resolvedReferenceSite = usesReferenceCatalog
       ? normalizeText(
@@ -3168,12 +3168,13 @@ function bindEffectForm() {
     const vehiculeImmatriculation =
       typeEffet === "TELECOMMANDE URMET" ? normalizeText(formData.get("vehiculeImmatriculation")) : "";
 
+    const resolvedDesignation = designationLibre || (usesReferenceCatalog ? reference?.designation || "" : "");
     const effect = {
         id: effectId,
         typeEffet,
         siteReference: resolvedReferenceSite,
         referenceEffetId,
-        designation: usesReferenceCatalog ? reference?.designation || "" : "",
+        designation: resolvedDesignation,
         numeroIdentification: normalizeText(formData.get("numeroIdentification")),
         vehiculeImmatriculation,
       dateRemise: String(formData.get("dateRemise") || ""),
@@ -3362,9 +3363,7 @@ function startEditEffect(personId, effectId) {
   );
   const usesReferenceCatalog = typeUsesReferenceCatalog(effect.typeEffet);
   const reference = findReferenceById(effect.referenceEffetId);
-  const editDesignation = usesReferenceCatalog
-    ? effect.designation || reference?.designation || ""
-    : "";
+  const editDesignation = effect.designation || (usesReferenceCatalog ? reference?.designation || "" : "");
   form.elements.typeEffet.value = effect.typeEffet || "";
   form.elements.referenceSite.value = effect.siteReference || referenceSiteFromEffect(effect) || "";
   form.elements.referenceEffet.value = effect.referenceEffetId || "";
@@ -3645,7 +3644,7 @@ function updateEffectFormMode(typeEffet) {
 
   let showReferenceSite = Boolean(normalizedType);
   let showReference = true;
-  let showDesignation = true;
+  const showDesignation = true;
   let showVehicle = false;
   let keyFields = normalizedType ? getEffectKeyFieldSequence(normalizedType) : ["typeEffet"];
 
@@ -3654,7 +3653,6 @@ function updateEffectFormMode(typeEffet) {
     referenceSiteLabel.textContent = "SITE DE LA CLE";
     referenceLabel.textContent = "NOM EXISTANT DE LA CLE";
     designationLabel.textContent = "NOUVEAU NOM / MODIFICATION";
-    showDesignation = false;
     numberLabel.textContent = "N° DE LA CLE";
     if (normalizedType === "CLE CES") {
       helpNode.textContent =
@@ -3676,7 +3674,6 @@ function updateEffectFormMode(typeEffet) {
           ? "SITE DE LA CARTE"
           : "SITE DE LA TELECOMMANDE";
     showReference = false;
-    showDesignation = false;
     showVehicle = normalizedType === "TELECOMMANDE URMET";
     vehicleLabel.textContent = "VEHICULE / IMMATRICULATION";
     referenceLabel.textContent = "REFERENCE EXISTANTE";
@@ -3704,7 +3701,7 @@ function updateEffectFormMode(typeEffet) {
   setEffectFieldVisualState(form, "typeEffet", true, true);
   setEffectFieldVisualState(form, "referenceSite", showReferenceSite, keyFields.includes("referenceSite"));
   setEffectFieldVisualState(form, "referenceEffet", showReference, keyFields.includes("referenceEffet"));
-  setEffectFieldVisualState(form, "designationLibre", showDesignation, keyFields.includes("designationLibre"));
+  setEffectFieldVisualState(form, "designationLibre", true, keyFields.includes("designationLibre"));
   setEffectFieldVisualState(form, "numeroIdentification", true, keyFields.includes("numeroIdentification"));
   setEffectFieldVisualState(
     form,
