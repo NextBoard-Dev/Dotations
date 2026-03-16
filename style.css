@@ -1663,6 +1663,7 @@ body[data-page="exit-document"] .picker-suggestions {
   border-color: rgba(63, 97, 112, 0.55);
   box-shadow: 0 4px 12px rgba(63, 97, 112, 0.26);
 }
+/* dotations: reset button ready state */
 
 #effect-cost-field {
   position: relative;
