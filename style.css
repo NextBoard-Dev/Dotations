@@ -16,6 +16,7 @@
   --control-height: 32px;
   --control-radius: 9px;
   --card-padding: 10px;
+  --main-content-top-gap: 12px;
 }
 
 * {
@@ -253,7 +254,7 @@ body[data-page="overview"] .main-content {
 
 body[data-page="overview"] .overview-top-fixed {
   position: sticky;
-  top: 0;
+  top: var(--main-content-top-gap);
   z-index: 60;
   background: linear-gradient(180deg, #ebe6dc 0%, #d9e2e7 100%);
   padding-bottom: 0;
@@ -269,7 +270,7 @@ body[data-page="person-sheet"] .main-content {
 
 body[data-page="person-sheet"] .person-sheet-top-fixed {
   position: sticky;
-  top: 0;
+  top: var(--main-content-top-gap);
   z-index: 60;
   background: linear-gradient(180deg, #ebe6dc 0%, #d9e2e7 100%);
   padding-bottom: 0;
@@ -287,7 +288,7 @@ body[data-page="exit-document"] .main-content {
 body[data-page="arrival-document"] .document-top-fixed,
 body[data-page="exit-document"] .document-top-fixed {
   position: sticky;
-  top: 0;
+  top: var(--main-content-top-gap);
   z-index: 60;
   background: linear-gradient(180deg, #ebe6dc 0%, #d9e2e7 100%);
   padding-bottom: 0;
@@ -303,7 +304,7 @@ body[data-page="documents-archives"] .main-content {
 
 body[data-page="documents-archives"] .archives-top-fixed {
   position: sticky;
-  top: 0;
+  top: var(--main-content-top-gap);
   z-index: 60;
   background: linear-gradient(180deg, #ebe6dc 0%, #d9e2e7 100%);
   padding-bottom: 0;
@@ -319,7 +320,7 @@ body[data-page="global"] .main-content {
 
 body[data-page="global"] .global-top-fixed {
   position: sticky;
-  top: 0;
+  top: var(--main-content-top-gap);
   z-index: 60;
   background: linear-gradient(180deg, #ebe6dc 0%, #d9e2e7 100%);
   padding-bottom: 0;
@@ -335,7 +336,7 @@ body[data-page="reference-bases"] .main-content {
 
 body[data-page="reference-bases"] .reference-top-fixed {
   position: sticky;
-  top: 0;
+  top: var(--main-content-top-gap);
   z-index: 60;
   background: linear-gradient(180deg, #ebe6dc 0%, #d9e2e7 100%);
   padding-bottom: 0;
@@ -3174,6 +3175,10 @@ body[data-pdf-mode="true"] .signature-box__meta-value--pdf {
 }
 
 @media (max-width: 980px) {
+  :root {
+    --main-content-top-gap: 10px;
+  }
+
   .app-shell {
     grid-template-columns: 1fr;
   }
