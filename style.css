@@ -1664,6 +1664,41 @@ body[data-page="exit-document"] .picker-suggestions {
   cursor: not-allowed;
 }
 
+.field.field--status-critical > span {
+  color: #b33a3a;
+}
+
+.field.field--status-critical > span::after {
+  content: "CRITIQUE";
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 8px;
+  letter-spacing: 0.08em;
+  color: #fff;
+  background: #b33a3a;
+  animation: critical-badge-enter 220ms ease-out 1, critical-badge-shake 220ms ease-out 1;
+}
+
+.field.field--status-critical select[name="statutManuel"] {
+  border-color: #cf7f7f;
+  box-shadow: inset 0 0 0 1px rgba(207, 127, 127, 0.24);
+  background: #fff8f8;
+}
+
+.row-flash--create {
+  animation: row-flash-create 420ms ease-out 1;
+}
+
+.row-flash--update {
+  animation: row-flash-update 420ms ease-out 1;
+}
+
+.table-flash--delete {
+  animation: table-flash-delete 420ms ease-out 1;
+}
+
 .effect-form textarea[name="commentaire"] {
   min-height: 180px;
   height: 180px;
@@ -1923,6 +1958,62 @@ body[data-page="global"] .form-actions--filters {
   }
 }
 
+@keyframes row-flash-create {
+  0% {
+    background: rgba(96, 168, 112, 0.2);
+  }
+  100% {
+    background: transparent;
+  }
+}
+
+@keyframes row-flash-update {
+  0% {
+    background: rgba(91, 145, 168, 0.2);
+  }
+  100% {
+    background: transparent;
+  }
+}
+
+@keyframes table-flash-delete {
+  0% {
+    background: rgba(191, 92, 92, 0.12);
+  }
+  100% {
+    background: transparent;
+  }
+}
+
+@keyframes critical-badge-enter {
+  0% {
+    opacity: 0;
+    transform: translateY(-2px) scale(0.96);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes critical-badge-shake {
+  0% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-1px);
+  }
+  50% {
+    transform: translateX(1px);
+  }
+  75% {
+    transform: translateX(-1px);
+  }
+  100% {
+    transform: translateX(0);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .card,
   .field input,
@@ -1930,7 +2021,11 @@ body[data-page="global"] .form-actions--filters {
   .field textarea,
   .reference-mini-form input,
   .reference-mini-form select,
-  #effect-reset-fields-button.is-ready {
+  #effect-reset-fields-button.is-ready,
+  .row-flash--create,
+  .row-flash--update,
+  .table-flash--delete,
+  .field.field--status-critical > span::after {
     animation: none !important;
     transition: none !important;
     transform: none !important;

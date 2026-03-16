@@ -37,6 +37,8 @@ const state = {
   referenceRenderContext: null,
   urgentMode: false,
   lastSaveInfo: null,
+  effectRowFlash: null,
+  effectTableFlash: null,
 };
 
 const WORKING_DATA_KEY = "dashboard-working-data";
@@ -3015,6 +3017,7 @@ function bindEffectForm() {
     form.elements.statutManuel.onchange = () => {
       syncReplacementCostField();
       updateEffectRequiredHighlights(form);
+      updateManualStatusCriticalState(form);
     };
   }
   if (replacementDateField) {
@@ -3139,6 +3142,7 @@ function bindEffectForm() {
     } else {
       person.effetsConfies.push(effect);
     }
+    markEffectRowFlash(mode === "edit" ? "update" : "create", person.id, effect.id);
 
     markDirty();
     form.reset();
@@ -3207,6 +3211,7 @@ function bindEffectForm() {
   updateEffectActionButtons();
   updateEffectRequiredHighlights(form);
   updateEffectResetButtonState(form);
+  updateManualStatusCriticalState(form);
 }
 
 async function deleteEffect(personId, effectId) {
@@ -3225,6 +3230,7 @@ async function deleteEffect(personId, effectId) {
 
   pushUndoSnapshot("SUPPRESSION EFFET");
   person.effetsConfies = person.effetsConfies.filter((effect) => effect.id !== effectId);
+  markEffectTableFlash("delete", personId);
   if (state.editingEffectId === effectId) {
     state.editingEffectId = "";
     resetEffectForm();
@@ -3318,6 +3324,7 @@ function startEditEffect(personId, effectId) {
   updateEffectFormMode(effect.typeEffet || "");
   updateEffectActionButtons();
   updateEffectResetButtonState(form);
+  updateManualStatusCriticalState(form);
   form.scrollIntoView({ behavior: "smooth", block: "center" });
   if (usesReferenceCatalog) {
     form.elements.referenceEffet.focus();
@@ -3342,6 +3349,7 @@ function resetEffectForm() {
   updateEffectFormMode("");
   updateEffectActionButtons();
   updateEffectResetButtonState(form);
+  updateManualStatusCriticalState(form);
 }
 
 function resetEffectFormFieldsExceptCost() {
@@ -3362,7 +3370,36 @@ function resetEffectFormFieldsExceptCost() {
   }
   updateEffectRequiredHighlights(form);
   updateEffectResetButtonState(form);
+  updateManualStatusCriticalState(form);
   showDataStatus("CHAMPS REINITIALISES (COUT CONSERVE)");
+}
+
+function isCriticalManualStatus(value) {
+  return ["PERDU", "VOL", "HS"].includes(normalizeText(value));
+}
+
+function updateManualStatusCriticalState(form) {
+  const fieldNode = getEffectFormFieldNode(form, "statutManuel");
+  const statusValue = form?.elements?.statutManuel?.value || "";
+  if (!fieldNode) {
+    return;
+  }
+  fieldNode.classList.toggle("field--status-critical", isCriticalManualStatus(statusValue));
+}
+
+function markEffectRowFlash(kind, personId, effectId) {
+  state.effectRowFlash = {
+    kind: String(kind || ""),
+    personId: String(personId || ""),
+    effectId: String(effectId || ""),
+  };
+}
+
+function markEffectTableFlash(kind, personId) {
+  state.effectTableFlash = {
+    kind: String(kind || ""),
+    personId: String(personId || ""),
+  };
 }
 
 function hasEffectFormUserContent(form) {
@@ -6701,6 +6738,10 @@ function renderPersonSheet(personId) {
   const effects = person.effetsConfies || [];
   const currentEffects = getCurrentAssignedEffects(person);
   const sortedEffects = sortEffectsForTable(person, currentEffects, "sheetEffects");
+  const rowFlash =
+    state.effectRowFlash && String(state.effectRowFlash.personId || "") === String(person.id || "")
+      ? state.effectRowFlash
+      : null;
   const movementMap = getArrivalComplementMovementMap(person, currentEffects);
   const returned = effects.filter((effect) => getEffectStatus(person, effect) === "RESTITUE").length;
   const missing = currentEffects.filter((effect) => getEffectStatus(person, effect) === "NON RENDU").length;
@@ -6733,7 +6774,13 @@ function renderPersonSheet(personId) {
             effectStatus === "NON RENDU"
               ? `<span>${effectStatus}</span><span class="row-alert-dot row-alert-dot--inside" aria-hidden="true"></span>`
               : `<span>${effectStatus}</span>`;
-          return `<tr class="js-effect-row" data-person-id="${person.id}" data-effect-id="${effect.id}">
+          const rowFlashClass =
+            rowFlash &&
+            String(rowFlash.effectId || "") === String(effect.id || "") &&
+            ["create", "update"].includes(String(rowFlash.kind || ""))
+              ? ` row-flash row-flash--${rowFlash.kind}`
+              : "";
+          return `<tr class="js-effect-row${rowFlashClass}" data-person-id="${person.id}" data-effect-id="${effect.id}">
             <td>${effect.typeEffet || ""}</td>
             <td>${effectDesignation}</td>
             <td>${effectSite}</td>
@@ -6755,12 +6802,30 @@ function renderPersonSheet(personId) {
         </tr>`
     : buildEmptyTableRow(body, "AUCUN EFFET A AFFICHER", 11);
 
+  if (rowFlash) {
+    state.effectRowFlash = null;
+  }
+  if (
+    state.effectTableFlash &&
+    String(state.effectTableFlash.personId || "") === String(person.id || "") &&
+    String(state.effectTableFlash.kind || "") === "delete"
+  ) {
+    body.classList.remove("table-flash--delete");
+    void body.offsetWidth;
+    body.classList.add("table-flash--delete");
+    window.setTimeout(() => {
+      body.classList.remove("table-flash--delete");
+    }, 420);
+    state.effectTableFlash = null;
+  }
+
   const currentTypeEffet = document.querySelector('#effect-form [name="typeEffet"]')?.value || "";
   const currentReferenceSite = document.querySelector('#effect-form [name="referenceSite"]')?.value || "";
   const currentReferenceId = document.querySelector('#effect-form [name="referenceEffet"]')?.value || "";
   hydrateEffectReferenceSiteSelect(person, currentReferenceSite, currentTypeEffet);
   hydrateReferenceSelect(person, currentTypeEffet, currentReferenceId, currentReferenceSite);
   updateEffectFormMode(currentTypeEffet);
+  updateManualStatusCriticalState(document.getElementById("effect-form"));
   bindEffectRowActions();
   updateSortableHeaders("sheetEffects");
 
