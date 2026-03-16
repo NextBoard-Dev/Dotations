@@ -2049,6 +2049,7 @@ function getEffectTableSort(tableName) {
     arrivalEffects: { key: "typeEffet", dir: "asc" },
     exitEffects: { key: "typeEffet", dir: "asc" },
     overviewPersons: { key: "nom", dir: "asc" },
+    referenceEffects: { key: "site", dir: "asc" },
   };
   const current = state.tableSorts?.[tableName];
   return current && current.key && current.dir ? current : (defaults[tableName] || { key: "nom", dir: "asc" });
@@ -2193,6 +2194,37 @@ function sortEffectsForTable(person, effects, tableName) {
     return compareTextValues(left?.id || "", right?.id || "");
   });
   return sorted;
+}
+
+function getReferenceSortValue(reference, key, renderContext = null) {
+  switch (key) {
+    case "site":
+      return getReferenceSiteLabel(reference) || "";
+    case "typeEffet":
+      return reference?.typeEffet || "";
+    case "designation":
+      return reference?.designation || "";
+    case "usage":
+      return renderContext?.referenceEffectUsage?.get(String(reference?.id || "")) || 0;
+    default:
+      return "";
+  }
+}
+
+function sortReferencesForTable(references, tableName, renderContext = null) {
+  const sort = getEffectTableSort(tableName);
+  const numericKeys = new Set(["usage"]);
+  return [...references].sort((left, right) => {
+    const primary = compareEffectValues(
+      getReferenceSortValue(left, sort.key, renderContext),
+      getReferenceSortValue(right, sort.key, renderContext),
+      numericKeys.has(sort.key)
+    );
+    if (primary !== 0) {
+      return sort.dir === "asc" ? primary : -primary;
+    }
+    return compareTextValues(String(left?.id || ""), String(right?.id || ""));
+  });
 }
 
 function updateSortableHeaders(tableName) {
@@ -7824,12 +7856,13 @@ function renderReferenceEffectsTable(renderContext = null) {
     }
     return true;
   });
+  const sortedReferences = sortReferencesForTable(references, "referenceEffects", renderContext);
   if (!references.length) {
     body.innerHTML = buildEmptyTableRow(body, "AUCUNE REFERENCE", 5);
     return;
   }
 
-  const rowsHtml = references
+  const rowsHtml = sortedReferences
     .map((reference) => {
       const usage = renderContext?.referenceEffectUsage?.get(String(reference.id || "")) || 0;
       return `<tr class="js-reference-effect-row" data-reference-id="${reference.id}">
@@ -7845,6 +7878,7 @@ function renderReferenceEffectsTable(renderContext = null) {
     });
 
   renderTableRowsProgressively(body, rowsHtml, buildEmptyTableRow(body, "AUCUNE REFERENCE", 5), 24);
+  updateSortableHeaders("referenceEffects");
 
   bindReferenceEffectActions();
 }
