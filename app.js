@@ -1934,7 +1934,7 @@ function buildControlReportHtml(persons) {
       count: effects.length,
       total,
       detailsHtml: `<table class="details-table">
-        <thead><tr><th>TYPE</th><th>DESIGNATION</th><th>N° IDENTIFICATION</th><th>MONTANT</th></tr></thead>
+        <thead><tr><th class="col-type">TYPE</th><th class="col-designation">DESIGNATION</th><th class="col-id">N° IDENTIFICATION</th><th class="col-montant">MONTANT</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>`,
     };
@@ -2262,6 +2262,13 @@ function buildControlReportHtml(persons) {
       border-collapse:collapse;
       font-size:12px;
     }
+    .details-table th{
+      white-space:nowrap;
+    }
+    .details-table .col-type{width:24%}
+    .details-table .col-designation{width:30%}
+    .details-table .col-id{width:26%}
+    .details-table .col-montant{width:20%}
     .details-table th,
     .details-table td{
       padding:6px 7px;
