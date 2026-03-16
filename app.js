@@ -2605,9 +2605,99 @@ function bindPersonSheetForm() {
   const exitDocumentButton = document.getElementById("sheet-open-exit-document");
   const arrivalPdfButton = document.getElementById("sheet-open-arrival-pdf");
   const exitPdfButton = document.getElementById("sheet-open-exit-pdf");
+  const typeContratField = form.elements.sheetTypeContrat;
+
+  const updateSheetContractDateRequirement = () => {
+    const normalizedTypeContrat = normalizeText(form.elements.sheetTypeContrat?.value || "");
+    const needsExpectedExitDate = ["CDD", "INTERIMAIRE"].includes(normalizedTypeContrat);
+    const dateSortiePrevueField = form.elements.sheetDateSortiePrevue;
+    const dateSortiePrevueNode = dateSortiePrevueField instanceof HTMLElement
+      ? dateSortiePrevueField.closest(".field")
+      : null;
+    if (dateSortiePrevueField instanceof HTMLElement) {
+      dateSortiePrevueField.required = needsExpectedExitDate;
+    }
+    if (dateSortiePrevueNode) {
+      dateSortiePrevueNode.classList.toggle("field--key", needsExpectedExitDate);
+    }
+  };
+
+  const validateSheetRequiredFields = (formData) => {
+    const nom = normalizeText(formData.get("sheetNom"));
+    if (!nom) {
+      showDataStatus("LE NOM EST OBLIGATOIRE");
+      form.elements.sheetNom?.focus();
+      return false;
+    }
+
+    const prenom = normalizeText(formData.get("sheetPrenom"));
+    if (!prenom) {
+      showDataStatus("LE PRENOM EST OBLIGATOIRE");
+      form.elements.sheetPrenom?.focus();
+      return false;
+    }
+
+    const fonction = normalizeText(formData.get("sheetFonction"));
+    if (!fonction) {
+      showDataStatus("LA FONCTION EST OBLIGATOIRE");
+      form.elements.sheetFonction?.focus();
+      return false;
+    }
+
+    const selectedSites = readSelectedSites(form, "sheet");
+    if (!selectedSites.length) {
+      showDataStatus("AU MOINS UN SITE EST OBLIGATOIRE");
+      const firstSiteInput = form.querySelector('#sheet-site-selector input[name="sheetSites"]');
+      if (firstSiteInput instanceof HTMLElement) {
+        firstSiteInput.focus();
+      }
+      return false;
+    }
+
+    const typePersonnel = normalizeText(formData.get("sheetTypePersonnel"));
+    if (!typePersonnel) {
+      showDataStatus("LE TYPE DE PERSONNEL EST OBLIGATOIRE");
+      form.elements.sheetTypePersonnel?.focus();
+      return false;
+    }
+
+    const typeContrat = normalizeText(formData.get("sheetTypeContrat"));
+    if (!typeContrat) {
+      showDataStatus("LE TYPE DE CONTRAT EST OBLIGATOIRE");
+      form.elements.sheetTypeContrat?.focus();
+      return false;
+    }
+
+    const needsExpectedExitDate = ["CDD", "INTERIMAIRE"].includes(typeContrat);
+    const dateSortiePrevue = String(formData.get("sheetDateSortiePrevue") || "").trim();
+    if (needsExpectedExitDate && !dateSortiePrevue) {
+      showDataStatus("LA DATE DE SORTIE PREVUE EST OBLIGATOIRE POUR CDD / INTERIMAIRE");
+      form.elements.sheetDateSortiePrevue?.focus();
+      return false;
+    }
+
+    const dateEntree = String(formData.get("sheetDateEntree") || "").trim();
+    if (!dateEntree) {
+      showDataStatus("LA DATE D'ENTREE EST OBLIGATOIRE");
+      form.elements.sheetDateEntree?.focus();
+      return false;
+    }
+
+    return true;
+  };
+
+  if (typeContratField instanceof HTMLElement) {
+    typeContratField.addEventListener("change", () => {
+      updateSheetContractDateRequirement();
+    });
+  }
+  updateSheetContractDateRequirement();
 
   const buildPersonFromSheetForm = () => {
     const formData = new FormData(form);
+    if (!validateSheetRequiredFields(formData)) {
+      return null;
+    }
     const person = {
       id: getNextId("P", state.data?.personnes || []),
       nom: normalizeText(formData.get("sheetNom")),
@@ -2623,11 +2713,6 @@ function bindPersonSheetForm() {
       effetsConfies: [],
     };
 
-    if (!person.nom && !person.prenom) {
-      person.nom = "PERSONNE";
-      person.prenom = person.id;
-    }
-
     person.site = getPersonSiteLabel(person);
     return person;
   };
@@ -2641,6 +2726,9 @@ function bindPersonSheetForm() {
     }
 
     const formData = new FormData(form);
+    if (!validateSheetRequiredFields(formData)) {
+      return;
+    }
     pushUndoSnapshot("MODIFICATION FICHE PERSONNE");
     person.nom = normalizeText(formData.get("sheetNom"));
     person.prenom = normalizeText(formData.get("sheetPrenom"));
@@ -2667,6 +2755,9 @@ function bindPersonSheetForm() {
       }
 
       const person = buildPersonFromSheetForm();
+      if (!person) {
+        return;
+      }
       const duplicate = (state.data.personnes || []).some(
         (entry) =>
           entry.nom === person.nom &&
@@ -6443,6 +6534,7 @@ function bindEffectRowActions() {
 }
 
 function fillSheetForm(person) {
+  const form = document.getElementById("person-sheet-form");
   const mapping = {
     sheetNom: person?.nom || "",
     sheetPrenom: person?.prenom || "",
@@ -6462,6 +6554,20 @@ function fillSheetForm(person) {
     }
   });
   renderSiteSelector("sheet-site-selector", "sheet", getPersonSites(person));
+  if (form instanceof HTMLFormElement) {
+    const normalizedTypeContrat = normalizeText(form.elements.sheetTypeContrat?.value || "");
+    const needsExpectedExitDate = ["CDD", "INTERIMAIRE"].includes(normalizedTypeContrat);
+    const dateSortiePrevueField = form.elements.sheetDateSortiePrevue;
+    const dateSortiePrevueNode = dateSortiePrevueField instanceof HTMLElement
+      ? dateSortiePrevueField.closest(".field")
+      : null;
+    if (dateSortiePrevueField instanceof HTMLElement) {
+      dateSortiePrevueField.required = needsExpectedExitDate;
+    }
+    if (dateSortiePrevueNode) {
+      dateSortiePrevueNode.classList.toggle("field--key", needsExpectedExitDate);
+    }
+  }
 }
 
 function renderArrivalDocument(personId) {
