@@ -1974,7 +1974,7 @@ function buildControlReportHtml(persons) {
       <td class="amount-cell">${escapeHtml(formatAmountWithEuro(details.total))}</td>
       <td>
         <details class="alert-details"${details.count ? "" : " open"}>
-          <summary>DETAIL DES EFFETS NON RENDUS</summary>
+          <summary><span class="summary-label">CLIQUER POUR VOIR LE DETAIL DES EFFETS NON RENDUS</span><span class="summary-arrow" aria-hidden="true">▾</span></summary>
           <div class="alert-details__content">${details.detailsHtml}</div>
         </details>
       </td>
@@ -2166,15 +2166,38 @@ function buildControlReportHtml(persons) {
       cursor:pointer;
       list-style:none;
       padding:8px 10px;
-      font-size:12px;
-      color:#325668;
-      font-weight:600;
+      font-size:11px;
+      color:#20495d;
+      font-weight:700;
       letter-spacing:.03em;
-      background:#eef5f9;
-      border-bottom:1px solid var(--line);
+      background:#e4edf3;
+      border:1px solid #97adbc;
+      border-bottom-color:#8ca4b4;
+      border-radius:8px;
+      box-shadow:0 3px 10px rgba(63,97,112,.14);
       user-select:none;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:8px;
     }
     .alert-details > summary::-webkit-details-marker{display:none}
+    .summary-label{
+      display:block;
+    }
+    .summary-arrow{
+      flex:0 0 auto;
+      font-size:14px;
+      color:#2e566a;
+      transition:transform .16s ease;
+    }
+    .alert-details[open] .summary-arrow{
+      transform:rotate(180deg);
+    }
+    .alert-details > summary:hover{
+      background:#dbe7ee;
+      border-color:#7e99aa;
+    }
     .alert-details__content{
       padding:8px;
     }
