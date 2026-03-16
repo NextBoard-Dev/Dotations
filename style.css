@@ -2022,9 +2022,20 @@ body[data-page="global"] .form-actions--filters {
 }
 
 .form-actions--filters .button--secondary.is-active {
-  background: rgba(63, 97, 112, 0.46);
+  background: var(--accent);
   color: #ffffff;
-  border-color: rgba(31, 49, 59, 0.62);
+  border-color: rgba(63, 97, 112, 0.62);
+  box-shadow: 0 4px 12px rgba(63, 97, 112, 0.26);
+}
+
+.form-actions--filters .button--secondary {
+  background: #d8dde0;
+  color: #42535e;
+  border-color: #a6b1b8;
+}
+
+.form-actions--filters .button--secondary:hover {
+  background: #cfd5d9;
 }
 
 .button--save-ok {
