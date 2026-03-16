@@ -2607,6 +2607,43 @@ function bindPersonSheetForm() {
   const exitPdfButton = document.getElementById("sheet-open-exit-pdf");
   const typeContratField = form.elements.sheetTypeContrat;
 
+  const setSheetFieldMissingState = (fieldName, isMissing) => {
+    const field = form.elements[fieldName];
+    if (!(field instanceof HTMLElement)) {
+      return;
+    }
+    const node = field.closest(".field");
+    if (node) {
+      node.classList.toggle("field--missing", Boolean(isMissing));
+    }
+  };
+
+  const updateSheetRequiredHighlights = () => {
+    const formData = new FormData(form);
+    const nom = normalizeText(formData.get("sheetNom"));
+    const prenom = normalizeText(formData.get("sheetPrenom"));
+    const fonction = normalizeText(formData.get("sheetFonction"));
+    const selectedSites = readSelectedSites(form, "sheet");
+    const typePersonnel = normalizeText(formData.get("sheetTypePersonnel"));
+    const typeContrat = normalizeText(formData.get("sheetTypeContrat"));
+    const dateEntree = String(formData.get("sheetDateEntree") || "").trim();
+    const needsExpectedExitDate = ["CDD", "INTERIMAIRE"].includes(typeContrat);
+    const dateSortiePrevue = String(formData.get("sheetDateSortiePrevue") || "").trim();
+
+    setSheetFieldMissingState("sheetNom", !nom);
+    setSheetFieldMissingState("sheetPrenom", !prenom);
+    setSheetFieldMissingState("sheetFonction", !fonction);
+    setSheetFieldMissingState("sheetTypePersonnel", !typePersonnel);
+    setSheetFieldMissingState("sheetTypeContrat", !typeContrat);
+    setSheetFieldMissingState("sheetDateEntree", !dateEntree);
+    setSheetFieldMissingState("sheetDateSortiePrevue", needsExpectedExitDate && !dateSortiePrevue);
+
+    const siteField = form.querySelector("#sheet-site-selector")?.closest(".field");
+    if (siteField) {
+      siteField.classList.toggle("field--missing", selectedSites.length === 0);
+    }
+  };
+
   const updateSheetContractDateRequirement = () => {
     const normalizedTypeContrat = normalizeText(form.elements.sheetTypeContrat?.value || "");
     const needsExpectedExitDate = ["CDD", "INTERIMAIRE"].includes(normalizedTypeContrat);
@@ -2620,6 +2657,7 @@ function bindPersonSheetForm() {
     if (dateSortiePrevueNode) {
       dateSortiePrevueNode.classList.toggle("field--key", needsExpectedExitDate);
     }
+    updateSheetRequiredHighlights();
   };
 
   const validateSheetRequiredFields = (formData) => {
@@ -2673,6 +2711,7 @@ function bindPersonSheetForm() {
     if (needsExpectedExitDate && !dateSortiePrevue) {
       showDataStatus("LA DATE DE SORTIE PREVUE EST OBLIGATOIRE POUR CDD / INTERIMAIRE");
       form.elements.sheetDateSortiePrevue?.focus();
+      updateSheetRequiredHighlights();
       return false;
     }
 
@@ -2680,9 +2719,11 @@ function bindPersonSheetForm() {
     if (!dateEntree) {
       showDataStatus("LA DATE D'ENTREE EST OBLIGATOIRE");
       form.elements.sheetDateEntree?.focus();
+      updateSheetRequiredHighlights();
       return false;
     }
 
+    updateSheetRequiredHighlights();
     return true;
   };
 
@@ -2691,7 +2732,33 @@ function bindPersonSheetForm() {
       updateSheetContractDateRequirement();
     });
   }
+  [
+    "sheetNom",
+    "sheetPrenom",
+    "sheetFonction",
+    "sheetTypePersonnel",
+    "sheetTypeContrat",
+    "sheetDateEntree",
+    "sheetDateSortiePrevue",
+  ].forEach((fieldName) => {
+    const field = form.elements[fieldName];
+    if (!(field instanceof HTMLElement)) {
+      return;
+    }
+    field.addEventListener("input", updateSheetRequiredHighlights);
+    field.addEventListener("change", updateSheetRequiredHighlights);
+  });
+  form.addEventListener("change", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement)) {
+      return;
+    }
+    if (target.name === "sheetSites") {
+      updateSheetRequiredHighlights();
+    }
+  });
   updateSheetContractDateRequirement();
+  updateSheetRequiredHighlights();
 
   const buildPersonFromSheetForm = () => {
     const formData = new FormData(form);
@@ -2871,6 +2938,7 @@ function bindEffectForm() {
       updateEffectFormMode(typeField.value);
       syncReplacementCostField();
       focusNextEffectKeyField(form, "typeEffet");
+      updateEffectRequiredHighlights(form);
     };
   }
   if (referenceSiteField) {
@@ -2879,11 +2947,13 @@ function bindEffectForm() {
       hydrateReferenceSelect(person || "", form.elements.typeEffet.value, "", getSelectedEffectReferenceSite());
       syncReplacementCostField();
       focusNextEffectKeyField(form, "referenceSite");
+      updateEffectRequiredHighlights(form);
     };
   }
   if (form.elements.statutManuel) {
     form.elements.statutManuel.onchange = () => {
       syncReplacementCostField();
+      updateEffectRequiredHighlights(form);
     };
   }
   if (replacementDateField) {
@@ -2895,11 +2965,13 @@ function bindEffectForm() {
     form.elements.referenceEffet.onchange = () => {
       syncReplacementCostField();
       focusNextEffectKeyField(form, "referenceEffet");
+      updateEffectRequiredHighlights(form);
     };
   }
   if (form.elements.designationLibre) {
     form.elements.designationLibre.oninput = () => {
       syncReplacementCostField();
+      updateEffectRequiredHighlights(form);
     };
   }
 
@@ -3065,6 +3137,7 @@ function bindEffectForm() {
   }
 
   updateEffectActionButtons();
+  updateEffectRequiredHighlights(form);
 }
 
 async function deleteEffect(personId, effectId) {
@@ -3296,6 +3369,27 @@ function setEffectFieldVisualState(form, name, enabled, isKey) {
   }
 }
 
+function setEffectFieldMissingState(form, name, isMissing) {
+  const fieldNode = getEffectFormFieldNode(form, name);
+  if (fieldNode) {
+    fieldNode.classList.toggle("field--missing", Boolean(isMissing));
+  }
+}
+
+function updateEffectRequiredHighlights(form) {
+  if (!form) {
+    return;
+  }
+  const typeEffet = normalizeText(form.elements.typeEffet?.value || "");
+  const site = normalizeText(form.elements.referenceSite?.value || "");
+  const statutManuel = normalizeText(form.elements.statutManuel?.value || "");
+  const siteRequired = Boolean(form.elements.referenceSite?.required);
+
+  setEffectFieldMissingState(form, "typeEffet", !typeEffet);
+  setEffectFieldMissingState(form, "referenceSite", siteRequired && !site);
+  setEffectFieldMissingState(form, "statutManuel", !statutManuel);
+}
+
 function updateEffectFormMode(typeEffet) {
   const normalizedType = normalizeText(typeEffet);
   const person = getCurrentPerson();
@@ -3421,6 +3515,7 @@ function updateEffectFormMode(typeEffet) {
   form.elements.typeEffet.required = true;
   form.elements.referenceSite.required = showReferenceSite;
   form.elements.statutManuel.required = true;
+  updateEffectRequiredHighlights(form);
 }
 
 function isCesKeyDesignation(designation) {
@@ -4979,12 +5074,63 @@ function renderDocumentsArchivePage() {
         <td>${escapeHtml(String(entry.totalEffets ?? "-"))}</td>
         <td>${formatAmountWithEuro(entry.totalFacturable || 0)}</td>
         <td>${escapeHtml(getDocumentArchiveVersionLabel(entry))}</td>
-        <td>${openPath ? `<a class="archive-pdf-button" href="${escapeHtml(openPath)}" target="_blank" rel="noopener" aria-label="OUVRIR PDF"><span class="archive-pdf-button__icon" aria-hidden="true"><img src="https://dphrvdhqhgycmllietuk.supabase.co/storage/v1/object/public/ui-assets/ui/icone-pdf.png" alt="" class="archive-pdf-button__image" /></span></a>` : "-"}</td>
+        <td class="archive-actions-cell">${openPath ? `<a class="archive-pdf-button" href="${escapeHtml(openPath)}" target="_blank" rel="noopener" aria-label="OUVRIR PDF"><span class="archive-pdf-button__icon" aria-hidden="true"><img src="https://dphrvdhqhgycmllietuk.supabase.co/storage/v1/object/public/ui-assets/ui/icone-pdf.png" alt="" class="archive-pdf-button__image" /></span></a>` : "-"} <button type="button" class="table-link js-delete-archive-row" data-archive-id="${escapeHtml(String(entry.id || ""))}">SUPPRIMER</button></td>
       </tr>`;
       }
     );
 
   renderTableRowsProgressively(body, rowsHtml, buildEmptyTableRow(body, "AUCUN DOCUMENT ARCHIVE", 11), 24);
+  bindArchiveRowActions();
+}
+
+function deleteDocumentArchiveEntry(archiveId) {
+  if (!archiveId || !Array.isArray(state.data?.documentsArchives)) {
+    return;
+  }
+  const archive = state.data.documentsArchives.find((entry) => String(entry?.id || "") === String(archiveId));
+  if (!archive) {
+    return;
+  }
+  const displayName = `${archive.nom || ""} ${archive.prenom || ""}`.trim();
+  const confirmDelete = window.confirm(
+    `SUPPRIMER CETTE LIGNE D'ARCHIVE${displayName ? ` : ${displayName}` : ""} ?`
+  );
+  if (!confirmDelete) {
+    return;
+  }
+
+  pushUndoSnapshot("SUPPRESSION ARCHIVE");
+  state.data.documentsArchives = state.data.documentsArchives.filter(
+    (entry) => String(entry?.id || "") !== String(archiveId)
+  );
+  markDirty();
+  renderDocumentsArchivePage();
+  showActionStatus("delete", `ARCHIVE SUPPRIMEE : ${archive.typeDocument || "DOCUMENT"} ${displayName}`.trim());
+}
+
+function bindArchiveRowActions() {
+  const body = document.getElementById("documents-archives-body");
+  if (!body || body.dataset.boundArchiveActions === "true") {
+    return;
+  }
+
+  body.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+    const deleteButton = target.closest(".js-delete-archive-row");
+    if (!(deleteButton instanceof HTMLElement)) {
+      return;
+    }
+    const archiveId = String(deleteButton.dataset.archiveId || "");
+    if (!archiveId) {
+      return;
+    }
+    deleteDocumentArchiveEntry(archiveId);
+  });
+
+  body.dataset.boundArchiveActions = "true";
 }
 
 function getSignatureValue(person, docType, signer) {
@@ -6557,6 +6703,13 @@ function fillSheetForm(person) {
   if (form instanceof HTMLFormElement) {
     const normalizedTypeContrat = normalizeText(form.elements.sheetTypeContrat?.value || "");
     const needsExpectedExitDate = ["CDD", "INTERIMAIRE"].includes(normalizedTypeContrat);
+    const nom = normalizeText(form.elements.sheetNom?.value || "");
+    const prenom = normalizeText(form.elements.sheetPrenom?.value || "");
+    const fonction = normalizeText(form.elements.sheetFonction?.value || "");
+    const typePersonnel = normalizeText(form.elements.sheetTypePersonnel?.value || "");
+    const typeContrat = normalizeText(form.elements.sheetTypeContrat?.value || "");
+    const dateEntree = String(form.elements.sheetDateEntree?.value || "").trim();
+    const dateSortiePrevueValue = String(form.elements.sheetDateSortiePrevue?.value || "").trim();
     const dateSortiePrevueField = form.elements.sheetDateSortiePrevue;
     const dateSortiePrevueNode = dateSortiePrevueField instanceof HTMLElement
       ? dateSortiePrevueField.closest(".field")
@@ -6566,6 +6719,20 @@ function fillSheetForm(person) {
     }
     if (dateSortiePrevueNode) {
       dateSortiePrevueNode.classList.toggle("field--key", needsExpectedExitDate);
+      dateSortiePrevueNode.classList.toggle(
+        "field--missing",
+        needsExpectedExitDate && !dateSortiePrevueValue
+      );
+    }
+    form.elements.sheetNom?.closest(".field")?.classList.toggle("field--missing", !nom);
+    form.elements.sheetPrenom?.closest(".field")?.classList.toggle("field--missing", !prenom);
+    form.elements.sheetFonction?.closest(".field")?.classList.toggle("field--missing", !fonction);
+    form.elements.sheetTypePersonnel?.closest(".field")?.classList.toggle("field--missing", !typePersonnel);
+    form.elements.sheetTypeContrat?.closest(".field")?.classList.toggle("field--missing", !typeContrat);
+    form.elements.sheetDateEntree?.closest(".field")?.classList.toggle("field--missing", !dateEntree);
+    const siteField = form.querySelector("#sheet-site-selector")?.closest(".field");
+    if (siteField) {
+      siteField.classList.toggle("field--missing", readSelectedSites(form, "sheet").length === 0);
     }
   }
 }
