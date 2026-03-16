@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Fiche personne</title>
+        <link rel="icon" href="favicon.ico" type="image/x-icon" />
+    <link rel="alternate icon" href="favicon-dark.ico" type="image/x-icon" />
+    <link rel="stylesheet" href="style.css?v=20260304-007" />
+  </head>
+  <body data-page="person-sheet">
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="sidebar__brand">
+          <div class="sidebar__brand-banner-wrap">
+            <img src="https://dphrvdhqhgycmllietuk.supabase.co/storage/v1/object/public/ui-assets/sidebar/bandeau-nextboard-sidebar-detoure.png" alt="NextBoard" class="sidebar__brand-banner" />
+          </div>
+          <h1 class="sidebar__title">SUIVI DES DOTATIONS ENTREE / SORTIE</h1>
+          <p class="sidebar__subtitle">
+            GESTION ONLINE DES EFFETS
+          </p>
+          <div class="sidebar__project-icon" aria-hidden="true">
+            <img src="https://dphrvdhqhgycmllietuk.supabase.co/storage/v1/object/public/ui-assets/sidebar/icone-cle.png" alt="" class="sidebar__project-icon-image" />
+            <img src="https://dphrvdhqhgycmllietuk.supabase.co/storage/v1/object/public/ui-assets/sidebar/icone-badge.png" alt="" class="sidebar__project-icon-image" />
+            <img src="https://dphrvdhqhgycmllietuk.supabase.co/storage/v1/object/public/ui-assets/sidebar/icone-carte.png" alt="" class="sidebar__project-icon-image" />
+            <img src="https://dphrvdhqhgycmllietuk.supabase.co/storage/v1/object/public/ui-assets/sidebar/icone-telecommande.png" alt="" class="sidebar__project-icon-image" />
+          </div>
+        </div>
+
+        <nav class="sidebar__nav">
+          <a href="index.html" class="sidebar__link" data-nav="overview">VUE D'ENSEMBLE</a>
+          <a href="fiche-personne.html" class="sidebar__link" data-nav="person-sheet">FICHE PERSONNE</a>
+          <a href="document-arrivee.html" class="sidebar__link" data-nav="arrival-document">ENTREE / SITUATION</a>
+          <a href="document-sortie.html" class="sidebar__link" data-nav="exit-document">SORTIE / SITUATION</a>
+          <a href="documents-archives.html" class="sidebar__link" data-nav="documents-archives">DOCUMENTS / ARCHIVES</a>
+          <a href="bases-reference.html" class="sidebar__link" data-nav="reference-bases">BASES DE REFERENCE</a>
+        </nav>
+      </aside>
+
+      <main class="main-content">
+        <div class="person-sheet-top-fixed">
+        <header class="page-header">
+          <div>
+            <p class="page-header__eyebrow">CONSULTATION</p>
+            <h2 class="page-header__title">FICHE PERSONNE</h2>
+            <p class="page-header__subtitle">
+              CONSULTATION ET MISE A JOUR DE LA FICHE SELECTIONNEE
+            </p>
+          </div>
+          <div class="page-header__actions">
+            <button type="button" class="button button--secondary js-load-data">RECHARGER</button>
+            <button type="button" class="button button--primary js-save-data">SAUVEGARDER</button>
+          </div>
+        </header>
+        <p class="data-status" id="data-status">OUVERTURE DES DONNEES EN COURS...</p>
+        <p class="dirty-status" id="dirty-status" hidden>MODIFICATIONS NON SAUVEGARDEES</p>
+        <section class="section document-picker-section">
+          <div class="section__heading">
+            <h3>RECHERCHE ET FILTRES</h3>
+            <p>Recherche transverse sur les personnes et les effets confies.</p>
+          </div>
+          <div class="card">
+            <form class="filter-form js-filter-form">
+              <label class="field field--search field--search-compact field--overview-search picker-field">
+                <span>RECHERCHE</span>
+                <div class="search-input-wrap">
+                  <span class="field__icon" aria-hidden="true"></span>
+                  <input
+                    type="search"
+                    id="person-picker-search"
+                    name="search"
+                    list="person-picker-list"
+                    placeholder="NOM, PRENOM, SITE, EFFET, COMMENTAIRE..."
+                    autocomplete="off"
+                  />
+                </div>
+                <datalist id="person-picker-list"></datalist>
+                <div class="picker-suggestions" id="person-picker-suggestions" hidden></div>
+              </label>
+
+              <label class="field field--overview-site">
+                <span>SITE</span>
+                <select name="site"><option value="">TOUS</option></select>
+              </label>
+
+              <label class="field field--overview-type-personnel">
+                <span>TYPE DE PERSONNEL</span>
+                <select name="typePersonnel"><option value="">TOUS</option></select>
+              </label>
+
+              <label class="field field--overview-type-contrat">
+                <span>TYPE DE CONTRAT</span>
+                <select name="typeContrat"><option value="">TOUS</option></select>
+              </label>
+
+              <label class="field field--type-effet-compact field--overview-type-effet">
+                <span>TYPE D'EFFET</span>
+                <select name="typeEffet"><option value="">TOUS</option></select>
+              </label>
+
+              <label class="field field--overview-statut-dossier">
+                <span>STATUT DOSSIER</span>
+                <select name="statutDossier">
+                  <option value="">TOUS</option>
+                  <option value="EN POSTE">EN POSTE</option>
+                  <option value="SORTIE PREVUE">SORTIE PREVUE</option>
+                  <option value="SORTI">SORTI</option>
+                </select>
+              </label>
+
+              <label class="field field--overview-statut-objet">
+                <span>STATUT OBJET</span>
+                <select name="statutObjet">
+                  <option value="">TOUS</option>
+                  <option value="ACTIF">ACTIF</option>
+                  <option value="RESTITUE">RESTITUE</option>
+                  <option value="NON RENDU">NON RENDU</option>
+                  <option value="PERDU">PERDU</option>
+                  <option value="HS">HS</option>
+                </select>
+              </label>
+
+              <div class="form-actions form-actions--filters">
+                <button type="reset" class="button button--secondary">REINITIALISER</button>
+              </div>
+            </form>
+          </div>
+        </section>
+        </div>
+
+        <section class="section">
+          <div class="person-sheet">
+            <article class="card">
+              <div class="person-sheet__header">
+                <div>
+                  <p class="person-sheet__name" id="sheet-person-name">AUCUNE PERSONNE SELECTIONNEE</p>
+                  <p class="person-sheet__meta" id="sheet-person-meta">
+                    SELECTIONNER UNE PERSONNE POUR AFFICHER LA FICHE
+                  </p>
+                  <p class="date-alert" id="sheet-date-alert" hidden></p>
+                </div>
+                <span
+                  class="status-pill status-pill--sheet status-pill--sheet-pending"
+                  id="sheet-person-status"
+                  title="EN ATTENTE"
+                  aria-label="EN ATTENTE"
+                >
+                  EN ATTENTE
+                </span>
+              </div>
+
+              <div class="section__subheading">
+                <h4>INFORMATIONS DU PERSONNEL</h4>
+                <div class="sheet-document-actions">
+                  <button type="button" class="button button--secondary" id="sheet-open-arrival-document" disabled>
+                    ENTREE / SITUATION
+                  </button>
+                  <button type="button" class="button button--secondary" id="sheet-open-exit-document" disabled>
+                    SORTIE / SITUATION
+                  </button>
+                  <button type="button" class="button button--secondary button--pdf" id="sheet-open-arrival-pdf" disabled>
+                    <span class="button-pdf__icon" aria-hidden="true">
+                      <img src="https://dphrvdhqhgycmllietuk.supabase.co/storage/v1/object/public/ui-assets/ui/icone-pdf.png" alt="" class="button-pdf__image" />
+                    </span>
+                    <span class="button-pdf__label">PDF ENTREE</span>
+                  </button>
+                  <button type="button" class="button button--secondary button--pdf" id="sheet-open-exit-pdf" disabled>
+                    <span class="button-pdf__icon" aria-hidden="true">
+                      <img src="https://dphrvdhqhgycmllietuk.supabase.co/storage/v1/object/public/ui-assets/ui/icone-pdf.png" alt="" class="button-pdf__image" />
+                    </span>
+                    <span class="button-pdf__label">PDF SORTIE</span>
+                  </button>
+                </div>
+              </div>
+
+              <form class="person-form person-form--sheet" id="person-sheet-form">
+                <label class="field field--key">
+                  <span>NOM</span>
+                  <input type="text" name="sheetNom" required />
+                </label>
+
+                  <label class="field field--key">
+                    <span>PRENOM</span>
+                    <input type="text" name="sheetPrenom" required />
+                  </label>
+
+                  <label class="field field--key">
+                    <span>FONCTION</span>
+                    <select name="sheetFonction" required>
+                      <option value="">SELECTIONNER</option>
+                    </select>
+                  </label>
+
+                  <label class="field field--full field--key">
+                    <span>SITES</span>
+                    <div class="site-selector" id="sheet-site-selector"></div>
+                </label>
+
+                <label class="field field--key">
+                  <span>TYPE DE PERSONNEL</span>
+                  <select name="sheetTypePersonnel" required>
+                    <option value="">SELECTIONNER</option>
+                  </select>
+                </label>
+
+                <label class="field field--key">
+                  <span>TYPE DE CONTRAT</span>
+                  <select name="sheetTypeContrat" required>
+                    <option value="">SELECTIONNER</option>
+                  </select>
+                </label>
+
+                <label class="field field--key">
+                  <span>DATE D'ENTREE</span>
+                  <input type="date" name="sheetDateEntree" required />
+                </label>
+
+                <label class="field">
+                  <span>DATE DE SORTIE PREVUE</span>
+                  <input type="date" name="sheetDateSortiePrevue" />
+                </label>
+
+                <label class="field">
+                  <span>DATE DE SORTIE REELLE</span>
+                  <input type="date" name="sheetDateSortieReelle" />
+                </label>
+
+                <label class="field">
+                  <span>STATUT DOSSIER</span>
+                  <input type="text" name="sheetStatutDossier" class="status-field" readonly />
+                </label>
+
+                  <div class="form-actions">
+                    <button type="button" class="button button--primary" id="sheet-add-person">
+                      AJOUTER LA PERSONNE
+                    </button>
+                    <button type="submit" class="button button--secondary" id="sheet-save-person">
+                      ENREGISTRER LES MODIFICATIONS
+                    </button>
+                  <button type="button" class="button button--secondary js-delete-person" id="sheet-delete-person">
+                    SUPPRIMER LA PERSONNE
+                  </button>
+                </div>
+              </form>
+            </article>
+
+            <div class="sheet-grid">
+              <article class="card">
+                <div class="section__subheading">
+                  <h4>RESUME DE LA FICHE</h4>
+                </div>
+                <div class="summary-grid">
+                  <div class="summary-item">
+                    <span class="summary-item__label">EFFETS CONFIES</span>
+                    <strong class="summary-item__value" id="sheet-summary-total">0</strong>
+                  </div>
+                  <div class="summary-item">
+                    <span class="summary-item__label">EFFETS RESTITUES</span>
+                    <strong class="summary-item__value" id="sheet-summary-returned">0</strong>
+                  </div>
+                  <div class="summary-item">
+                    <span class="summary-item__label">EFFETS NON RENDUS</span>
+                    <strong class="summary-item__value" id="sheet-summary-missing">0</strong>
+                  </div>
+                  <div class="summary-item summary-item--cost">
+                    <span class="summary-item__label">TOTAL FACTURABLE (€)</span>
+                    <strong class="summary-item__value" id="sheet-summary-cost">0,00 €</strong>
+                  </div>
+                </div>
+                <div class="effect-type-kpis" id="sheet-effect-type-kpis"></div>
+                <div class="effect-type-kpi effect-type-kpi--total">
+                  <span class="effect-type-kpi__icon effect-type-kpi__icon--total" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" focusable="false">
+                      <rect x="5" y="5" width="14" height="14" rx="3" fill="currentColor"></rect>
+                      <path d="M9 12h6M12 9v6" stroke="#FBFAF7" stroke-width="2" stroke-linecap="round"></path>
+                    </svg>
+                  </span>
+                  <div class="effect-type-kpi__content">
+                    <span class="effect-type-kpi__label">TOTAL VALEUR EFFETS (€)</span>
+                    <strong class="effect-type-kpi__value" id="sheet-kpi-total-types">0</strong>
+                    <span class="effect-type-kpi__amount effect-type-kpi__amount--total" id="sheet-kpi-total-amount">0,00 €</span>
+                  </div>
+                </div>
+              </article>
+
+              <article class="card">
+                <div class="section__subheading">
+                  <h4>AJOUTER / MODIFIER / SUPPRIMER UN EFFET</h4>
+                </div>
+
+                <form class="effect-form" id="effect-form">
+                  <label class="field">
+                    <span>TYPE D'EFFET</span>
+                    <select name="typeEffet">
+                      <option value="">SELECTIONNER</option>
+                    </select>
+                  </label>
+
+                  <label class="field" id="effect-reference-site-field">
+                    <span id="effect-reference-site-label">SITE DE LA CLE</span>
+                    <select name="referenceSite">
+                      <option value="">SELECTIONNER</option>
+                    </select>
+                  </label>
+
+                  <label class="field" id="effect-reference-field">
+                    <span id="effect-reference-label">DESIGNATION EXISTANTE</span>
+                    <select name="referenceEffet" id="effect-reference-select">
+                      <option value="">SELECTIONNER</option>
+                    </select>
+                  </label>
+
+                  <label class="field field--wide" id="effect-designation-field">
+                    <span id="effect-designation-label">NOUVELLE DESIGNATION / MODIFICATION</span>
+                    <input type="text" name="designationLibre" />
+                  </label>
+
+                    <label class="field">
+                      <span id="effect-number-label">N° D'IDENTIFICATION</span>
+                      <input type="text" name="numeroIdentification" />
+                    </label>
+
+                    <label class="field is-hidden" id="effect-vehicle-field">
+                      <span id="effect-vehicle-label">VEHICULE / IMMATRICULATION</span>
+                      <input type="text" name="vehiculeImmatriculation" />
+                    </label>
+
+                    <p class="field-help field-help--full" id="effect-form-help">
+                      CHOISIR UN TYPE D'EFFET POUR ADAPTER LA SAISIE
+                    </p>
+
+                  <label class="field">
+                    <span>DATE DE REMISE</span>
+                    <input type="date" name="dateRemise" />
+                  </label>
+
+                  <label class="field">
+                    <span>DATE DE RETOUR</span>
+                    <input type="date" name="dateRetour" />
+                  </label>
+
+                  <label class="field">
+                    <span>STATUT MANUEL</span>
+                    <select name="statutManuel">
+                      <option value="">SELECTIONNER</option>
+                    </select>
+                  </label>
+
+                  <label class="field">
+                    <span>DATE DE REMPLACEMENT</span>
+                    <input type="date" name="dateRemplacement" />
+                  </label>
+
+                  <label class="field" id="effect-cost-field">
+                    <span>COUT DE REMPLACEMENT</span>
+                    <input type="text" name="coutRemplacement" inputmode="decimal" placeholder="0,00 €" />
+                  </label>
+
+                  <button type="button" class="button button--secondary effect-reset-button" id="effect-reset-fields-button">
+                    REINITIALISER
+                  </button>
+
+                  <label class="field field--full">
+                    <span>COMMENTAIRE / OBSERVATION</span>
+                    <textarea name="commentaire" rows="3"></textarea>
+                  </label>
+
+                  <div class="form-actions form-actions--effect-submit">
+                    <button type="button" class="button button--primary" id="effect-add-button">AJOUTER L'EFFET</button>
+                    <button type="button" class="button button--secondary" id="effect-update-button" disabled>MODIFIER L'EFFET</button>
+                    <button type="button" class="button button--secondary" id="effect-delete-button" disabled>SUPPRIMER L'EFFET</button>
+                    <button type="button" class="button button--secondary" id="effect-cancel-button" disabled>ANNULER</button>
+                  </div>
+                </form>
+              </article>
+            </div>
+
+            <article class="card">
+              <div class="section__subheading">
+                <h4>EFFETS CONFIES</h4>
+              </div>
+
+              <div class="table-wrap">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th data-sort-table="sheetEffects" data-sort-key="typeEffet">TYPE</th>
+                      <th data-sort-table="sheetEffects" data-sort-key="designation">DESIGNATION</th>
+                      <th data-sort-table="sheetEffects" data-sort-key="siteReference">SITE</th>
+                      <th data-sort-table="sheetEffects" data-sort-key="numeroIdentification">N° IDENTIFICATION</th>
+                      <th data-sort-table="sheetEffects" data-sort-key="dateRemise">DATE REMISE</th>
+                      <th data-sort-table="sheetEffects" data-sort-key="dateRetour">DATE RETOUR</th>
+                      <th data-sort-table="sheetEffects" data-sort-key="statut">STATUT</th>
+                      <th>MOUVEMENT</th>
+                      <th data-sort-table="sheetEffects" data-sort-key="dateRemplacement">DATE REMPLACEMENT</th>
+                      <th data-sort-table="sheetEffects" data-sort-key="cout">COUT</th>
+                      <th data-sort-table="sheetEffects" data-sort-key="commentaire">COMMENTAIRE</th>
+                    </tr>
+                  </thead>
+                  <tbody id="sheet-effects-body">
+                    <tr>
+                      <td colspan="11" class="table-empty">AUCUN EFFET A AFFICHER</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </article>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="app.js?v=20260314-1451"></script>
+  </body>
+</html>
+
+
+
+

@@ -3550,23 +3550,29 @@ function updateEffectFormMode(typeEffet) {
     return;
   }
 
+  referenceSiteField.classList.add("is-hidden");
+  referenceField.classList.remove("is-hidden");
+  designationField.classList.remove("is-hidden");
+  vehicleField.classList.add("is-hidden");
   const vehicleInput = vehicleField.querySelector("input");
   if (vehicleInput && normalizedType !== "TELECOMMANDE URMET") {
     vehicleInput.value = "";
   }
   numberLabel.textContent = "N° D'IDENTIFICATION";
 
-  let showReferenceSite = Boolean(normalizedType);
+  let showReferenceSite = false;
   let showReference = true;
   let showDesignation = true;
   let showVehicle = false;
   let keyFields = normalizedType ? getEffectKeyFieldSequence(normalizedType) : ["typeEffet"];
 
   if (["CLE", "CLE CES"].includes(normalizedType)) {
+    referenceSiteField.classList.remove("is-hidden");
     showReferenceSite = true;
     referenceSiteLabel.textContent = "SITE DE LA CLE";
     referenceLabel.textContent = "NOM EXISTANT DE LA CLE";
     designationLabel.textContent = "NOUVEAU NOM / MODIFICATION";
+    designationField.classList.add("is-hidden");
     showDesignation = false;
     numberLabel.textContent = "N° DE LA CLE";
     if (normalizedType === "CLE CES") {
@@ -3581,6 +3587,7 @@ function updateEffectFormMode(typeEffet) {
           : "POUR UNE CLE : CHOISIR UN NOM DE CLE DU SITE";
     }
   } else if (["BADGE INTRUSION", "TELECOMMANDE URMET", "CARTE TURBOSELF"].includes(normalizedType)) {
+    referenceSiteField.classList.remove("is-hidden");
     showReferenceSite = true;
     referenceSiteLabel.textContent =
       normalizedType === "BADGE INTRUSION"
@@ -3591,7 +3598,10 @@ function updateEffectFormMode(typeEffet) {
     showReference = false;
     showDesignation = false;
     showVehicle = normalizedType === "TELECOMMANDE URMET";
+    vehicleField.classList.toggle("is-hidden", !showVehicle);
     vehicleLabel.textContent = "VEHICULE / IMMATRICULATION";
+    referenceField.classList.add("is-hidden");
+    designationField.classList.add("is-hidden");
     referenceLabel.textContent = "REFERENCE EXISTANTE";
     designationLabel.textContent = "DESIGNATION";
     if (normalizedType === "BADGE INTRUSION") {
@@ -3605,8 +3615,11 @@ function updateEffectFormMode(typeEffet) {
       helpNode.textContent = "POUR UNE CARTE TURBOSELF : RENSEIGNER UNIQUEMENT LE N°";
     }
   } else {
-    showReferenceSite = Boolean(normalizedType);
-    referenceSiteLabel.textContent = "SITE DE L'EFFET";
+    if (normalizedType) {
+      referenceSiteField.classList.remove("is-hidden");
+      showReferenceSite = true;
+      referenceSiteLabel.textContent = "SITE DE L'EFFET";
+    }
     referenceLabel.textContent = "DESIGNATION EXISTANTE";
     designationLabel.textContent = "NOUVELLE DESIGNATION / MODIFICATION";
     helpNode.textContent = normalizedType
