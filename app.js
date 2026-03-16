@@ -861,6 +861,29 @@ function openPersonSheet(personId) {
   navigateWithAutoSave(`fiche-personne.html?personId=${normalizedId}`);
 }
 
+function openPersonSheetEffectEditor(personId, effectId) {
+  const normalizedPersonId = String(personId || "");
+  const normalizedEffectId = String(effectId || "");
+  if (!normalizedPersonId || !normalizedEffectId) {
+    return;
+  }
+  setCurrentPersonId(normalizedPersonId, "replace");
+  navigateWithAutoSave(
+    `fiche-personne.html?personId=${encodeURIComponent(normalizedPersonId)}&editEffectId=${encodeURIComponent(normalizedEffectId)}`
+  );
+}
+
+function consumeRequestedEditEffectId() {
+  const nextUrl = new URL(window.location.href);
+  const requestedId = String(nextUrl.searchParams.get("editEffectId") || "");
+  if (!requestedId) {
+    return "";
+  }
+  nextUrl.searchParams.delete("editEffectId");
+  window.history.replaceState({}, "", nextUrl);
+  return requestedId;
+}
+
 function getCurrentMobileSignatureToken() {
   return new URLSearchParams(window.location.search).get("token") || "";
 }
@@ -6220,6 +6243,11 @@ function renderPersonSheet(personId) {
   updateEffectFormMode(currentTypeEffet);
   bindEffectRowActions();
   updateSortableHeaders("sheetEffects");
+
+  const requestedEditEffectId = consumeRequestedEditEffectId();
+  if (requestedEditEffectId && currentEffects.some((effect) => String(effect.id || "") === requestedEditEffectId)) {
+    startEditEffect(person.id, requestedEditEffectId);
+  }
 }
 
 function getSheetPersonStatusClass(status) {
@@ -6358,6 +6386,7 @@ function renderArrivalDocument(personId) {
   ) {
     return;
   }
+  const isPdfMode = isPdfRenderMode();
 
   if (!person) {
     titleNode.textContent = isComplement
@@ -6376,7 +6405,7 @@ function renderArrivalDocument(personId) {
     sitesNode.textContent = "-";
     dateEntreeNode.textContent = "-";
     dateSortiePrevueNode.textContent = "-";
-    body.innerHTML = buildEmptyTableRow(body, "AUCUN EFFET A AFFICHER", 6);
+    body.innerHTML = buildEmptyTableRow(body, "AUCUN EFFET A AFFICHER", 7);
     renderArrivalCostsTable(costsHead, costsBody);
     totalEffectsNode.textContent = "0";
     totalValueNode.textContent = "0,00 €";
@@ -6454,6 +6483,12 @@ function renderArrivalDocument(personId) {
             const rowClass = movement
               ? ` class="arrival-effect-row arrival-effect-row--${getMovementRowVariant(movement)}"`
               : "";
+            const actionCell = !isPdfMode
+              ? `<span class="document-effect-actions">
+                  <button type="button" class="table-link js-doc-edit-effect" data-person-id="${escapeHtml(person.id || "")}" data-effect-id="${escapeHtml(effect.id || "")}">MODIFIER</button>
+                  <button type="button" class="table-link js-doc-delete-effect" data-person-id="${escapeHtml(person.id || "")}" data-effect-id="${escapeHtml(effect.id || "")}">SUPPRIMER</button>
+                </span>`
+              : "-";
             return `<tr${rowClass}>
             <td>${effect.typeEffet || ""}</td>
             <td>${getEffectDisplayDesignation(effect) || "-"}</td>
@@ -6461,19 +6496,21 @@ function renderArrivalDocument(personId) {
             <td>${effect.numeroIdentification || "-"}</td>
             <td>${formatDate(effect.dateRemise) || "-"}</td>
             <td>${formatAmountWithEuro(getEffectUnitValue(effect))}</td>
+            <td>${actionCell}</td>
           </tr>`;
           }
         )
         .join("")}
         <tr class="table-total-row">
-          <td colspan="5">TOTAL DES EFFETS REMIS</td>
+          <td colspan="6">TOTAL DES EFFETS REMIS</td>
           <td>${formatAmountWithEuro(totalValue)}</td>
         </tr>`
-    : buildEmptyTableRow(body, "AUCUN EFFET A AFFICHER", 6);
+    : buildEmptyTableRow(body, "AUCUN EFFET A AFFICHER", 7);
 
   renderArrivalCostsTable(costsHead, costsBody);
   totalEffectsNode.textContent = String(activeEffects.length);
   totalValueNode.textContent = formatAmountWithEuro(totalValue);
+  bindDocumentEffectActions();
   updateSortableHeaders("arrivalEffects");
   syncDocumentMobileSignatureLink("arrival", person.id, "personnel");
   syncDocumentMobileSignatureLink("arrival", person.id, "representant");
@@ -6595,7 +6632,7 @@ function renderExitDocument(personId) {
     dateEntreeNode.textContent = "-";
     dateSortiePrevueNode.textContent = "-";
     dateSortieReelleNode.textContent = "-";
-    body.innerHTML = buildEmptyTableRow(body, "AUCUN EFFET A AFFICHER", 9);
+    body.innerHTML = buildEmptyTableRow(body, "AUCUN EFFET A AFFICHER", 10);
     totalEffectsNode.textContent = "0";
     totalReturnedNode.textContent = "0";
     totalChargeableNode.textContent = "0";
@@ -6667,6 +6704,12 @@ function renderExitDocument(personId) {
             const canToggleReturnToday =
               !["PERDU", "HS", "VOL"].includes(currentStatus) &&
               (!retourDateIso || retourDateIso === todayIso);
+            const actionCell = !isPdfMode
+              ? `<span class="document-effect-actions">
+                  <button type="button" class="table-link js-doc-edit-effect" data-person-id="${escapeHtml(person.id || "")}" data-effect-id="${escapeHtml(effect.id || "")}">MODIFIER</button>
+                  <button type="button" class="table-link js-doc-delete-effect" data-person-id="${escapeHtml(person.id || "")}" data-effect-id="${escapeHtml(effect.id || "")}">SUPPRIMER</button>
+                </span>`
+              : "-";
             return `<tr>
             <td>${effect.typeEffet || ""}</td>
             <td>${getEffectDisplayDesignation(effect)}</td>
@@ -6681,15 +6724,16 @@ function renderExitDocument(personId) {
                 : "-"
             }</td>
             <td>${formatAmountWithEuro(getEffectReplacementCost(person, effect))}</td>
+            <td>${actionCell}</td>
           </tr>`;
           }
         )
         .join("")}
         <tr class="table-total-row">
-          <td colspan="${isPdfMode ? "7" : "8"}">TOTAL FACTURABLE DES EFFETS</td>
+          <td colspan="${isPdfMode ? "8" : "9"}">TOTAL FACTURABLE DES EFFETS</td>
           <td>${formatAmountWithEuro(totalValue)}</td>
         </tr>`
-    : buildEmptyTableRow(body, "AUCUN EFFET A AFFICHER", 9);
+    : buildEmptyTableRow(body, "AUCUN EFFET A AFFICHER", 10);
 
   totalEffectsNode.textContent = String(effects.length);
   totalReturnedNode.textContent = String(totalReturned);
@@ -6697,9 +6741,54 @@ function renderExitDocument(personId) {
   totalValueNode.textContent = formatAmountWithEuro(totalValue);
   renderDocumentCostsTable(costsHead, costsBody);
   bindExitReturnTodayToggles();
+  bindDocumentEffectActions();
   updateSortableHeaders("exitEffects");
   syncDocumentMobileSignatureLink("exit", person.id, "personnel");
   syncDocumentMobileSignatureLink("exit", person.id, "representant");
+}
+
+function bindDocumentEffectActions() {
+  const page = document.body.dataset.page || "";
+  const bodyId =
+    page === "arrival-document"
+      ? "arrival-effects-body"
+      : page === "exit-document"
+        ? "exit-effects-body"
+        : "";
+  if (!bodyId) {
+    return;
+  }
+  const body = document.getElementById(bodyId);
+  if (!body || body.dataset.effectActionsBound === "true") {
+    return;
+  }
+
+  body.addEventListener("click", async (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+
+    const editButton = target.closest(".js-doc-edit-effect");
+    if (editButton instanceof HTMLElement) {
+      const personId = String(editButton.dataset.personId || "");
+      const effectId = String(editButton.dataset.effectId || "");
+      openPersonSheetEffectEditor(personId, effectId);
+      return;
+    }
+
+    const deleteButton = target.closest(".js-doc-delete-effect");
+    if (deleteButton instanceof HTMLElement) {
+      const personId = String(deleteButton.dataset.personId || "");
+      const effectId = String(deleteButton.dataset.effectId || "");
+      if (!personId || !effectId) {
+        return;
+      }
+      await deleteEffect(personId, effectId);
+    }
+  });
+
+  body.dataset.effectActionsBound = "true";
 }
 
 function bindExitReturnTodayToggles() {
