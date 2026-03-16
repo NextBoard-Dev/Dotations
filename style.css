@@ -1646,6 +1646,22 @@ body[data-page="exit-document"] .picker-suggestions {
   resize: none;
 }
 
+.field--effect-reset {
+  justify-self: end;
+  align-self: end;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  width: max-content;
+}
+
+.field--effect-reset > span {
+  visibility: hidden;
+}
+
+.field--effect-reset .button {
+  min-width: 148px;
+}
+
 .field--search,
 .field--wide {
   grid-column: span 2;

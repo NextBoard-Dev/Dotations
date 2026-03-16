@@ -2987,6 +2987,7 @@ function bindEffectForm() {
   const updateButton = document.getElementById("effect-update-button");
   const deleteButton = document.getElementById("effect-delete-button");
   const cancelButton = document.getElementById("effect-cancel-button");
+  const resetFieldsButton = document.getElementById("effect-reset-fields-button");
   const typeField = form.elements.typeEffet;
   const referenceSiteField = form.elements.referenceSite;
   const replacementDateField = form.elements.dateRemplacement;
@@ -3195,6 +3196,11 @@ function bindEffectForm() {
       showDataStatus("MODIFICATION DE L'EFFET ANNULEE");
     };
   }
+  if (resetFieldsButton) {
+    resetFieldsButton.onclick = () => {
+      resetEffectFormFieldsExceptCost();
+    };
+  }
 
   updateEffectActionButtons();
   updateEffectRequiredHighlights(form);
@@ -3331,6 +3337,26 @@ function resetEffectForm() {
   hydrateReferenceSelect(getCurrentPerson() || "", "", "", "");
   updateEffectFormMode("");
   updateEffectActionButtons();
+}
+
+function resetEffectFormFieldsExceptCost() {
+  const form = document.getElementById("effect-form");
+  if (!form) {
+    return;
+  }
+  const preservedCost = String(form.elements.coutRemplacement?.value || "");
+  const person = getCurrentPerson();
+  state.editingEffectId = "";
+  form.reset();
+  hydrateEffectReferenceSiteSelect(person, "", "");
+  hydrateReferenceSelect(person || "", "", "", "");
+  updateEffectFormMode("");
+  updateEffectActionButtons();
+  if (form.elements.coutRemplacement) {
+    form.elements.coutRemplacement.value = preservedCost;
+  }
+  updateEffectRequiredHighlights(form);
+  showDataStatus("CHAMPS REINITIALISES (COUT CONSERVE)");
 }
 
 function updateEffectActionButtons() {
