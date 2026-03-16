@@ -8846,15 +8846,17 @@ async function saveDataToFile(options = {}) {
     };
     const saveConfirmation = `SAUVEGARDEE LE ${formatCurrentUiTimestamp()} - SOURCE: ${saveSource}`;
     showDataStatus(saveConfirmation);
-    pulseSaveButtons();
     if (!silent) {
       window.alert(saveAlertText);
+      pulseSaveButtons();
       if (promptDownload && saveSource === "LOCAL" && document.body.dataset.page !== "mobile-signature") {
         downloadDataJson();
       }
       if (closeAfterAlert) {
         scheduleCloseAttempts();
       }
+    } else {
+      pulseSaveButtons();
     }
     if (reloadAfter) {
       await reloadData(mode === "SUPABASE" ? "RELECTURE DES DONNEES SUPABASE..." : "RELECTURE DE data.json...");

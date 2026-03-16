@@ -82,13 +82,13 @@ textarea {
   border-radius: 9px;
   overflow: hidden;
   box-shadow: 0 4px 10px rgba(43, 69, 82, 0.05);
-  animation: logo-float 5.8s ease-in-out infinite;
+  animation: logo-float 4.8s ease-in-out infinite;
   transform-origin: center;
 }
 
 .sidebar__brand-banner-wrap:hover {
   animation-play-state: paused;
-  transform: rotate(-0.8deg) scale(1.01);
+  transform: rotate(-1.8deg) scale(1.02);
 }
 
 .sidebar__brand-banner-wrap::after {
@@ -2083,10 +2083,10 @@ body[data-page="global"] .form-actions--filters {
 @keyframes logo-float {
   0%,
   100% {
-    transform: translateY(0);
+    transform: translateY(0) rotate(0deg);
   }
   50% {
-    transform: translateY(-2px);
+    transform: translateY(-4px) rotate(-0.6deg);
   }
 }
 
