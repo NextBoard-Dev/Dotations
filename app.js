@@ -2779,6 +2779,7 @@ function bindEffectForm() {
       hydrateReferenceSelect(person || "", typeField.value, "", getSelectedEffectReferenceSite());
       updateEffectFormMode(typeField.value);
       syncReplacementCostField();
+      focusNextEffectKeyField(form, "typeEffet");
     };
   }
   if (referenceSiteField) {
@@ -2786,6 +2787,7 @@ function bindEffectForm() {
       const person = getCurrentPerson();
       hydrateReferenceSelect(person || "", form.elements.typeEffet.value, "", getSelectedEffectReferenceSite());
       syncReplacementCostField();
+      focusNextEffectKeyField(form, "referenceSite");
     };
   }
   if (form.elements.statutManuel) {
@@ -2801,6 +2803,7 @@ function bindEffectForm() {
   if (form.elements.referenceEffet) {
     form.elements.referenceEffet.onchange = () => {
       syncReplacementCostField();
+      focusNextEffectKeyField(form, "referenceEffet");
     };
   }
   if (form.elements.designationLibre) {
@@ -2808,6 +2811,20 @@ function bindEffectForm() {
       syncReplacementCostField();
     };
   }
+
+  ["numeroIdentification", "vehiculeImmatriculation", "dateRemise"].forEach((fieldName) => {
+    const field = form.elements[fieldName];
+    if (!(field instanceof HTMLElement)) {
+      return;
+    }
+    field.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") {
+        return;
+      }
+      event.preventDefault();
+      focusNextEffectKeyField(form, fieldName);
+    });
+  });
 
   const submitEffect = async (mode) => {
     const person = getCurrentPerson();
@@ -3103,52 +3120,133 @@ function updateEffectActionButtons() {
   }
 }
 
+function getEffectKeyFieldSequence(typeEffet) {
+  const normalizedType = normalizeText(typeEffet);
+  if (normalizedType === "TELECOMMANDE URMET") {
+    return ["typeEffet", "numeroIdentification", "vehiculeImmatriculation", "dateRemise"];
+  }
+  if (normalizedType === "BADGE INTRUSION" || normalizedType === "CARTE TURBOSELF") {
+    return ["typeEffet", "referenceSite", "numeroIdentification", "dateRemise"];
+  }
+  if (normalizedType === "CLE" || normalizedType === "CLE CES") {
+    return ["typeEffet", "referenceSite", "referenceEffet", "numeroIdentification", "dateRemise"];
+  }
+  return ["typeEffet", "numeroIdentification", "dateRemise"];
+}
+
+function getEffectFormFieldNode(form, name) {
+  const node = form?.elements?.[name];
+  if (!(node instanceof HTMLElement)) {
+    return null;
+  }
+  return node.closest(".field");
+}
+
+function isEffectFieldAvailable(form, name) {
+  const node = form?.elements?.[name];
+  if (!(node instanceof HTMLElement) || node.disabled) {
+    return false;
+  }
+  const field = node.closest(".field");
+  return !(field instanceof HTMLElement && field.classList.contains("is-hidden"));
+}
+
+function focusEffectField(form, name) {
+  const node = form?.elements?.[name];
+  if (!(node instanceof HTMLElement) || !isEffectFieldAvailable(form, name)) {
+    return false;
+  }
+  node.focus();
+  if (node instanceof HTMLInputElement && node.type === "text") {
+    node.select();
+  }
+  return true;
+}
+
+function focusNextEffectKeyField(form, currentFieldName) {
+  if (!form) {
+    return;
+  }
+  const sequence = getEffectKeyFieldSequence(form.elements.typeEffet?.value || "");
+  const currentIndex = sequence.indexOf(currentFieldName);
+  if (currentIndex < 0) {
+    return;
+  }
+  for (let i = currentIndex + 1; i < sequence.length; i += 1) {
+    if (focusEffectField(form, sequence[i])) {
+      return;
+    }
+  }
+}
+
+function setEffectFieldVisualState(form, name, enabled, isKey) {
+  const fieldNode = getEffectFormFieldNode(form, name);
+  const control = form?.elements?.[name];
+  if (fieldNode) {
+    fieldNode.classList.toggle("field--inactive", !enabled);
+    fieldNode.classList.toggle("field--key", Boolean(isKey));
+  }
+  if (control instanceof HTMLElement) {
+    control.disabled = !enabled;
+  }
+}
+
 function updateEffectFormMode(typeEffet) {
   const normalizedType = normalizeText(typeEffet);
   const person = getCurrentPerson();
+  const form = document.getElementById("effect-form");
   const availableReferenceSites = getAvailableReferenceSites(person);
   const referenceSiteField = document.getElementById("effect-reference-site-field");
   const referenceSiteLabel = document.getElementById("effect-reference-site-label");
-    const referenceField = document.getElementById("effect-reference-field");
-    const referenceLabel = document.getElementById("effect-reference-label");
-    const designationField = document.getElementById("effect-designation-field");
-    const designationLabel = document.getElementById("effect-designation-label");
-    const numberLabel = document.getElementById("effect-number-label");
-    const vehicleField = document.getElementById("effect-vehicle-field");
-    const vehicleLabel = document.getElementById("effect-vehicle-label");
-    const helpNode = document.getElementById("effect-form-help");
+  const referenceField = document.getElementById("effect-reference-field");
+  const referenceLabel = document.getElementById("effect-reference-label");
+  const designationField = document.getElementById("effect-designation-field");
+  const designationLabel = document.getElementById("effect-designation-label");
+  const numberLabel = document.getElementById("effect-number-label");
+  const vehicleField = document.getElementById("effect-vehicle-field");
+  const vehicleLabel = document.getElementById("effect-vehicle-label");
+  const helpNode = document.getElementById("effect-form-help");
 
   if (
+    !form ||
     !referenceSiteField ||
     !referenceSiteLabel ||
     !referenceField ||
-      !referenceLabel ||
-      !designationField ||
-      !designationLabel ||
-      !numberLabel ||
-      !vehicleField ||
-      !vehicleLabel ||
-      !helpNode
-    ) {
-      return;
-    }
+    !referenceLabel ||
+    !designationField ||
+    !designationLabel ||
+    !numberLabel ||
+    !vehicleField ||
+    !vehicleLabel ||
+    !helpNode
+  ) {
+    return;
+  }
 
-    referenceSiteField.classList.add("is-hidden");
-    referenceField.classList.remove("is-hidden");
-    designationField.classList.remove("is-hidden");
-    vehicleField.classList.add("is-hidden");
-    const vehicleInput = vehicleField.querySelector("input");
-    if (vehicleInput && normalizedType !== "TELECOMMANDE URMET") {
-      vehicleInput.value = "";
-    }
-    numberLabel.textContent = "N° D'IDENTIFICATION";
+  referenceSiteField.classList.add("is-hidden");
+  referenceField.classList.remove("is-hidden");
+  designationField.classList.remove("is-hidden");
+  vehicleField.classList.add("is-hidden");
+  const vehicleInput = vehicleField.querySelector("input");
+  if (vehicleInput && normalizedType !== "TELECOMMANDE URMET") {
+    vehicleInput.value = "";
+  }
+  numberLabel.textContent = "N° D'IDENTIFICATION";
+
+  let showReferenceSite = false;
+  let showReference = true;
+  let showDesignation = true;
+  let showVehicle = false;
+  let keyFields = normalizedType ? getEffectKeyFieldSequence(normalizedType) : ["typeEffet"];
 
   if (["CLE", "CLE CES"].includes(normalizedType)) {
     referenceSiteField.classList.remove("is-hidden");
+    showReferenceSite = true;
     referenceSiteLabel.textContent = "SITE DE LA CLE";
     referenceLabel.textContent = "NOM EXISTANT DE LA CLE";
     designationLabel.textContent = "NOUVEAU NOM / MODIFICATION";
     designationField.classList.add("is-hidden");
+    showDesignation = false;
     numberLabel.textContent = "N° DE LA CLE";
     if (normalizedType === "CLE CES") {
       helpNode.textContent =
@@ -3161,17 +3259,18 @@ function updateEffectFormMode(typeEffet) {
           ? "POUR UNE CLE : CHOISIR D'ABORD LE SITE, PUIS LE NOM DE LA CLE"
           : "POUR UNE CLE : CHOISIR UN NOM DE CLE DU SITE";
     }
-    return;
-  }
-
-    if (["BADGE INTRUSION", "TELECOMMANDE URMET", "CARTE TURBOSELF"].includes(normalizedType)) {
-      if (["BADGE INTRUSION", "CARTE TURBOSELF"].includes(normalizedType)) {
-        referenceSiteField.classList.remove("is-hidden");
-        referenceSiteLabel.textContent = normalizedType === "BADGE INTRUSION" ? "SITE DU BADGE" : "SITE DE LA CARTE";
-      }
-      vehicleField.classList.toggle("is-hidden", normalizedType !== "TELECOMMANDE URMET");
-      vehicleLabel.textContent = "VEHICULE / IMMATRICULATION";
-      referenceField.classList.add("is-hidden");
+  } else if (["BADGE INTRUSION", "TELECOMMANDE URMET", "CARTE TURBOSELF"].includes(normalizedType)) {
+    if (["BADGE INTRUSION", "CARTE TURBOSELF"].includes(normalizedType)) {
+      referenceSiteField.classList.remove("is-hidden");
+      showReferenceSite = true;
+      referenceSiteLabel.textContent = normalizedType === "BADGE INTRUSION" ? "SITE DU BADGE" : "SITE DE LA CARTE";
+    }
+    showReference = false;
+    showDesignation = false;
+    showVehicle = normalizedType === "TELECOMMANDE URMET";
+    vehicleField.classList.toggle("is-hidden", !showVehicle);
+    vehicleLabel.textContent = "VEHICULE / IMMATRICULATION";
+    referenceField.classList.add("is-hidden");
     designationField.classList.add("is-hidden");
     referenceLabel.textContent = "REFERENCE EXISTANTE";
     designationLabel.textContent = "DESIGNATION";
@@ -3185,14 +3284,26 @@ function updateEffectFormMode(typeEffet) {
       numberLabel.textContent = "N° CARTE";
       helpNode.textContent = "POUR UNE CARTE TURBOSELF : RENSEIGNER UNIQUEMENT LE N°";
     }
-    return;
+  } else {
+    referenceLabel.textContent = "DESIGNATION EXISTANTE";
+    designationLabel.textContent = "NOUVELLE DESIGNATION / MODIFICATION";
+    helpNode.textContent = normalizedType
+      ? "SI BESOIN : CHOISIR UNE REFERENCE EXISTANTE OU SAISIR UNE DESIGNATION"
+      : "CHOISIR UN TYPE D'EFFET POUR ADAPTER LA SAISIE";
   }
 
-  referenceLabel.textContent = "DESIGNATION EXISTANTE";
-  designationLabel.textContent = "NOUVELLE DESIGNATION / MODIFICATION";
-  helpNode.textContent = normalizedType
-    ? "SI BESOIN : CHOISIR UNE REFERENCE EXISTANTE OU SAISIR UNE DESIGNATION"
-    : "CHOISIR UN TYPE D'EFFET POUR ADAPTER LA SAISIE";
+  setEffectFieldVisualState(form, "typeEffet", true, true);
+  setEffectFieldVisualState(form, "referenceSite", showReferenceSite, keyFields.includes("referenceSite"));
+  setEffectFieldVisualState(form, "referenceEffet", showReference, keyFields.includes("referenceEffet"));
+  setEffectFieldVisualState(form, "designationLibre", showDesignation, keyFields.includes("designationLibre"));
+  setEffectFieldVisualState(form, "numeroIdentification", true, keyFields.includes("numeroIdentification"));
+  setEffectFieldVisualState(
+    form,
+    "vehiculeImmatriculation",
+    showVehicle,
+    keyFields.includes("vehiculeImmatriculation")
+  );
+  setEffectFieldVisualState(form, "dateRemise", true, keyFields.includes("dateRemise"));
 }
 
 function isCesKeyDesignation(designation) {
@@ -6425,7 +6536,7 @@ function renderArrivalDocument(personId) {
   const allEffects = Array.isArray(person.effetsConfies) ? person.effetsConfies : [];
   const fallbackMovements = getArrivalComplementMovementMap(person, allEffects);
 
-  if (!explicitMode && !isComplement && fallbackMovements.size) {
+  if (!explicitMode && !isComplement && fallbackMovements.size && isPdfMode) {
     mode = "COMPLEMENTAIRE";
     isComplement = true;
   }
@@ -6496,7 +6607,7 @@ function renderArrivalDocument(personId) {
             <td>${effect.numeroIdentification || "-"}</td>
             <td>${formatDate(effect.dateRemise) || "-"}</td>
             <td>${formatAmountWithEuro(getEffectUnitValue(effect))}</td>
-            <td>${actionCell}</td>
+            <td class="document-effects-action-col">${actionCell}</td>
           </tr>`;
           }
         )
@@ -6724,7 +6835,7 @@ function renderExitDocument(personId) {
                 : "-"
             }</td>
             <td>${formatAmountWithEuro(getEffectReplacementCost(person, effect))}</td>
-            <td>${actionCell}</td>
+            <td class="document-effects-action-col">${actionCell}</td>
           </tr>`;
           }
         )

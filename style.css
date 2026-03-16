@@ -626,6 +626,113 @@ body[data-pdf-mode="true"] .data-table td:nth-child(8) {
   width: 8%;
 }
 
+/* PDF compact v2: densification verticale pour tenir sur 1 page */
+@page {
+  size: A4;
+  margin: 5mm 7mm;
+}
+
+body[data-pdf-mode="true"] .main-content {
+  padding: 0 !important;
+}
+
+body[data-pdf-mode="true"] .arrival-document__header {
+  gap: 5px;
+  padding-bottom: 4px;
+}
+
+body[data-pdf-mode="true"] .arrival-document__block {
+  margin-top: 4px;
+}
+
+body[data-pdf-mode="true"] .arrival-document__title {
+  font-size: 11px;
+  line-height: 1.15;
+}
+
+body[data-pdf-mode="true"] .arrival-document__subtitle,
+body[data-pdf-mode="true"] .arrival-document__meta,
+body[data-pdf-mode="true"] .section__subheading,
+body[data-pdf-mode="true"] .document-field span,
+body[data-pdf-mode="true"] .data-table thead th,
+body[data-pdf-mode="true"] .data-table td {
+  font-size: 7px;
+  line-height: 1.15;
+}
+
+body[data-pdf-mode="true"] .document-grid,
+body[data-pdf-mode="true"] .arrival-summary,
+body[data-pdf-mode="true"] .signature-grid {
+  gap: 3px;
+}
+
+body[data-pdf-mode="true"] .document-field strong {
+  min-height: 16px;
+  padding: 1px 5px;
+  font-size: 8px;
+  border-radius: 6px;
+}
+
+body[data-pdf-mode="true"] .document-clauses,
+body[data-pdf-mode="true"] .signature-box {
+  padding: 4px;
+}
+
+body[data-pdf-mode="true"] .document-clause--warning {
+  margin: 0 0 4px;
+  font-size: 7px;
+  line-height: 1.15;
+}
+
+body[data-pdf-mode="true"] .table-wrap {
+  margin-top: 2px;
+}
+
+body[data-pdf-mode="true"] .data-table th,
+body[data-pdf-mode="true"] .data-table td {
+  padding: 2px 2px;
+}
+
+body[data-pdf-mode="true"] .signature-box__area {
+  min-height: 48px;
+}
+
+body[data-pdf-mode="true"] .signature-box__status {
+  margin: 2px 0;
+  font-size: 7px;
+}
+
+body[data-pdf-mode="true"] .signature-box__meta-grid {
+  gap: 1px;
+}
+
+body[data-pdf-mode="true"] .signature-box__meta-row {
+  min-height: 10px;
+  grid-template-columns: 46px minmax(0, 1fr);
+  gap: 4px;
+}
+
+body[data-pdf-mode="true"] .signature-box__meta-label,
+body[data-pdf-mode="true"] .signature-box__meta-value,
+body[data-pdf-mode="true"] .signature-box__meta-line {
+  min-height: 10px;
+  font-size: 7px;
+}
+
+body[data-pdf-mode="true"] .arrival-document__block--signatures .signature-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+}
+
+body[data-pdf-mode="true"] .arrival-document__block--signatures .signature-box {
+  margin-bottom: 0;
+}
+
+body[data-pdf-mode="true"] .document-effects-action-col {
+  display: none;
+}
+
 @media screen {
   body[data-pdf-mode="true"] {
     background: #d6d9dc !important;
@@ -1485,6 +1592,33 @@ body[data-page="exit-document"] .picker-suggestions {
 .field textarea {
   min-height: 54px;
   resize: vertical;
+}
+
+.field.field--key > span {
+  color: #1f4f67;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+}
+
+.field.field--key input,
+.field.field--key select,
+.field.field--key textarea {
+  border-color: #7fa5b8;
+  box-shadow: inset 0 0 0 1px rgba(127, 165, 184, 0.26);
+  background: #f8fcff;
+}
+
+.field.field--inactive {
+  opacity: 0.52;
+}
+
+.field.field--inactive input,
+.field.field--inactive select,
+.field.field--inactive textarea {
+  background: #eff2f4;
+  color: #73848d;
+  border-color: #cfd8dd;
+  cursor: not-allowed;
 }
 
 .effect-form textarea[name="commentaire"] {
