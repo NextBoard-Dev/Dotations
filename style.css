@@ -82,6 +82,13 @@ textarea {
   border-radius: 9px;
   overflow: hidden;
   box-shadow: 0 4px 10px rgba(43, 69, 82, 0.05);
+  animation: logo-float 5.8s ease-in-out infinite;
+  transform-origin: center;
+}
+
+.sidebar__brand-banner-wrap:hover {
+  animation-play-state: paused;
+  transform: rotate(-0.8deg) scale(1.01);
 }
 
 .sidebar__brand-banner-wrap::after {
@@ -1409,6 +1416,10 @@ body[data-page="reference-bases"] #representative-signatory-form .field {
   line-height: 1;
 }
 
+.kpi-value--changed {
+  animation: kpi-value-flash 300ms ease-out 1;
+}
+
 body[data-page="overview"] .kpi-grid .kpi-card {
   display: flex;
   align-items: baseline;
@@ -1950,6 +1961,10 @@ body[data-page="global"] .form-actions--filters {
   border-color: rgba(201, 125, 71, 0.45);
 }
 
+.button--save-ok {
+  animation: save-ok-pulse 420ms ease-out 1;
+}
+
 @keyframes card-enter {
   from {
     opacity: 0;
@@ -2032,6 +2047,49 @@ body[data-page="global"] .form-actions--filters {
   }
 }
 
+@keyframes kpi-value-flash {
+  0% {
+    background: rgba(91, 145, 168, 0.14);
+    border-radius: 6px;
+  }
+  100% {
+    background: transparent;
+  }
+}
+
+@keyframes save-ok-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(70, 149, 94, 0.36);
+  }
+  70% {
+    box-shadow: 0 0 0 9px rgba(70, 149, 94, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(70, 149, 94, 0);
+  }
+}
+
+@keyframes signature-check-pop {
+  0% {
+    opacity: 0;
+    transform: translateY(-2px) scale(0.8);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes logo-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-2px);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .card,
   .field input,
@@ -2043,7 +2101,11 @@ body[data-page="global"] .form-actions--filters {
   .row-flash--create,
   .row-flash--update,
   .table-flash--delete,
-  .field.field--status-critical > span::after {
+  .field.field--status-critical > span::after,
+  .kpi-value--changed,
+  .button--save-ok,
+  .signature-box--validated-once .signature-box__status::after,
+  .sidebar__brand-banner-wrap {
     animation: none !important;
     transition: none !important;
     transform: none !important;
@@ -3025,6 +3087,15 @@ body[data-page="exit-document"] .signature-grid {
 .signature-box__status.is-signed {
   color: #2e6a44;
   font-weight: 600;
+}
+
+.signature-box--validated-once .signature-box__status::after {
+  content: " ✓";
+  display: inline-block;
+  margin-left: 4px;
+  color: #2e6a44;
+  font-weight: 700;
+  animation: signature-check-pop 300ms ease-out 1;
 }
 
 .signature-box__mobile-link {

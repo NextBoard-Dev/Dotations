@@ -59,6 +59,62 @@ const PDF_LAYOUT_VERSION = "2026-03-14-exit-layout-fix-3";
 const PDF_FORMAT_LOCK = "v1";
 let pdfModalCleanupBound = false;
 const signatureCanvases = new WeakMap();
+
+function setKpiCountAnimated(node, nextValue) {
+  if (!node) {
+    return;
+  }
+  const target = Number(nextValue);
+  if (!Number.isFinite(target)) {
+    node.textContent = String(nextValue);
+    return;
+  }
+  const current = Number.parseInt(String(node.dataset.kpiValue || node.textContent || "0"), 10);
+  if (!Number.isFinite(current) || current === target) {
+    node.textContent = String(target);
+    node.dataset.kpiValue = String(target);
+    return;
+  }
+
+  const start = current;
+  const delta = target - start;
+  const duration = 260;
+  const startAt = performance.now();
+  node.classList.remove("kpi-value--changed");
+  void node.offsetWidth;
+  node.classList.add("kpi-value--changed");
+
+  const tick = (now) => {
+    const progress = Math.min(1, (now - startAt) / duration);
+    const eased = 1 - Math.pow(1 - progress, 3);
+    const value = Math.round(start + delta * eased);
+    node.textContent = String(value);
+    if (progress < 1) {
+      window.requestAnimationFrame(tick);
+      return;
+    }
+    node.dataset.kpiValue = String(target);
+    window.setTimeout(() => {
+      node.classList.remove("kpi-value--changed");
+    }, 280);
+  };
+
+  window.requestAnimationFrame(tick);
+}
+
+function pulseSaveButtons() {
+  document.querySelectorAll(".js-save-data").forEach((button) => {
+    if (!(button instanceof HTMLElement)) {
+      return;
+    }
+    button.classList.remove("button--save-ok");
+    void button.offsetWidth;
+    button.classList.add("button--save-ok");
+    window.setTimeout(() => {
+      button.classList.remove("button--save-ok");
+    }, 520);
+  });
+}
 redirectToLocalServerIfNeeded();
 applyPdfModeFromQuery();
 
@@ -5781,6 +5837,15 @@ function bindSignatureCanvases() {
           : nextValue
             ? "SIGNATURE VALIDEE"
             : "SIGNATURE SUPPRIMEE";
+      const signatureBox = canvas.closest(".signature-box");
+      if (nextValue && signatureBox instanceof HTMLElement) {
+        signatureBox.classList.remove("signature-box--validated-once");
+        void signatureBox.offsetWidth;
+        signatureBox.classList.add("signature-box--validated-once");
+        window.setTimeout(() => {
+          signatureBox.classList.remove("signature-box--validated-once");
+        }, 700);
+      }
       showActionStatus(nextValue ? "update" : "delete", saveText);
       const isMobileSignaturePage = document.body.dataset.page === "mobile-signature";
       const mustAlertAndClose = Boolean(nextValue) && isMobileSignaturePage;
@@ -6360,13 +6425,13 @@ function renderOverview(persons) {
   });
 
   if (inPostNode) {
-    inPostNode.textContent = String(inPostCount);
+    setKpiCountAnimated(inPostNode, inPostCount);
   }
   if (totalEffectsNode) {
-    totalEffectsNode.textContent = String(totalEffectsCount);
+    setKpiCountAnimated(totalEffectsNode, totalEffectsCount);
   }
   if (missingEffectsNode) {
-    missingEffectsNode.textContent = String(missingEffectsCount);
+    setKpiCountAnimated(missingEffectsNode, missingEffectsCount);
   }
 
   renderEffectsChart("overview-effects-chart", persons);
@@ -8159,7 +8224,7 @@ function renderReferenceCounts() {
   Object.entries(mapping).forEach(([id, value]) => {
     const node = document.getElementById(id);
     if (node) {
-      node.textContent = String(value);
+      setKpiCountAnimated(node, Number(value) || 0);
     }
   });
 }
@@ -8781,6 +8846,7 @@ async function saveDataToFile(options = {}) {
     };
     const saveConfirmation = `SAUVEGARDEE LE ${formatCurrentUiTimestamp()} - SOURCE: ${saveSource}`;
     showDataStatus(saveConfirmation);
+    pulseSaveButtons();
     if (!silent) {
       window.alert(saveAlertText);
       if (promptDownload && saveSource === "LOCAL" && document.body.dataset.page !== "mobile-signature") {
