@@ -3453,8 +3453,7 @@ function isEffectFieldAvailable(form, name) {
   if (!(node instanceof HTMLElement) || node.disabled) {
     return false;
   }
-  const field = node.closest(".field");
-  return !(field instanceof HTMLElement && field.classList.contains("is-hidden"));
+  return true;
 }
 
 function focusEffectField(form, name) {

@@ -758,8 +758,7 @@ body[data-pdf-mode="true"] .document-effects-action-col {
 .page-header,
 .section__heading,
 .person-sheet__header,
-.section__subheading,
-.form-actions {
+.section__subheading {
   display: flex;
   align-items: center;
   justify-content: space-between;
