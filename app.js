@@ -7353,6 +7353,32 @@ function getDefaultEffectSiteReference(person, effect) {
   return "";
 }
 
+function getReferenceSitesForType(typeEffet) {
+  const normalizedTypeEffet = normalizeText(typeEffet);
+  if (!normalizedTypeEffet || !Array.isArray(state.data?.listes?.referencesEffets)) {
+    return [];
+  }
+
+  const sites = state.data.listes.referencesEffets
+    .filter((reference) => {
+      if (normalizeText(reference.typeEffet) !== getReferenceCatalogType(normalizedTypeEffet)) {
+        return false;
+      }
+      if (normalizedTypeEffet === "CLE CES" && !isCesKeyDesignation(reference.designation)) {
+        return false;
+      }
+      if (normalizedTypeEffet === "CLE" && isCesKeyDesignation(reference.designation)) {
+        return false;
+      }
+      return true;
+    })
+    .flatMap((reference) => getReferenceSites(reference))
+    .map(normalizeText)
+    .filter(Boolean);
+
+  return Array.from(new Set(sites));
+}
+
 function hydrateEffectReferenceSiteSelect(person, selectedSite = "", typeEffet = "") {
   const select = document.querySelector('#effect-form [name="referenceSite"]');
   if (!select) {
@@ -7370,6 +7396,12 @@ function hydrateEffectReferenceSiteSelect(person, selectedSite = "", typeEffet =
   }
 
   let sites = getAvailableReferenceSites(person);
+  if (typeUsesReferenceCatalog(normalizedType)) {
+    const referenceSites = getReferenceSitesForType(normalizedType);
+    if (referenceSites.length) {
+      sites = referenceSites;
+    }
+  }
   if (normalizedType === "CARTE TURBOSELF") {
     sites = Array.from(new Set([ALL_SITES_VALUE, ...sites.filter((site) => site !== ALL_SITES_VALUE)]));
   }
@@ -7391,8 +7423,7 @@ function hydrateReferenceSelect(siteSource, typeEffet = "", selectedId = "", ref
       ? getPersonSites(siteSource)
       : normalizeSites(siteSource ? [siteSource] : []);
   const normalizedTypeEffet = normalizeText(typeEffet);
-  const baseOption =
-    select.querySelector("option")?.outerHTML || '<option value="">SELECTIONNER</option>';
+  const baseOption = '<option value="">SELECTIONNER</option>';
   if (!typeUsesReferenceCatalog(normalizedTypeEffet)) {
     select.innerHTML = baseOption;
     select.value = "";
@@ -7426,6 +7457,11 @@ function hydrateReferenceSelect(siteSource, typeEffet = "", selectedId = "", ref
       }
       return true;
     })
+    .sort((left, right) => {
+      const leftLabel = `${normalizeText(left.designation)} ${normalizeText(getReferenceSiteLabel(left))}`;
+      const rightLabel = `${normalizeText(right.designation)} ${normalizeText(getReferenceSiteLabel(right))}`;
+      return leftLabel.localeCompare(rightLabel, "fr");
+    })
     .map((reference) => {
       const label =
         !normalizedReferenceSite && visibleSiteCount > 1
@@ -7434,9 +7470,14 @@ function hydrateReferenceSelect(siteSource, typeEffet = "", selectedId = "", ref
       return `<option value="${reference.id}">${label}</option>`;
     })
     .join("");
-  select.innerHTML = `${baseOption}${options}`;
-  if (selectedId) {
+  const fallbackOption = `<option value="">${
+    normalizedReferenceSite ? "AUCUNE CLE POUR CE SITE" : "AUCUNE CLE DISPONIBLE"
+  }</option>`;
+  select.innerHTML = options ? `${baseOption}${options}` : fallbackOption;
+  if (selectedId && options.includes(`value="${selectedId}"`)) {
     select.value = selectedId;
+  } else {
+    select.value = "";
   }
 }
 
