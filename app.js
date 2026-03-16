@@ -519,7 +519,7 @@ function getReferenceCatalogType(typeEffet) {
 }
 
 function typeUsesSiteField(typeEffet) {
-  return ["CLE", "CLE CES", "BADGE INTRUSION", "CARTE TURBOSELF"].includes(normalizeText(typeEffet));
+  return Boolean(normalizeText(typeEffet));
 }
 
 function normalizeSites(values) {
@@ -2856,6 +2856,25 @@ function bindEffectForm() {
         : "";
     const dateRemplacement = String(formData.get("dateRemplacement") || "");
     const coutRemplacement = normalizeAmount(formData.get("coutRemplacement"));
+    const manualStatus = normalizeText(formData.get("statutManuel"));
+
+    if (!typeEffet) {
+      showDataStatus("SELECTIONNER UN TYPE D'EFFET");
+      form.elements.typeEffet?.focus();
+      return;
+    }
+
+    if (!resolvedReferenceSite) {
+      showDataStatus("SELECTIONNER LE SITE DE L'EFFET");
+      form.elements.referenceSite?.focus();
+      return;
+    }
+
+    if (!manualStatus) {
+      showDataStatus("SELECTIONNER LE STATUT MANUEL");
+      form.elements.statutManuel?.focus();
+      return;
+    }
 
     if (usesReferenceCatalog && !referenceEffetId) {
       showDataStatus("CHOISIR UNE CLE EXISTANTE DANS LA LISTE");
@@ -2871,7 +2890,6 @@ function bindEffectForm() {
     const vehiculeImmatriculation =
       typeEffet === "TELECOMMANDE URMET" ? normalizeText(formData.get("vehiculeImmatriculation")) : "";
 
-    const manualStatus = normalizeText(formData.get("statutManuel")) || "ACTIF";
     const effect = {
         id: effectId,
         typeEffet,
@@ -2887,10 +2905,6 @@ function bindEffectForm() {
       coutRemplacement,
       commentaire: normalizeText(formData.get("commentaire")),
     };
-
-    if (!effect.typeEffet) {
-      effect.typeEffet = "EFFET";
-    }
     if (usesReferenceCatalog && !effect.designation) {
       effect.designation = `EFFET ${effect.id}`;
     }
@@ -3123,15 +3137,15 @@ function updateEffectActionButtons() {
 function getEffectKeyFieldSequence(typeEffet) {
   const normalizedType = normalizeText(typeEffet);
   if (normalizedType === "TELECOMMANDE URMET") {
-    return ["typeEffet", "numeroIdentification", "vehiculeImmatriculation", "dateRemise"];
+    return ["typeEffet", "referenceSite", "numeroIdentification", "vehiculeImmatriculation", "dateRemise", "statutManuel"];
   }
   if (normalizedType === "BADGE INTRUSION" || normalizedType === "CARTE TURBOSELF") {
-    return ["typeEffet", "referenceSite", "numeroIdentification", "dateRemise"];
+    return ["typeEffet", "referenceSite", "numeroIdentification", "dateRemise", "statutManuel"];
   }
   if (normalizedType === "CLE" || normalizedType === "CLE CES") {
-    return ["typeEffet", "referenceSite", "referenceEffet", "numeroIdentification", "dateRemise"];
+    return ["typeEffet", "referenceSite", "referenceEffet", "numeroIdentification", "dateRemise", "statutManuel"];
   }
-  return ["typeEffet", "numeroIdentification", "dateRemise"];
+  return ["typeEffet", "numeroIdentification", "dateRemise", "statutManuel"];
 }
 
 function getEffectFormFieldNode(form, name) {
@@ -3260,11 +3274,14 @@ function updateEffectFormMode(typeEffet) {
           : "POUR UNE CLE : CHOISIR UN NOM DE CLE DU SITE";
     }
   } else if (["BADGE INTRUSION", "TELECOMMANDE URMET", "CARTE TURBOSELF"].includes(normalizedType)) {
-    if (["BADGE INTRUSION", "CARTE TURBOSELF"].includes(normalizedType)) {
-      referenceSiteField.classList.remove("is-hidden");
-      showReferenceSite = true;
-      referenceSiteLabel.textContent = normalizedType === "BADGE INTRUSION" ? "SITE DU BADGE" : "SITE DE LA CARTE";
-    }
+    referenceSiteField.classList.remove("is-hidden");
+    showReferenceSite = true;
+    referenceSiteLabel.textContent =
+      normalizedType === "BADGE INTRUSION"
+        ? "SITE DU BADGE"
+        : normalizedType === "CARTE TURBOSELF"
+          ? "SITE DE LA CARTE"
+          : "SITE DE LA TELECOMMANDE";
     showReference = false;
     showDesignation = false;
     showVehicle = normalizedType === "TELECOMMANDE URMET";
@@ -3285,6 +3302,11 @@ function updateEffectFormMode(typeEffet) {
       helpNode.textContent = "POUR UNE CARTE TURBOSELF : RENSEIGNER UNIQUEMENT LE N°";
     }
   } else {
+    if (normalizedType) {
+      referenceSiteField.classList.remove("is-hidden");
+      showReferenceSite = true;
+      referenceSiteLabel.textContent = "SITE DE L'EFFET";
+    }
     referenceLabel.textContent = "DESIGNATION EXISTANTE";
     designationLabel.textContent = "NOUVELLE DESIGNATION / MODIFICATION";
     helpNode.textContent = normalizedType
@@ -3304,6 +3326,10 @@ function updateEffectFormMode(typeEffet) {
     keyFields.includes("vehiculeImmatriculation")
   );
   setEffectFieldVisualState(form, "dateRemise", true, keyFields.includes("dateRemise"));
+  setEffectFieldVisualState(form, "statutManuel", true, true);
+  form.elements.typeEffet.required = true;
+  form.elements.referenceSite.required = showReferenceSite;
+  form.elements.statutManuel.required = true;
 }
 
 function isCesKeyDesignation(designation) {
@@ -6613,7 +6639,7 @@ function renderArrivalDocument(personId) {
         )
         .join("")}
         <tr class="table-total-row">
-          <td colspan="6">TOTAL DES EFFETS REMIS</td>
+          <td colspan="${isPdfMode ? "5" : "6"}">TOTAL DES EFFETS REMIS</td>
           <td>${formatAmountWithEuro(totalValue)}</td>
         </tr>`
     : buildEmptyTableRow(body, "AUCUN EFFET A AFFICHER", 7);
@@ -6841,7 +6867,7 @@ function renderExitDocument(personId) {
         )
         .join("")}
         <tr class="table-total-row">
-          <td colspan="${isPdfMode ? "8" : "9"}">TOTAL FACTURABLE DES EFFETS</td>
+          <td colspan="${isPdfMode ? "7" : "9"}">TOTAL FACTURABLE DES EFFETS</td>
           <td>${formatAmountWithEuro(totalValue)}</td>
         </tr>`
     : buildEmptyTableRow(body, "AUCUN EFFET A AFFICHER", 10);
