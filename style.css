@@ -1216,6 +1216,26 @@ body[data-page="reference-bases"] #representative-signatory-form .field {
   margin-bottom: 0;
 }
 
+body[data-page="reference-bases"] #reference-effect-form {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(260px, 1.35fr) auto;
+  align-items: end;
+}
+
+body[data-page="reference-bases"] #reference-effect-form .field--wide {
+  grid-column: auto;
+}
+
+body[data-page="reference-bases"] #reference-effect-form .form-actions {
+  grid-column: auto;
+  align-self: end;
+  justify-self: end;
+  margin: 0;
+}
+
+body[data-page="reference-bases"] #reference-effect-form .form-actions .button {
+  min-width: 220px;
+}
+
 .effects-chart {
   display: grid;
   gap: 8px;
@@ -3377,6 +3397,25 @@ body[data-pdf-mode="true"] .signature-box__meta-value--pdf {
     font-size: 9px;
     letter-spacing: 0.03em;
     padding: 0 6px;
+  }
+
+  body[data-page="reference-bases"] #reference-effect-form {
+    grid-template-columns: minmax(0, 0.95fr) minmax(0, 0.95fr) minmax(220px, 1.1fr) auto;
+    align-items: end;
+  }
+
+  body[data-page="reference-bases"] #reference-effect-form .field--wide {
+    grid-column: auto;
+  }
+
+  body[data-page="reference-bases"] #reference-effect-form .form-actions {
+    grid-column: auto;
+    justify-self: end;
+    margin: 0;
+  }
+
+  body[data-page="reference-bases"] #reference-effect-form .form-actions .button {
+    min-width: 190px;
   }
 }
 
