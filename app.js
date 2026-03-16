@@ -2226,7 +2226,7 @@ function buildControlReportHtml(persons) {
     .details-table tr:last-child td{border-bottom:none}
     @media print{
       @page{
-        size:A4 portrait;
+        size:A4 landscape;
         margin:9mm;
       }
       body{
@@ -2263,7 +2263,7 @@ function buildControlReportHtml(persons) {
   <div class="head">
     <h1>ETAT DE CONTROLE</h1>
     <div class="head-right">
-      <button type="button" class="print-button" onclick="window.print()">EXPORTER / IMPRIMER</button>
+      <button type="button" class="print-button" onclick="printControlReportLandscape()">EXPORTER / IMPRIMER</button>
       <div class="meta">EDITE LE ${escapeHtml(formatCurrentUiTimestamp())}</div>
     </div>
   </div>
@@ -2283,6 +2283,9 @@ function buildControlReportHtml(persons) {
   </div>
   </div>
   <script>
+    function printControlReportLandscape() {
+      window.print();
+    }
     (function () {
       var detailsNodes = Array.prototype.slice.call(document.querySelectorAll('details.alert-details'));
       function openAllForPrint() {
