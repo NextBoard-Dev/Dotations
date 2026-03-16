@@ -1903,19 +1903,64 @@ function buildControlReportHtml(persons) {
     });
   });
 
+  const buildAlertEffectDetails = (person) => {
+    const effects = (person.effetsConfies || []).filter(
+      (effect) => normalizeText(getEffectStatus(person, effect)) === "NON RENDU"
+    );
+    if (!effects.length) {
+      return {
+        count: 0,
+        total: 0,
+        detailsHtml: `<div class="details-empty">AUCUN EFFET NON RENDU SUR CETTE ALERTE.</div>`,
+      };
+    }
+
+    let total = 0;
+    const rows = effects
+      .map((effect) => {
+        const unitAmount = isEffectChargeable(person, effect) ? getEffectReplacementCost(person, effect) : 0;
+        total += unitAmount;
+        const designation = effect.designation || effect.numeroIdentification || effect.id || "-";
+        return `<tr>
+          <td>${escapeHtml(effect.typeEffet || "-")}</td>
+          <td>${escapeHtml(designation)}</td>
+          <td>${escapeHtml(effect.numeroIdentification || "-")}</td>
+          <td class="amount-cell">${escapeHtml(formatAmountWithEuro(unitAmount))}</td>
+        </tr>`;
+      })
+      .join("");
+
+    return {
+      count: effects.length,
+      total,
+      detailsHtml: `<table class="details-table">
+        <thead><tr><th>TYPE</th><th>DESIGNATION</th><th>N° IDENTIFICATION</th><th>MONTANT</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`,
+    };
+  };
+
   const criticalRows = critical.length
     ? critical
-        .map(
-          (person) => `<tr>
+        .map((person) => {
+          const details = buildAlertEffectDetails(person);
+          return `<tr>
       <td>${escapeHtml(person.nom || "")}</td>
       <td>${escapeHtml(person.prenom || "")}</td>
       <td>${escapeHtml(getPersonSiteLabel(person) || "-")}</td>
       <td class="alert-cell">${escapeHtml(getOverdueExitMessage(person) || "-")}</td>
-      <td>${(person.effetsConfies || []).filter((effect) => normalizeText(getEffectStatus(person, effect)) === "NON RENDU").length}</td>
-    </tr>`
-        )
+      <td>${details.count}</td>
+      <td class="amount-cell">${escapeHtml(formatAmountWithEuro(details.total))}</td>
+      <td>
+        <details class="alert-details"${details.count ? "" : " open"}>
+          <summary>DETAIL DES EFFETS NON RENDUS</summary>
+          <div class="alert-details__content">${details.detailsHtml}</div>
+        </details>
+      </td>
+    </tr>`;
+        })
         .join("")
-    : `<tr><td colspan="5">AUCUN DOSSIER CRITIQUE</td></tr>`;
+    : `<tr><td colspan="7">AUCUN DOSSIER CRITIQUE</td></tr>`;
 
   return `<!doctype html>
 <html lang="fr">
@@ -2036,6 +2081,56 @@ function buildControlReportHtml(persons) {
       color:#8a4e30;
       font-weight:600;
     }
+    .amount-cell{
+      white-space:nowrap;
+      font-weight:700;
+      color:#1e3b4b;
+    }
+    .alert-details{
+      border:1px solid var(--line);
+      border-radius:8px;
+      background:#f8fbfd;
+      overflow:hidden;
+    }
+    .alert-details > summary{
+      cursor:pointer;
+      list-style:none;
+      padding:8px 10px;
+      font-size:12px;
+      color:#325668;
+      font-weight:600;
+      letter-spacing:.03em;
+      background:#eef5f9;
+      border-bottom:1px solid var(--line);
+      user-select:none;
+    }
+    .alert-details > summary::-webkit-details-marker{display:none}
+    .alert-details__content{
+      padding:8px;
+    }
+    .details-empty{
+      font-size:12px;
+      color:#5d7787;
+      padding:2px 0;
+    }
+    .details-table{
+      width:100%;
+      border-collapse:collapse;
+      font-size:12px;
+    }
+    .details-table th,
+    .details-table td{
+      padding:6px 7px;
+      border-bottom:1px solid #d7e2ea;
+    }
+    .details-table th{
+      background:#f2f7fa;
+      color:#3b6173;
+      font-size:10px;
+      letter-spacing:.05em;
+      text-transform:uppercase;
+    }
+    .details-table tr:last-child td{border-bottom:none}
   </style>
 </head>
 <body>
@@ -2053,7 +2148,7 @@ function buildControlReportHtml(persons) {
   <div class="table-wrap">
   <table>
     <thead>
-      <tr><th>NOM</th><th>PRENOM</th><th>SITE(S)</th><th>ALERTE</th><th>NON RENDUS</th></tr>
+      <tr><th>NOM</th><th>PRENOM</th><th>SITE(S)</th><th>ALERTE</th><th>NON RENDUS</th><th>TOTAL</th><th>DETAILS</th></tr>
     </thead>
     <tbody>${criticalRows}</tbody>
   </table>
