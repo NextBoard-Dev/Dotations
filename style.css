@@ -1649,33 +1649,11 @@ body[data-page="exit-document"] .picker-suggestions {
   resize: none;
 }
 
-.effect-reset-button {
-  position: absolute;
-  right: 0;
-  bottom: 252px;
-  min-width: 148px;
-  z-index: 2;
-}
-
-.effect-reset-button.is-ready {
+#effect-reset-fields-button.is-ready {
   background: var(--accent);
   color: #fff;
   border-color: rgba(63, 97, 112, 0.55);
   box-shadow: 0 4px 12px rgba(63, 97, 112, 0.26);
-}
-/* dotations: reset button ready state */
-
-#effect-cost-field {
-  position: relative;
-}
-
-@media (max-width: 1100px) {
-  .effect-reset-button {
-    position: static;
-    justify-self: end;
-    align-self: end;
-    grid-column: 1 / -1;
-  }
 }
 
 .field--search,
