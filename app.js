@@ -2346,7 +2346,7 @@ async function openPdfDocument(docType, personId) {
       const hostedPath = getHostedPdfDocumentPath(docType, personId, archiveMode);
       const hostedUrl = `${hostedPath}&ts=${Date.now()}`;
       popup.location.href = hostedUrl;
-      if (person) {
+      if (person && shouldArchive) {
         await registerArchivedDocument(person, docType, hostedPath, "", archiveMode);
       }
       showDataStatus("DOCUMENT OUVERT - UTILISER IMPRIMER POUR GENERER LE PDF");
@@ -4977,6 +4977,9 @@ async function registerArchivedDocument(person, docType, pdfPath, metadataPath, 
   if (!state.data || !person || !pdfPath) {
     return;
   }
+  if (!isDocumentFullySigned(person, docType)) {
+    return;
+  }
   upsertDocumentArchiveEntry(buildDocumentArchiveEntry(person, docType, pdfPath, metadataPath, archiveMode));
   markDirty();
   await saveDataToFile({
@@ -5005,7 +5008,10 @@ function renderDocumentsArchivePage() {
   let totalArchives = 0;
   let totalArrivalArchives = 0;
   let totalExitArchives = 0;
-  const archives = (state.data?.documentsArchives || []).filter((entry) => {
+  const signedArchives = (state.data?.documentsArchives || []).filter(
+    (entry) => getDocumentArchiveSignatureStatus(entry) === "SIGNE"
+  );
+  const archives = signedArchives.filter((entry) => {
     totalArchives += 1;
     if (normalizeText(entry.typeDocument) === "ARRIVEE") {
       totalArrivalArchives += 1;

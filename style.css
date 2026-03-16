@@ -2557,6 +2557,23 @@ body[data-page="overview"] .data-table td {
   display: none;
 }
 
+.archive-actions-cell {
+  vertical-align: middle !important;
+  white-space: nowrap;
+}
+
+.archive-actions-cell .archive-pdf-button,
+.archive-actions-cell .table-link {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+  line-height: 1;
+}
+
+.archive-actions-cell .table-link {
+  margin-left: 8px;
+}
+
 .data-table--compact {
   min-width: 0;
 }
