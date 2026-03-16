@@ -3202,8 +3202,16 @@ function bindEffectForm() {
     };
   }
 
+  form.addEventListener("input", () => {
+    updateEffectResetButtonState(form);
+  });
+  form.addEventListener("change", () => {
+    updateEffectResetButtonState(form);
+  });
+
   updateEffectActionButtons();
   updateEffectRequiredHighlights(form);
+  updateEffectResetButtonState(form);
 }
 
 async function deleteEffect(personId, effectId) {
@@ -3314,6 +3322,7 @@ function startEditEffect(personId, effectId) {
   form.elements.commentaire.value = effect.commentaire || "";
   updateEffectFormMode(effect.typeEffet || "");
   updateEffectActionButtons();
+  updateEffectResetButtonState(form);
   form.scrollIntoView({ behavior: "smooth", block: "center" });
   if (usesReferenceCatalog) {
     form.elements.referenceEffet.focus();
@@ -3337,6 +3346,7 @@ function resetEffectForm() {
   hydrateReferenceSelect(getCurrentPerson() || "", "", "", "");
   updateEffectFormMode("");
   updateEffectActionButtons();
+  updateEffectResetButtonState(form);
 }
 
 function resetEffectFormFieldsExceptCost() {
@@ -3356,7 +3366,39 @@ function resetEffectFormFieldsExceptCost() {
     form.elements.coutRemplacement.value = preservedCost;
   }
   updateEffectRequiredHighlights(form);
+  updateEffectResetButtonState(form);
   showDataStatus("CHAMPS REINITIALISES (COUT CONSERVE)");
+}
+
+function hasEffectFormUserContent(form) {
+  if (!form) {
+    return false;
+  }
+  const trackedFields = [
+    "typeEffet",
+    "referenceSite",
+    "referenceEffet",
+    "designationLibre",
+    "numeroIdentification",
+    "vehiculeImmatriculation",
+    "dateRemise",
+    "dateRetour",
+    "statutManuel",
+    "dateRemplacement",
+    "commentaire",
+  ];
+  return trackedFields.some((fieldName) => {
+    const value = form.elements[fieldName]?.value;
+    return Boolean(String(value || "").trim());
+  });
+}
+
+function updateEffectResetButtonState(form) {
+  const resetButton = document.getElementById("effect-reset-fields-button");
+  if (!resetButton) {
+    return;
+  }
+  resetButton.classList.toggle("is-ready", hasEffectFormUserContent(form));
 }
 
 function updateEffectActionButtons() {
