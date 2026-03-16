@@ -3105,6 +3105,11 @@ function bindEffectForm() {
       return;
     }
 
+    if (usesReferenceCatalog && designationLibre && !resolvedReferenceSite) {
+      showDataStatus("CHOISIR LE SITE DE LA CLE AVANT D'ENREGISTRER");
+      return;
+    }
+
     const effectId = mode === "edit" ? state.editingEffectId : getNextId("E", person.effetsConfies || []);
     const vehiculeImmatriculation =
       typeEffet === "TELECOMMANDE URMET" ? normalizeText(formData.get("vehiculeImmatriculation")) : "";
