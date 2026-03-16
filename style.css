@@ -2038,6 +2038,13 @@ body[data-page="global"] .form-actions--filters {
   background: #cfd5d9;
 }
 
+.js-toggle-urgency.button--secondary.is-active {
+  background: var(--accent);
+  color: #ffffff;
+  border-color: rgba(63, 97, 112, 0.62);
+  box-shadow: 0 4px 12px rgba(63, 97, 112, 0.26);
+}
+
 .button--save-ok {
   animation: save-ok-pulse 420ms ease-out 1;
 }
