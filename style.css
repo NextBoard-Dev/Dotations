@@ -2016,9 +2016,15 @@ body[data-page="global"] .form-actions--filters {
 }
 
 .button--secondary.is-active {
-  background: rgba(201, 125, 71, 0.22);
-  color: #7a3f1f;
-  border-color: rgba(201, 125, 71, 0.45);
+  background: rgba(63, 97, 112, 0.36);
+  color: #183646;
+  border-color: rgba(45, 72, 84, 0.58);
+}
+
+.form-actions--filters .button--secondary.is-active {
+  background: rgba(63, 97, 112, 0.46);
+  color: #ffffff;
+  border-color: rgba(31, 49, 59, 0.62);
 }
 
 .button--save-ok {

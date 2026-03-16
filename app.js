@@ -2570,9 +2570,58 @@ function applyFiltersToForm(form) {
   assign("typeEffet", filters.typeEffet);
 }
 
+function hasActiveFilterValues(form) {
+  if (!(form instanceof HTMLFormElement)) {
+    return false;
+  }
+  const controls = Array.from(form.elements || []);
+  for (const control of controls) {
+    if (!(control instanceof HTMLElement)) {
+      continue;
+    }
+    if (
+      control instanceof HTMLButtonElement ||
+      control instanceof HTMLFieldSetElement ||
+      (control instanceof HTMLInputElement && ["submit", "reset", "button", "hidden"].includes(control.type))
+    ) {
+      continue;
+    }
+    if (control instanceof HTMLInputElement) {
+      if (["checkbox", "radio"].includes(control.type)) {
+        if (control.checked) {
+          return true;
+        }
+        continue;
+      }
+      if (String(control.value || "").trim()) {
+        return true;
+      }
+      continue;
+    }
+    if (control instanceof HTMLSelectElement || control instanceof HTMLTextAreaElement) {
+      if (String(control.value || "").trim()) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function updateFilterResetButtonState(form) {
+  if (!(form instanceof HTMLFormElement)) {
+    return;
+  }
+  const resetButton = form.querySelector('.form-actions--filters .button[type="reset"]');
+  if (!(resetButton instanceof HTMLElement)) {
+    return;
+  }
+  resetButton.classList.toggle("is-active", hasActiveFilterValues(form));
+}
+
 function bindFilterForms() {
   document.querySelectorAll(".js-filter-form").forEach((form) => {
     applyFiltersToForm(form);
+    updateFilterResetButtonState(form);
 
     const applyFullReset = () => {
       state.filters = { ...DEFAULT_FILTERS };
@@ -2580,6 +2629,7 @@ function bindFilterForms() {
       saveNavigationContext({ filters: state.filters, personId: "", urgentMode: false });
       setCurrentPersonId("", "replace");
       applyFiltersToForm(form);
+      updateFilterResetButtonState(form);
       updateUrgencyModeUi();
       renderPage();
     };
@@ -2600,6 +2650,7 @@ function bindFilterForms() {
         ...DEFAULT_FILTERS,
         ...readFilters(form),
       };
+      updateFilterResetButtonState(form);
       saveNavigationContext({ filters: state.filters, urgentMode: state.urgentMode });
       renderPage();
     };
@@ -2607,6 +2658,7 @@ function bindFilterForms() {
     form.onreset = () => {
       window.setTimeout(() => {
         applyFullReset();
+        updateFilterResetButtonState(form);
       }, 0);
     };
 
@@ -2621,7 +2673,10 @@ function bindFilterForms() {
   });
 }
 function syncFilterFormsFromState() {
-  document.querySelectorAll(".js-filter-form").forEach((form) => applyFiltersToForm(form));
+  document.querySelectorAll(".js-filter-form").forEach((form) => {
+    applyFiltersToForm(form);
+    updateFilterResetButtonState(form);
+  });
 }
 function bindArchiveFilterForm() {
   const form = document.getElementById("documents-archives-filter-form");
@@ -2631,14 +2686,17 @@ function bindArchiveFilterForm() {
   const applyArchiveReset = () => {
     form.reset();
     window.setTimeout(() => {
+      updateFilterResetButtonState(form);
       renderDocumentsArchivePage();
     }, 0);
   };
   form.oninput = () => {
+    updateFilterResetButtonState(form);
     renderDocumentsArchivePage();
   };
   form.onreset = () => {
     window.setTimeout(() => {
+      updateFilterResetButtonState(form);
       renderDocumentsArchivePage();
     }, 0);
   };
@@ -2650,6 +2708,7 @@ function bindArchiveFilterForm() {
       }
     });
   }
+  updateFilterResetButtonState(form);
 }
 
 function bindAddPersonForm() {
@@ -4231,16 +4290,19 @@ function bindReferenceFilters() {
   const applyReferenceReset = () => {
     form.reset();
     window.setTimeout(() => {
+      updateFilterResetButtonState(form);
       renderReferenceEffectsTable();
     }, 0);
   };
 
   form.oninput = () => {
+    updateFilterResetButtonState(form);
     renderReferenceEffectsTable();
   };
 
   form.onreset = () => {
     window.setTimeout(() => {
+      updateFilterResetButtonState(form);
       renderReferenceEffectsTable();
     }, 0);
   };
@@ -4253,6 +4315,7 @@ function bindReferenceFilters() {
       }
     });
   }
+  updateFilterResetButtonState(form);
 }
 
 function bindMobileSignatureSettingsForm() {
