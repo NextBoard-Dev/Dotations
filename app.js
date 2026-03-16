@@ -2114,12 +2114,17 @@ function buildControlReportHtml(persons) {
       display:inline-flex;
       align-items:center;
       justify-content:center;
-      width:18px;
+      min-width:24px;
       height:18px;
+      padding:0 5px;
       border-radius:50%;
       border:1px solid #aac0ce;
       background:#f6fbff;
-      font-size:11px;
+      font-size:10px;
+      font-weight:700;
+      line-height:1;
+      letter-spacing:0;
+      text-transform:uppercase;
     }
     .kpi b{
       display:block;
