@@ -3881,11 +3881,34 @@ function bindReferenceEffectForm() {
   }
 
   const typeField = form.elements.referenceTypeEffet;
+  const siteField = form.elements.referenceSite;
   const designationField = form.elements.referenceDesignation;
+  const syncReferenceTableFiltersFromEditor = () => {
+    const filterForm = document.getElementById("reference-filter-form");
+    if (!filterForm) {
+      return;
+    }
+    const selectedSite = normalizeText(form.elements.referenceSite?.value || "");
+    const selectedTypeEffet = normalizeText(form.elements.referenceTypeEffet?.value || "");
+    if (filterForm.elements.filterReferenceSite) {
+      filterForm.elements.filterReferenceSite.value = selectedSite;
+    }
+    if (filterForm.elements.filterReferenceTypeEffet) {
+      filterForm.elements.filterReferenceTypeEffet.value = selectedTypeEffet;
+    }
+    renderReferenceEffectsTable(state.referenceRenderContext || buildReferenceRenderContext());
+  };
+
   if (typeField) {
     typeField.onchange = () => {
       updateReferenceEffectFormMode(typeField.value);
       syncReferenceSitesSelector();
+      syncReferenceTableFiltersFromEditor();
+    };
+  }
+  if (siteField) {
+    siteField.onchange = () => {
+      syncReferenceTableFiltersFromEditor();
     };
   }
   if (designationField) {
@@ -3956,6 +3979,7 @@ function bindReferenceEffectForm() {
     form.reset();
     renderReferenceSitesSelector([]);
     updateReferenceEffectFormMode("");
+    syncReferenceTableFiltersFromEditor();
     const submitButton = form.querySelector('button[type="submit"]');
     if (submitButton) {
       submitButton.textContent = "ENREGISTRER LA REFERENCE";
