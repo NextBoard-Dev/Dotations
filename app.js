@@ -3449,7 +3449,6 @@ function bindEffectForm() {
       hydrateReferenceSelect(person || "", typeField.value, "", getSelectedEffectReferenceSite());
       updateEffectFormMode(typeField.value);
       syncReplacementCostField();
-      focusNextEffectKeyField(form, "typeEffet");
       updateEffectRequiredHighlights(form);
     };
   }
@@ -3458,7 +3457,6 @@ function bindEffectForm() {
       const person = getCurrentPerson();
       hydrateReferenceSelect(person || "", form.elements.typeEffet.value, "", getSelectedEffectReferenceSite());
       syncReplacementCostField();
-      focusNextEffectKeyField(form, "referenceSite");
       updateEffectRequiredHighlights(form);
     };
   }
@@ -3477,7 +3475,6 @@ function bindEffectForm() {
   if (form.elements.referenceEffet) {
     form.elements.referenceEffet.onchange = () => {
       syncReplacementCostField();
-      focusNextEffectKeyField(form, "referenceEffet");
       updateEffectRequiredHighlights(form);
     };
   }
@@ -8050,6 +8047,10 @@ function hydrateReferenceSelect(siteSource, typeEffet = "", selectedId = "", ref
   if (!select || !state.data?.listes?.referencesEffets) {
     return;
   }
+  select.multiple = false;
+  select.removeAttribute("multiple");
+  select.size = 0;
+  select.removeAttribute("size");
 
   void siteSource;
   const normalizedTypeEffet = normalizeText(typeEffet);
