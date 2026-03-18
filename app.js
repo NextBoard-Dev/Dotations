@@ -22,6 +22,7 @@ const state = {
   statusTimerId: 0,
   pdfProgressTimerId: 0,
   pdfGenerationActive: false,
+  pdfAttentionDismissed: {},
   mobileSignaturePollTimerId: 0,
   mobileSignatureNetworkInfo: null,
   autoSaveNavigationBound: false,
@@ -1824,6 +1825,24 @@ function bindSaveButtons() {
   });
 }
 
+function getPdfAttentionDismissKey(personId, docType) {
+  const normalizedPersonId = String(personId || "").trim();
+  const normalizedDocType = normalizeText(docType);
+  return `${normalizedPersonId}::${normalizedDocType}`;
+}
+
+function markPdfAttentionDismissed(personId, docType) {
+  const key = getPdfAttentionDismissKey(personId, docType);
+  if (!key || key === "::") {
+    return;
+  }
+  state.pdfAttentionDismissed[key] = true;
+}
+
+function isPdfAttentionDismissed(personId, docType) {
+  const key = getPdfAttentionDismissKey(personId, docType);
+  return Boolean(key && state.pdfAttentionDismissed[key]);
+}
 function bindPdfButtons() {
   document.querySelectorAll(".js-open-pdf").forEach((button) => {
     button.onclick = () => {
@@ -1837,7 +1856,10 @@ function bindPdfButtons() {
         window.alert("OUVRIR EN PDF IMPOSSIBLE : LE DOCUMENT DOIT ETRE SIGNE PAR LE PERSONNEL ET LE REPRESENTANT.");
         return;
       }
-      openPdfDocument(docType, getCurrentPersonId());
+      const personId = getCurrentPersonId();
+      markPdfAttentionDismissed(personId, docType);
+      updateDocumentPdfButtonsState();
+      openPdfDocument(docType, personId);
     };
   });
 }
@@ -1847,10 +1869,16 @@ function updateDocumentPdfButtonsState() {
   document.querySelectorAll(".js-open-pdf").forEach((button) => {
     const docType = String(button.getAttribute("data-doc-type") || "");
     const canOpen = Boolean(person && isDocumentFullySigned(person, docType));
+    const personId = person?.id || "";
+    const dismissKey = getPdfAttentionDismissKey(personId, docType);
+    if (!canOpen && dismissKey) {
+      delete state.pdfAttentionDismissed[dismissKey];
+    }
+    const showAttention = canOpen && !isPdfAttentionDismissed(personId, docType);
     button.classList.toggle("is-disabled", !canOpen);
-    button.classList.toggle("button--pdf-attention", canOpen);
+    button.classList.toggle("button--pdf-attention", showAttention);
     button.setAttribute("aria-disabled", canOpen ? "false" : "true");
-    button.setAttribute("data-pdf-ready", canOpen ? "true" : "false");
+    button.setAttribute("data-pdf-ready", showAttention ? "true" : "false");
     button.setAttribute(
       "title",
       canOpen
@@ -9719,8 +9747,4 @@ function renderDirtyState() {
 }
 
 loadData();
-
-
-
-
 
