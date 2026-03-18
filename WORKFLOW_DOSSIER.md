@@ -1,29 +1,28 @@
 # WORKFLOW DOSSIER (DOTATIONS)
 
-Date de mise a jour: 16/03/2026
+Date de mise a jour: 18/03/2026
 
 ## Flux quotidien
 
-1. Modifier dans `Dotations`.
-2. Tester le comportement (fiche, documents, archives, filtres, KPI).
-3. Commit avec message court standardise.
-4. Push via GitHub Desktop.
+1. Analyser rapidement.
+2. Implementer directement en modifs ciblees.
+3. Verifier la syntaxe JS (`node --check app.js`).
+4. Proposer une phrase de commit.
+5. Attendre `go commit`.
+6. Commit local automatique apres `go commit`.
+7. Repondre: `COMMIT TERMINE - TU PEUX PUSH`.
 
 ## Regles critiques
 
-- Ne pas travailler dans un autre dossier source.
-- Ne pas versionner de snapshots.
-- Toujours verifier le repo actif dans GitHub Desktop: `Dotations`.
+- Travailler uniquement dans `Dotations`.
+- Ne jamais ecrire de snapshots dans `Dotations`.
+- Snapshots uniquement hors repo dans `SNAPSHOTS_HORS_REPO`.
+- Ne pas modifier hors `Dotations` sans demande explicite.
+- Ne pas faire de push automatique.
 
 ## Controle rapide avant commit
 
-- Le changement attendu est visible dans `Changes`.
-- Aucun fichier de sauvegarde temporaire n'est stage.
-- Les boutons et zones fixes restent stables visuellement.
-- Les regles signatures/PDF/archives restent respectees.
-
-## Nommage de commit
-
-- Format: `type(scope): resume court`
-- Types recommandes: `fix`, `feat`, `chore`, `docs`.
-
+- Le changement demande est bien visible.
+- Pas de fichier parasite.
+- Regles signatures/PDF/archives respectees.
+- Aucun effet de bord majeur UI/metier.

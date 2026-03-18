@@ -1,29 +1,28 @@
 # GUIDE SIGNATURE MOBILE (DOTATIONS)
 
-Date de mise a jour: 16/03/2026
+Date de mise a jour: 18/03/2026
 
 ## Principe
 
 - Chaque document a 2 signatures distinctes:
   - Personnel
   - Representant
-- La validation doit enregistrer image + date de validation.
+- La validation enregistre image + date de validation.
 
-## Regle PDF/Archives
+## Regles PDF/Archives
 
-- `OUVRIR EN PDF` doit etre bloque tant que les 2 signatures ne sont pas valides.
+- `OUVRIR EN PDF` reste bloque tant que les 2 signatures ne sont pas validees.
 - Un document non doublement signe ne doit pas apparaitre dans `Documents archives`.
 
-## Mode heberge
+## Alerte visuelle PDF
 
-- URL publique configuree dans les parametres.
-- QR doit ouvrir la bonne cible de signature.
+- Quand les 2 signatures sont valides, le bouton `OUVRIR EN PDF` passe en mode attention visuelle.
+- Cette alerte est informative et ne change pas les regles metier.
 
 ## Verifications minimales
 
-1. Scanner QR Personnel -> signature Personnel.
-2. Scanner QR Representant -> signature Representant.
-3. Valider les 2 signatures.
-4. Verifier activation PDF.
-5. Verifier apparition dans Archives.
-
+1. Signature Personnel validee.
+2. Signature Representant validee.
+3. Activation PDF + alerte visuelle.
+4. Ouverture PDF OK.
+5. Apparition correcte dans Archives.

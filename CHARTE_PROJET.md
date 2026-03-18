@@ -1,46 +1,35 @@
 # CHARTE PROJET (DOTATIONS)
 
-Date de mise a jour: 16/03/2026
+Date de mise a jour: 18/03/2026
 
-## 1) SOURCE MAITRE
+## 1) PERIMETRE SOURCE
 
 - Le dossier maitre de travail est `Dotations`.
 - Les modifications se font uniquement dans `Dotations`.
-- Aucune edition dans une copie parallele.
+- Aucune modification hors `Dotations` sans demande explicite.
 
 ## 2) SNAPSHOTS
 
-- Les snapshots sont autorises uniquement hors repo.
-- Interdiction de creer ou commiter `snapshots/` dans `Dotations`.
-- Si besoin: utiliser un dossier externe de sauvegarde locale.
+- Interdiction de creer des snapshots dans le repo `Dotations`.
+- Les snapshots doivent etre uniquement hors repo, dans:
+  `C:\Users\sebastien.duc\CLOUD\02_ARCHIVAGE PERSONNEL\DASHBOARDS\GESTION DES ACCÈS & EFFETS SENSIBLES HEBERGE\SNAPSHOTS_HORS_REPO`.
 
-## 3) REGLES UI METIER (ACTUELLES)
+## 3) REGLES DE TRAVAIL
 
-- Carte Effet: champs contextuels grises/inactifs, non masques.
-- Les libelles changent selon le type d'effet.
-- Liaison base de reference active:
-  - site dynamique par type,
-  - nom existant filtre par type + site.
-- `STATUT MANUEL`, `TYPE D'EFFET` et `SITE` (quand requis) sont obligatoires.
-- `N° telecommande / N° carte` = conseille, non obligatoire.
+- Modifications petites et ciblees, sans refonte non demandee.
+- Ne pas casser l'existant.
+- Toujours verifier la syntaxe JS apres modification: `node --check app.js`.
+- Reponse en francais simple (niveau novice).
 
-## 4) DOCUMENTS ET SIGNATURES
+## 4) SIGNATURES / PDF / ARCHIVES
 
-- Un document n'entre dans `Documents archives` que s'il est signe des 2 cotes.
-- Bouton `OUVRIR EN PDF` bloque tant que signatures non completes.
-- Alerte explicite si tentative d'ouverture PDF sans double signature.
+- `OUVRIR EN PDF` bloque tant que les 2 signatures ne sont pas validees.
+- Documents archives: uniquement documents signes.
+- Les comportements de blocage PDF et d'archivage doivent rester actifs.
 
-## 5) QUALITE VISUELLE
+## 5) COMMITS OPERATIONNELS
 
-- Les parties hautes non scrollables doivent rester stables au scroll.
-- Les 5 boutons de la carte Effet restent sur une seule ligne.
-- Les KPI et couts doivent rester coherents avec les statuts.
-
-## 6) COMMITS
-
-- Format impose: `type(scope): resume court`
-- Exemples:
-  - `fix(sticky): stabiliser les blocs top-fixed`
-  - `fix(effect-form): champs contextuels grises`
-  - `feat(ui-motion): animations sobres formulaire`
-
+- Toujours proposer une phrase de commit simple apres correction.
+- Si l'utilisateur ecrit `go commit`, le commit local est lance automatiquement.
+- Apres commit, reponse imposee: `COMMIT TERMINE - TU PEUX PUSH`.
+- Le push est fait par l'utilisateur, pas par l'assistant.

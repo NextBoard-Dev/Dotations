@@ -1,28 +1,34 @@
 # CONVENTIONS DE COMMITS (DOTATIONS)
 
-Objectif: ne plus produire de commits avec titres techniques du type `Reprise C:\...`.
+Date de mise a jour: 18/03/2026
 
 ## Regle simple
 
-- Format obligatoire: `type(scope): resume court`
+- Phrase de commit courte et lisible.
+- Format recommande: `type(scope): resume court`.
 
 ## Types autorises
 
 - `fix`: correction
 - `feat`: nouvelle fonctionnalite
 - `docs`: documentation
-- `chore`: menage technique
+- `chore`: maintenance
 
 ## Exemples valides
 
-- `fix(effect-form): garder designation active quel que soit le contexte`
-- `fix(sticky): supprimer le fond visible derriere les zones top-fixed`
-- `feat(ui-motion): animer KPI, sauvegarde et validation signature`
-- `docs(project): mettre a jour les regles du dossier Dotations`
-- `chore(repo): normaliser la convention des messages de commit`
+- `fix(pdf): animation fleche verte quand document completement signe`
+- `fix(effect-form): multi-selection stable sans casser les calculs`
+- `docs(project): mise a jour des regles Dotations`
+
+## Regles de session
+
+- Apres chaque correction: proposer une phrase de commit.
+- Si l'utilisateur ecrit `go commit`: commit local automatique.
+- Reponse post-commit obligatoire: `COMMIT TERMINE - TU PEUX PUSH`.
+- Le push reste manuel (GitHub Desktop par l'utilisateur).
 
 ## Interdits
 
-- Messages generiques sans contexte (`update`, `modifs`, `test`)
-- Messages auto contenant un chemin local Windows
-
+- Messages vagues (`update`, `test`, `modifs`).
+- Messages auto avec chemin local Windows.
+- Commits melangeant des changements hors besoin.
