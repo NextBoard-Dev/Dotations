@@ -1794,15 +1794,95 @@ body[data-page="exit-document"] .picker-suggestions {
   resize: none;
 }
 
-.effect-form select#effect-reference-select.is-multiple {
-  min-height: 116px;
-  height: 116px;
-  padding-top: 4px;
-  padding-bottom: 4px;
+#effect-reference-field {
+  position: relative;
 }
 
-.effect-form select#effect-reference-select.is-multiple option {
-  padding: 2px 6px;
+.effect-form select#effect-reference-select.is-hidden-for-multi {
+  display: none;
+}
+
+.reference-multi-picker {
+  position: relative;
+  width: 100%;
+}
+
+.reference-multi-picker.is-hidden {
+  display: none;
+}
+
+.reference-multi-picker__trigger {
+  width: 100%;
+  min-height: 34px;
+  border-radius: 10px;
+  border: 1px solid var(--border-strong);
+  background: #f5f9fc;
+  color: var(--text);
+  text-align: left;
+  font: 600 0.86rem/1 "Montserrat", sans-serif;
+  letter-spacing: 0.02em;
+  padding: 0.55rem 2rem 0.55rem 0.75rem;
+  cursor: pointer;
+  position: relative;
+}
+
+.reference-multi-picker__trigger::after {
+  content: "▾";
+  position: absolute;
+  right: 0.72rem;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.8rem;
+  color: rgba(31, 46, 56, 0.72);
+}
+
+.reference-multi-picker.is-open .reference-multi-picker__trigger::after {
+  content: "▴";
+}
+
+.reference-multi-picker__menu {
+  display: none;
+  position: absolute;
+  z-index: 50;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  max-height: 220px;
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  box-shadow: 0 10px 24px rgba(31, 46, 56, 0.2);
+  padding: 0.35rem;
+}
+
+.reference-multi-picker.is-open .reference-multi-picker__menu {
+  display: grid;
+  gap: 0.1rem;
+}
+
+.reference-multi-picker__item {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.3rem 0.35rem;
+  border-radius: 7px;
+  font: 600 0.8rem/1.2 "Montserrat", sans-serif;
+  color: var(--text);
+}
+
+.reference-multi-picker__item:hover {
+  background: rgba(63, 97, 112, 0.1);
+}
+
+.reference-multi-picker__item input {
+  margin: 0;
+}
+
+.reference-multi-picker__empty {
+  padding: 0.4rem 0.45rem;
+  color: var(--muted);
+  font: 600 0.78rem/1.2 "Montserrat", sans-serif;
 }
 
 #effect-reset-fields-button.is-ready {
@@ -3608,6 +3688,7 @@ body[data-pdf-mode="true"] .signature-box__meta-value--pdf {
     padding: 0 4px;
   }
 }
+
 
 
 

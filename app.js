@@ -8031,6 +8031,121 @@ function hydrateEffectReferenceSiteSelect(person, selectedSite = "", typeEffet =
   select.value = nextValue;
 }
 
+let referenceMultiPickerOutsideCloseBound = false;
+
+function closeReferenceMultiPicker() {
+  const picker = document.getElementById("effect-reference-multi-picker");
+  if (!picker) {
+    return;
+  }
+  picker.classList.remove("is-open");
+  const trigger = picker.querySelector(".reference-multi-picker__trigger");
+  if (trigger) {
+    trigger.setAttribute("aria-expanded", "false");
+  }
+}
+
+function bindReferenceMultiPickerOutsideClose() {
+  if (referenceMultiPickerOutsideCloseBound) {
+    return;
+  }
+  document.addEventListener("pointerdown", (event) => {
+    const picker = document.getElementById("effect-reference-multi-picker");
+    if (!picker || picker.classList.contains("is-hidden")) {
+      return;
+    }
+    if (picker.contains(event.target)) {
+      return;
+    }
+    closeReferenceMultiPicker();
+  });
+  referenceMultiPickerOutsideCloseBound = true;
+}
+
+function buildReferenceMultiPicker(select) {
+  const field = document.getElementById("effect-reference-field");
+  if (!field) {
+    return null;
+  }
+  let picker = document.getElementById("effect-reference-multi-picker");
+  if (!picker) {
+    picker = document.createElement("div");
+    picker.id = "effect-reference-multi-picker";
+    picker.className = "reference-multi-picker is-hidden";
+    picker.innerHTML = `
+      <button type="button" class="reference-multi-picker__trigger" aria-expanded="false">
+        SELECTIONNER
+      </button>
+      <div class="reference-multi-picker__menu"></div>
+    `;
+    field.appendChild(picker);
+    const trigger = picker.querySelector(".reference-multi-picker__trigger");
+    trigger?.addEventListener("click", () => {
+      const willOpen = !picker.classList.contains("is-open");
+      picker.classList.toggle("is-open", willOpen);
+      trigger.setAttribute("aria-expanded", willOpen ? "true" : "false");
+    });
+    picker.addEventListener("change", (event) => {
+      const checkbox = event.target;
+      if (!(checkbox instanceof HTMLInputElement) || checkbox.type !== "checkbox") {
+        return;
+      }
+      const option = Array.from(select.options).find((entry) => entry.value === checkbox.value);
+      if (option) {
+        option.selected = checkbox.checked;
+      }
+      syncReferenceMultiPickerFromSelect(select);
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+  }
+  bindReferenceMultiPickerOutsideClose();
+  return picker;
+}
+
+function syncReferenceMultiPickerFromSelect(select) {
+  const picker = buildReferenceMultiPicker(select);
+  if (!picker) {
+    return;
+  }
+
+  const isMultiKeyMode = select.multiple;
+  picker.classList.toggle("is-hidden", !isMultiKeyMode);
+  if (!isMultiKeyMode) {
+    closeReferenceMultiPicker();
+    return;
+  }
+
+  const menu = picker.querySelector(".reference-multi-picker__menu");
+  const trigger = picker.querySelector(".reference-multi-picker__trigger");
+  if (!menu || !trigger) {
+    return;
+  }
+
+  const options = Array.from(select.options).filter((option) => String(option.value || "").trim());
+  if (!options.length) {
+    menu.innerHTML = '<div class="reference-multi-picker__empty">AUCUNE CLE DISPONIBLE</div>';
+    trigger.textContent = "AUCUNE CLE DISPONIBLE";
+    return;
+  }
+
+  menu.innerHTML = options
+    .map((option) => {
+      const optionLabel = escapeHtml(String(option.textContent || ""));
+      const optionValue = escapeHtml(String(option.value || ""));
+      const checked = option.selected ? ' checked="checked"' : "";
+      return `<label class="reference-multi-picker__item"><input type="checkbox" value="${optionValue}"${checked} />${optionLabel}</label>`;
+    })
+    .join("");
+
+  const selectedLabels = options.filter((option) => option.selected).map((option) => normalizeText(option.textContent));
+  if (!selectedLabels.length) {
+    trigger.textContent = "SELECTIONNER";
+  } else if (selectedLabels.length === 1) {
+    trigger.textContent = selectedLabels[0];
+  } else {
+    trigger.textContent = `${selectedLabels.length} CLES SELECTIONNEES`;
+  }
+}
 function setEffectReferenceSelectMode(typeEffet = "") {
   const select = document.getElementById("effect-reference-select");
   if (!select) {
@@ -8038,8 +8153,16 @@ function setEffectReferenceSelectMode(typeEffet = "") {
   }
   const isMultiKeyMode = normalizeText(typeEffet) === "CLE";
   select.multiple = isMultiKeyMode;
-  select.size = isMultiKeyMode ? 6 : 1;
+  if (isMultiKeyMode) {
+    select.setAttribute("multiple", "multiple");
+  } else {
+    select.removeAttribute("multiple");
+  }
+  select.size = 0;
+  select.removeAttribute("size");
   select.classList.toggle("is-multiple", isMultiKeyMode);
+  select.classList.toggle("is-hidden-for-multi", isMultiKeyMode);
+  syncReferenceMultiPickerFromSelect(select);
 }
 
 function hydrateReferenceSelect(siteSource, typeEffet = "", selectedId = "", referenceSite = "") {
@@ -8113,6 +8236,7 @@ function hydrateReferenceSelect(siteSource, typeEffet = "", selectedId = "", ref
   } else {
     select.value = "";
   }
+  syncReferenceMultiPickerFromSelect(select);
 }
 
 function ensureReferenceExists(site, typeEffet, designation, existingId) {
@@ -9585,6 +9709,8 @@ function renderDirtyState() {
 
 loadData();
   const getSheetTargetPersonId = () => state.currentSheetPersonId || getCurrentPersonId();
+
+
 
 
 
