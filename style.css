@@ -1820,7 +1820,7 @@ body[data-page="exit-document"] .picker-suggestions {
   color: var(--text-main);
   text-align: left;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 400;
   line-height: 1.2;
   font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
   letter-spacing: 0.02em;
@@ -1872,7 +1872,7 @@ body[data-page="exit-document"] .picker-suggestions {
   font-size: 11px;
   line-height: 1.2;
   color: var(--text-main);
-  font-weight: 600;
+  font-weight: 400;
 }
 
 .reference-multi-picker__item:hover {
@@ -3709,6 +3709,7 @@ body[data-pdf-mode="true"] .signature-box__meta-value--pdf {
     padding: 0 4px;
   }
 }
+
 
 
 

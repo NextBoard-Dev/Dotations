@@ -8100,7 +8100,6 @@ function buildReferenceMultiPicker(select) {
         option.selected = checkbox.checked;
       }
       syncReferenceMultiPickerFromSelect(select);
-      closeReferenceMultiPicker();
       select.dispatchEvent(new Event("change", { bubbles: true }));
     });
   }
@@ -9715,6 +9714,7 @@ function renderDirtyState() {
 
 loadData();
   const getSheetTargetPersonId = () => state.currentSheetPersonId || getCurrentPersonId();
+
 
 
 
