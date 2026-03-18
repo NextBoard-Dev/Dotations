@@ -1813,15 +1813,18 @@ body[data-page="exit-document"] .picker-suggestions {
 
 .reference-multi-picker__trigger {
   width: 100%;
-  min-height: 34px;
-  border-radius: 10px;
+  height: var(--control-height);
+  border-radius: var(--control-radius);
   border: 1px solid var(--border);
   background: #fffdfa;
-  color: var(--text);
+  color: var(--text-main);
   text-align: left;
-  font-size: 11px;`r`n  font-weight: 600;`r`n  line-height: 1.2;`r`n  font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
   letter-spacing: 0.02em;
-  padding: 0.55rem 2rem 0.55rem 0.75rem;
+  padding: 5px 28px 5px 7px;
   cursor: pointer;
   position: relative;
 }
@@ -1829,11 +1832,11 @@ body[data-page="exit-document"] .picker-suggestions {
 .reference-multi-picker__trigger::after {
   content: "▾";
   position: absolute;
-  right: 0.72rem;
+  right: 8px;
   top: 50%;
   transform: translateY(-50%);
-  font-size: 0.8rem;
-  color: rgba(31, 46, 56, 0.72);
+  font-size: 11px;
+  color: var(--text-soft);
 }
 
 .reference-multi-picker.is-open .reference-multi-picker__trigger::after {
@@ -1847,28 +1850,29 @@ body[data-page="exit-document"] .picker-suggestions {
   left: 0;
   right: 0;
   top: calc(100% + 4px);
-  max-height: 220px;
+  max-height: 200px;
   overflow-y: auto;
-  background: #fff;
+  background: #fffdfa;
   border: 1px solid var(--border);
-  border-radius: 10px;
-  box-shadow: 0 10px 24px rgba(31, 46, 56, 0.2);
-  padding: 0.35rem;
+  border-radius: var(--control-radius);
+  box-shadow: 0 10px 24px rgba(31, 46, 56, 0.16);
+  padding: 4px;
 }
 
 .reference-multi-picker.is-open .reference-multi-picker__menu {
-  display: grid;
-  gap: 0.1rem;
+  display: block;
 }
 
 .reference-multi-picker__item {
   display: flex;
   align-items: center;
-  gap: 0.45rem;
-  padding: 0.3rem 0.35rem;
+  gap: 6px;
+  padding: 4px 6px;
   border-radius: 7px;
-  font: 600 0.8rem/1.2 "Montserrat", sans-serif;
-  color: var(--text);
+  font-size: 11px;
+  line-height: 1.2;
+  color: var(--text-main);
+  font-weight: 600;
 }
 
 .reference-multi-picker__item:hover {
@@ -1879,10 +1883,27 @@ body[data-page="exit-document"] .picker-suggestions {
   margin: 0;
 }
 
+.reference-multi-picker__item input[type="checkbox"] {
+  appearance: auto;
+  -webkit-appearance: checkbox;
+  width: 14px;
+  height: 14px;
+  min-height: 0;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+  transform: none;
+  flex: 0 0 auto;
+}
+
 .reference-multi-picker__empty {
-  padding: 0.4rem 0.45rem;
-  color: var(--muted);
-  font: 600 0.78rem/1.2 "Montserrat", sans-serif;
+  padding: 5px 7px;
+  color: var(--text-soft);
+  font-size: 11px;
+  line-height: 1.2;
 }
 
 #effect-reset-fields-button.is-ready {
@@ -3688,6 +3709,7 @@ body[data-pdf-mode="true"] .signature-box__meta-value--pdf {
     padding: 0 4px;
   }
 }
+
 
 
 
