@@ -3519,7 +3519,14 @@ function bindEffectForm() {
     const referenceSite = normalizeText(formData.get("referenceSite"));
     const usesReferenceCatalog = typeUsesReferenceCatalog(typeEffet);
     const usesSiteField = typeUsesSiteField(typeEffet);
-    const referenceEffetId = usesReferenceCatalog ? String(formData.get("referenceEffet") || "") : "";
+    const referenceEffetIdsRaw = usesReferenceCatalog
+      ? formData
+          .getAll("referenceEffet")
+          .map((value) => String(value || "").trim())
+          .filter(Boolean)
+      : [];
+    const referenceEffetIds = typeEffet === "CLE" ? referenceEffetIdsRaw : referenceEffetIdsRaw.slice(0, 1);
+    const referenceEffetId = referenceEffetIds[0] || "";
     const reference = findReferenceById(referenceEffetId);
     const designationLibre = normalizeText(formData.get("designationLibre"));
     const availableReferenceSites = getAvailableReferenceSites(person);
@@ -3552,47 +3559,64 @@ function bindEffectForm() {
       return;
     }
 
-    if (usesReferenceCatalog && !referenceEffetId) {
+    if (usesReferenceCatalog && !referenceEffetIds.length) {
       showDataStatus("CHOISIR UNE CLE EXISTANTE DANS LA LISTE");
       return;
     }
-
-    const effectId = mode === "edit" ? state.editingEffectId : getNextId("E", person.effetsConfies || []);
     const vehiculeImmatriculation =
       typeEffet === "TELECOMMANDE URMET" ? normalizeText(formData.get("vehiculeImmatriculation")) : "";
-
-    const resolvedDesignation = designationLibre || (usesReferenceCatalog ? reference?.designation || "" : "");
-    const effect = {
-        id: effectId,
-        typeEffet,
-        siteReference: resolvedReferenceSite,
-        referenceEffetId,
-        designation: resolvedDesignation,
-        numeroIdentification: normalizeText(formData.get("numeroIdentification")),
-        vehiculeImmatriculation,
-      dateRemise: String(formData.get("dateRemise") || ""),
-      dateRetour: String(formData.get("dateRetour") || ""),
-      statutManuel: manualStatus === "CASSE" ? "HS" : manualStatus,
-      dateRemplacement,
-      coutRemplacement,
-      commentaire: normalizeText(formData.get("commentaire")),
-    };
-    if (usesReferenceCatalog && !effect.designation) {
-      effect.designation = `EFFET ${effect.id}`;
-    }
 
     if (!Array.isArray(person.effetsConfies)) {
       person.effetsConfies = [];
     }
+
+    const referenceIdsToApply =
+      mode === "add" && typeEffet === "CLE" && usesReferenceCatalog
+        ? referenceEffetIds
+        : [referenceEffetId];
+    const effectsToApply = referenceIdsToApply.map((currentReferenceId, index) => {
+      const currentReference = usesReferenceCatalog ? findReferenceById(currentReferenceId) : null;
+      const currentSiteReference = usesReferenceCatalog
+        ? normalizeText(currentReference?.site || resolvedReferenceSite)
+        : resolvedReferenceSite;
+      const effectId =
+        mode === "edit" && index === 0 ? state.editingEffectId : getNextId("E", person.effetsConfies || []);
+      const resolvedDesignation = designationLibre || (usesReferenceCatalog ? currentReference?.designation || "" : "");
+      const effect = {
+        id: effectId,
+        typeEffet,
+        siteReference: currentSiteReference,
+        referenceEffetId: currentReferenceId,
+        designation: resolvedDesignation,
+        numeroIdentification: normalizeText(formData.get("numeroIdentification")),
+        vehiculeImmatriculation,
+        dateRemise: String(formData.get("dateRemise") || ""),
+        dateRetour: String(formData.get("dateRetour") || ""),
+        statutManuel: manualStatus === "CASSE" ? "HS" : manualStatus,
+        dateRemplacement,
+        coutRemplacement,
+        commentaire: normalizeText(formData.get("commentaire")),
+      };
+      if (usesReferenceCatalog && !effect.designation) {
+        effect.designation = `EFFET ${effect.id}`;
+      }
+      return effect;
+    });
+
     pushUndoSnapshot(mode === "edit" ? "MODIFICATION EFFET" : "AJOUT EFFET");
-    const existingIndex =
-      mode === "edit" ? person.effetsConfies.findIndex((entry) => entry.id === effect.id) : -1;
-    if (mode === "edit" && existingIndex >= 0) {
-      person.effetsConfies[existingIndex] = effect;
+    if (mode === "edit") {
+      const effect = effectsToApply[0];
+      const existingIndex = person.effetsConfies.findIndex((entry) => entry.id === effect.id);
+      if (existingIndex >= 0) {
+        person.effetsConfies[existingIndex] = effect;
+      }
+      markEffectRowFlash("update", person.id, effect.id);
     } else {
-      person.effetsConfies.push(effect);
+      effectsToApply.forEach((effect) => {
+        person.effetsConfies.push(effect);
+        markEffectRowFlash("create", person.id, effect.id);
+      });
     }
-    markEffectRowFlash(mode === "edit" ? "update" : "create", person.id, effect.id);
 
     markDirty();
     form.reset();
@@ -3602,13 +3626,17 @@ function bindEffectForm() {
     updateEffectFormMode("");
     renderPage();
     renderPersonSheet(person.id);
-    const effectLabel = effect.designation || effect.numeroIdentification || effect.id;
-    showActionStatus(
-      mode === "edit" ? "update" : "create",
-      mode === "edit"
-        ? `EFFET MODIFIE : ${effectLabel}`
-        : `EFFET AJOUTE : ${effectLabel}`
-    );
+    if (mode === "edit") {
+      const effect = effectsToApply[0];
+      const effectLabel = effect.designation || effect.numeroIdentification || effect.id;
+      showActionStatus("update", `EFFET MODIFIE : ${effectLabel}`);
+    } else if (effectsToApply.length > 1) {
+      showActionStatus("create", `${effectsToApply.length} EFFETS AJOUTES`);
+    } else {
+      const effect = effectsToApply[0];
+      const effectLabel = effect.designation || effect.numeroIdentification || effect.id;
+      showActionStatus("create", `EFFET AJOUTE : ${effectLabel}`);
+    }
 
     await saveAfterEffectChangeWithAvenantAlert();
   };
@@ -4055,8 +4083,8 @@ function updateEffectFormMode(typeEffet) {
     } else {
       helpNode.textContent =
         availableReferenceSites.length > 1
-          ? "POUR UNE CLE : CHOISIR D'ABORD LE SITE, PUIS LE NOM DE LA CLE"
-          : "POUR UNE CLE : CHOISIR UN NOM DE CLE DU SITE";
+          ? "POUR UNE CLE : CHOISIR D'ABORD LE SITE, PUIS LE NOM DE LA CLE (SELECTION MULTIPLE POSSIBLE)"
+          : "POUR UNE CLE : CHOISIR UN OU PLUSIEURS NOMS DE CLE DU SITE";
     }
   } else if (["BADGE INTRUSION", "TELECOMMANDE URMET", "CARTE TURBOSELF"].includes(normalizedType)) {
     showReferenceSite = true;
@@ -4104,6 +4132,7 @@ function updateEffectFormMode(typeEffet) {
   );
   setEffectFieldVisualState(form, "dateRemise", true, keyFields.includes("dateRemise"));
   setEffectFieldVisualState(form, "statutManuel", true, true);
+  setEffectReferenceSelectMode(normalizedType);
   form.elements.typeEffet.required = true;
   form.elements.referenceSite.required = showReferenceSite;
   form.elements.statutManuel.required = true;
@@ -8005,6 +8034,17 @@ function hydrateEffectReferenceSiteSelect(person, selectedSite = "", typeEffet =
   select.value = nextValue;
 }
 
+function setEffectReferenceSelectMode(typeEffet = "") {
+  const select = document.getElementById("effect-reference-select");
+  if (!select) {
+    return;
+  }
+  const isMultiKeyMode = normalizeText(typeEffet) === "CLE";
+  select.multiple = isMultiKeyMode;
+  select.size = isMultiKeyMode ? 6 : 1;
+  select.classList.toggle("is-multiple", isMultiKeyMode);
+}
+
 function hydrateReferenceSelect(siteSource, typeEffet = "", selectedId = "", referenceSite = "") {
   const select = document.getElementById("effect-reference-select");
   if (!select || !state.data?.listes?.referencesEffets) {
@@ -8013,7 +8053,9 @@ function hydrateReferenceSelect(siteSource, typeEffet = "", selectedId = "", ref
 
   void siteSource;
   const normalizedTypeEffet = normalizeText(typeEffet);
-  const baseOption = '<option value="">SELECTIONNER</option>';
+  const isMultiKeyMode = normalizedTypeEffet === "CLE";
+  setEffectReferenceSelectMode(normalizedTypeEffet);
+  const baseOption = isMultiKeyMode ? "" : '<option value="">SELECTIONNER</option>';
   if (!typeUsesReferenceCatalog(normalizedTypeEffet)) {
     select.innerHTML = baseOption;
     select.value = "";
@@ -8057,8 +8099,16 @@ function hydrateReferenceSelect(siteSource, typeEffet = "", selectedId = "", ref
     normalizedReferenceSite ? "AUCUNE CLE POUR CE SITE" : "AUCUNE CLE DISPONIBLE"
   }</option>`;
   select.innerHTML = options ? `${baseOption}${options}` : fallbackOption;
-  if (selectedId && options.includes(`value="${selectedId}"`)) {
-    select.value = selectedId;
+  const selectedIds = (Array.isArray(selectedId) ? selectedId : [selectedId])
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+  if (isMultiKeyMode) {
+    const selectedSet = new Set(selectedIds);
+    Array.from(select.options).forEach((option) => {
+      option.selected = selectedSet.has(option.value);
+    });
+  } else if (selectedIds.length && options.includes(`value="${selectedIds[0]}"`)) {
+    select.value = selectedIds[0];
   } else {
     select.value = "";
   }

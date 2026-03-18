@@ -1794,6 +1794,17 @@ body[data-page="exit-document"] .picker-suggestions {
   resize: none;
 }
 
+.effect-form select#effect-reference-select.is-multiple {
+  min-height: 116px;
+  height: 116px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+.effect-form select#effect-reference-select.is-multiple option {
+  padding: 2px 6px;
+}
+
 #effect-reset-fields-button.is-ready {
   background: var(--accent);
   color: #fff;
