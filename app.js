@@ -3516,11 +3516,16 @@ function bindEffectForm() {
     const referenceSite = normalizeText(formData.get("referenceSite"));
     const usesReferenceCatalog = typeUsesReferenceCatalog(typeEffet);
     const usesSiteField = typeUsesSiteField(typeEffet);
+    const referenceSelect = form.elements.referenceEffet;
     const referenceEffetIdsRaw = usesReferenceCatalog
-      ? formData
-          .getAll("referenceEffet")
-          .map((value) => String(value || "").trim())
-          .filter(Boolean)
+      ? typeEffet === "CLE" && referenceSelect instanceof HTMLSelectElement
+        ? Array.from(referenceSelect.options)
+            .filter((option) => option.selected && String(option.value || "").trim())
+            .map((option) => String(option.value || "").trim())
+        : formData
+            .getAll("referenceEffet")
+            .map((value) => String(value || "").trim())
+            .filter(Boolean)
       : [];
     const referenceEffetIds = typeEffet === "CLE" ? referenceEffetIdsRaw : referenceEffetIdsRaw.slice(0, 1);
     const referenceEffetId = referenceEffetIds[0] || "";
@@ -9709,6 +9714,8 @@ function renderDirtyState() {
 
 loadData();
   const getSheetTargetPersonId = () => state.currentSheetPersonId || getCurrentPersonId();
+
+
 
 
 

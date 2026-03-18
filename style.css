@@ -1815,11 +1815,11 @@ body[data-page="exit-document"] .picker-suggestions {
   width: 100%;
   min-height: 34px;
   border-radius: 10px;
-  border: 1px solid var(--border-strong);
-  background: #f5f9fc;
+  border: 1px solid var(--border);
+  background: #fffdfa;
   color: var(--text);
   text-align: left;
-  font: 600 0.86rem/1 "Montserrat", sans-serif;
+  font-size: 11px;`r`n  font-weight: 600;`r`n  line-height: 1.2;`r`n  font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
   letter-spacing: 0.02em;
   padding: 0.55rem 2rem 0.55rem 0.75rem;
   cursor: pointer;
@@ -1850,7 +1850,7 @@ body[data-page="exit-document"] .picker-suggestions {
   max-height: 220px;
   overflow-y: auto;
   background: #fff;
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--border);
   border-radius: 10px;
   box-shadow: 0 10px 24px rgba(31, 46, 56, 0.2);
   padding: 0.35rem;
@@ -3688,6 +3688,8 @@ body[data-pdf-mode="true"] .signature-box__meta-value--pdf {
     padding: 0 4px;
   }
 }
+
+
 
 
 
