@@ -23,6 +23,7 @@ const state = {
   pdfProgressTimerId: 0,
   pdfGenerationActive: false,
   pdfAttentionDismissed: {},
+  pdfAttentionHydrated: false,
   mobileSignaturePollTimerId: 0,
   mobileSignatureNetworkInfo: null,
   autoSaveNavigationBound: false,
@@ -56,6 +57,7 @@ const SUPABASE_APP_STATE_ID = "main";
 const DEFAULT_SUPABASE_PDF_BUCKET = "pdf";
 const DEFAULT_SUPABASE_SIGNATURES_BUCKET = "signatures";
 const NAVIGATION_CONTEXT_KEY = "dotations-navigation-context";
+const PDF_ATTENTION_DISMISSED_STORAGE_KEY = "dotations-pdf-attention-dismissed";
 const PDF_LAYOUT_VERSION = "2026-03-14-exit-layout-fix-3";
 const PDF_FORMAT_LOCK = "v1";
 let pdfModalCleanupBound = false;
@@ -1825,6 +1827,41 @@ function bindSaveButtons() {
   });
 }
 
+function hydratePdfAttentionDismissed() {
+  if (state.pdfAttentionHydrated) {
+    return;
+  }
+  state.pdfAttentionHydrated = true;
+  try {
+    const raw = window.sessionStorage.getItem(PDF_ATTENTION_DISMISSED_STORAGE_KEY);
+    if (!raw) {
+      return;
+    }
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      state.pdfAttentionDismissed = { ...state.pdfAttentionDismissed, ...parsed };
+    }
+  } catch (_) {
+    state.pdfAttentionDismissed = {};
+  }
+}
+
+function persistPdfAttentionDismissed() {
+  try {
+    const keys = Object.keys(state.pdfAttentionDismissed || {});
+    if (!keys.length) {
+      window.sessionStorage.removeItem(PDF_ATTENTION_DISMISSED_STORAGE_KEY);
+      return;
+    }
+    window.sessionStorage.setItem(
+      PDF_ATTENTION_DISMISSED_STORAGE_KEY,
+      JSON.stringify(state.pdfAttentionDismissed)
+    );
+  } catch (_) {
+    // storage unavailable
+  }
+}
+
 function getPdfAttentionDismissKey(personId, docType) {
   const normalizedPersonId = String(personId || "").trim();
   const normalizedDocType = normalizeText(docType);
@@ -1832,17 +1869,31 @@ function getPdfAttentionDismissKey(personId, docType) {
 }
 
 function markPdfAttentionDismissed(personId, docType) {
+  hydratePdfAttentionDismissed();
   const key = getPdfAttentionDismissKey(personId, docType);
   if (!key || key === "::") {
     return;
   }
   state.pdfAttentionDismissed[key] = true;
+  persistPdfAttentionDismissed();
+}
+
+function clearPdfAttentionDismissed(personId, docType) {
+  hydratePdfAttentionDismissed();
+  const key = getPdfAttentionDismissKey(personId, docType);
+  if (!key || !state.pdfAttentionDismissed[key]) {
+    return;
+  }
+  delete state.pdfAttentionDismissed[key];
+  persistPdfAttentionDismissed();
 }
 
 function isPdfAttentionDismissed(personId, docType) {
+  hydratePdfAttentionDismissed();
   const key = getPdfAttentionDismissKey(personId, docType);
   return Boolean(key && state.pdfAttentionDismissed[key]);
 }
+
 function bindPdfButtons() {
   document.querySelectorAll(".js-open-pdf").forEach((button) => {
     button.onclick = () => {
@@ -1870,9 +1921,8 @@ function updateDocumentPdfButtonsState() {
     const docType = String(button.getAttribute("data-doc-type") || "");
     const canOpen = Boolean(person && isDocumentFullySigned(person, docType));
     const personId = person?.id || "";
-    const dismissKey = getPdfAttentionDismissKey(personId, docType);
-    if (!canOpen && dismissKey) {
-      delete state.pdfAttentionDismissed[dismissKey];
+    if (!canOpen) {
+      clearPdfAttentionDismissed(personId, docType);
     }
     const showAttention = canOpen && !isPdfAttentionDismissed(personId, docType);
     button.classList.toggle("is-disabled", !canOpen);
@@ -9722,6 +9772,11 @@ function bindHistoryNavigation() {
 }
 
 function markDirty() {
+  const page = String(document.body?.dataset?.page || "");
+  if (page === "arrival-document" || page === "exit-document") {
+    const docType = page === "exit-document" ? "exit" : "arrival";
+    clearPdfAttentionDismissed(getCurrentPersonId(), docType);
+  }
   state.isDirty = true;
   saveWorkingData();
   renderDirtyState();
