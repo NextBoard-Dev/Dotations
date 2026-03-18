@@ -3720,3 +3720,60 @@ body[data-pdf-mode="true"] .signature-box__meta-value--pdf {
 
 
 
+
+
+.button--pdf.button--pdf-attention {
+  position: relative;
+  border-color: rgba(45, 152, 72, 0.72);
+  box-shadow: 0 0 0 1px rgba(45, 152, 72, 0.22), 0 6px 14px rgba(45, 152, 72, 0.18);
+  animation: pdf-ready-glow 1200ms ease-in-out infinite;
+}
+
+.button--pdf.button--pdf-attention::before {
+  content: "";
+  position: absolute;
+  left: -14px;
+  top: 50%;
+  width: 0;
+  height: 0;
+  border-top: 7px solid transparent;
+  border-bottom: 7px solid transparent;
+  border-left: 11px solid #2ea84a;
+  transform: translateY(-50%);
+  filter: drop-shadow(0 1px 2px rgba(20, 74, 33, 0.35));
+  animation: pdf-ready-arrow 900ms ease-in-out infinite;
+}
+
+@keyframes pdf-ready-arrow {
+  0% {
+    transform: translate(-4px, -50%);
+    opacity: 0.3;
+  }
+  60% {
+    transform: translate(2px, -50%);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-4px, -50%);
+    opacity: 0.35;
+  }
+}
+
+@keyframes pdf-ready-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 1px rgba(45, 152, 72, 0.2), 0 6px 14px rgba(45, 152, 72, 0.12);
+  }
+  50% {
+    box-shadow: 0 0 0 1px rgba(45, 152, 72, 0.38), 0 8px 16px rgba(45, 152, 72, 0.22);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .button--pdf.button--pdf-attention,
+  .button--pdf.button--pdf-attention::before {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+

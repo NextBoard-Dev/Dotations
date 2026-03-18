@@ -1848,7 +1848,9 @@ function updateDocumentPdfButtonsState() {
     const docType = String(button.getAttribute("data-doc-type") || "");
     const canOpen = Boolean(person && isDocumentFullySigned(person, docType));
     button.classList.toggle("is-disabled", !canOpen);
+    button.classList.toggle("button--pdf-attention", canOpen);
     button.setAttribute("aria-disabled", canOpen ? "false" : "true");
+    button.setAttribute("data-pdf-ready", canOpen ? "true" : "false");
     button.setAttribute(
       "title",
       canOpen
@@ -3357,6 +3359,8 @@ function bindPersonSheetForm() {
       showActionStatus("create", `PERSONNE AJOUTEE : ${person.nom} ${person.prenom}`);
     };
   }
+
+  const getSheetTargetPersonId = () => state.currentSheetPersonId || getCurrentPersonId();
 
   if (arrivalDocumentButton) {
     arrivalDocumentButton.onclick = () => {
@@ -6149,6 +6153,7 @@ function bindRepresentativeFields() {
           formatSignatureTimestamp(getSignatureValidationDate(person, docType, "representant")) || "-";
       }
       markDirty();
+      updateDocumentPdfButtonsState();
       updateRepresentativeSignatureActionState(docType);
       syncDocumentMobileSignatureLink(docType, person.id, "representant");
       showActionStatus("update", "REPRESENTANT MIS A JOUR");
@@ -6241,6 +6246,7 @@ function bindSignatureCanvases() {
         renderExitDocument(person.id);
       }
       refreshDocumentSignatureCanvases(docType);
+      updateDocumentPdfButtonsState();
       if (document.body.dataset.page === "mobile-signature" && nextValue) {
         const request = getCurrentMobileSignatureRequest();
         if (
@@ -9713,36 +9719,6 @@ function renderDirtyState() {
 }
 
 loadData();
-  const getSheetTargetPersonId = () => state.currentSheetPersonId || getCurrentPersonId();
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
