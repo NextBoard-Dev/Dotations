@@ -11,7 +11,7 @@ for /f "delims=" %%i in ('git remote get-url origin') do set ORIGIN=%%i
 echo ROOT   : "%ROOT%"
 echo BRANCHE: %BRANCH%
 echo ORIGIN : %ORIGIN%
-if /I not "%ORIGIN%"=="https://github.com/Mililumatt/Dotations.git" (
+if /I not "%ORIGIN%"=="https://github.com/NextBoard-Dev/Dotations.git" (
   echo.
   echo [ALERTE] REMOTE INATTENDU POUR DOTATIONS
   popd >nul

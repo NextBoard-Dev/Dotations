@@ -2,8 +2,8 @@ PROJET: DOTATIONS / SUIVI DES EFFETS
 DOSSIER: 
 C:\Users\sebastien.duc\CLOUD\02_ARCHIVAGE PERSONNEL\DASHBOARDS\GESTION DES ACCÈS & EFFETS SENSIBLES
 REMOTE_ORIGIN: 
-https://github.com/Mililumatt/Dotations.git
+https://github.com/NextBoard-Dev/Dotations.git
 BRANCHE: 
 main
 REGLE: Ne jamais copier de fichiers depuis suivi-de-chantiers.
-URL_LIVE: https://mililumatt.github.io/Dotations/
+URL_LIVE: https://nextboard-dev.github.io/Dotations/
