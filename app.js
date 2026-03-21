@@ -1,9805 +1,10842 @@
-const DEFAULT_FILTERS = {
-  search: "",
-  site: "",
-  typePersonnel: "",
-  typeContrat: "",
-  statutDossier: "",
-  statutObjet: "",
-  typeEffet: "",
+// SUiVI DE CHANTIERS - état embarqu forc (pas de localStorage)
+
+// Projet : Rénovation Bureau Pastorale + 1 tâche date
+
+
+
+const el = (id)=>document.getElementById(id);
+function setInputValue(id, value){ const n = el(id); if(n) n.value = value; return n; }
+function ensureProjectHeaderNodes(){
+  const projectView = el("viewProject") || document.body;
+  if(!el("projectTitle")){
+    const h = document.createElement("h2");
+    h.id = "projectTitle";
+    h.style.display = "none";
+    projectView.appendChild(h);
+  }
+  if(!el("projectSub")){
+    const p = document.createElement("p");
+    p.id = "projectSub";
+    p.style.display = "none";
+    projectView.appendChild(p);
+  }
+}
+
+const STORAGE_KEY = "suivi_chantiers_state_v1";
+
+// Monitoring simple: capture des erreurs + message utilisateur lisible.
+const APP_ERROR_BUFFER_MAX = 50;
+let __lastErrorSig = "";
+let __lastErrorTs = 0;
+window.__appErrors = window.__appErrors || [];
+
+function _formatErrorMessage(errLike){
+  if(!errLike) return "Erreur inconnue";
+  if(typeof errLike === "string") return errLike;
+  if(errLike.message) return String(errLike.message);
+  try{ return JSON.stringify(errLike); }catch(e){ return String(errLike); }
+}
+
+function showAppErrorBanner(message){
+  const banner = el("appErrorBanner");
+  const text = el("appErrorText");
+  if(!banner || !text) return;
+  text.textContent = message || "Une erreur technique est survenue.";
+  banner.classList.remove("hidden");
+}
+
+function reportAppError(errLike, context="runtime"){
+  const msg = _formatErrorMessage(errLike);
+  const sig = `${context}|${msg}`;
+  const now = Date.now();
+  // anti-spam: ignore la meme erreur pendant 2 secondes
+  if(sig === __lastErrorSig && (now - __lastErrorTs) < 2000) return;
+  __lastErrorSig = sig;
+  __lastErrorTs = now;
+
+  const item = { ts: new Date().toISOString(), context, message: msg };
+  window.__appErrors.push(item);
+  if(window.__appErrors.length > APP_ERROR_BUFFER_MAX){
+    window.__appErrors.splice(0, window.__appErrors.length - APP_ERROR_BUFFER_MAX);
+  }
+
+  console.error("[app-error]", context, msg, errLike);
+  showAppErrorBanner(`Une erreur est survenue (${context}). ${msg}`);
+}
+
+function softCatch(errLike, context="soft"){
+  try{
+    const msg = _formatErrorMessage(errLike);
+    console.warn(`[soft-error] ${context}: ${msg}`);
+  }catch(_e){
+    // no-op volontaire: ne jamais casser l'UI pour une remontée d'erreur
+  }
+}
+
+function bindGlobalButtonClickFeedback(){
+  const selector = "button, .btn, .tab, .help-btn, .theme-toggle, .login-log-sort, .cfg-accordion-head";
+  document.addEventListener("click", (e)=>{
+    const btn = e.target?.closest?.(selector);
+    if(!btn) return;
+    if(btn.disabled || btn.classList.contains("is-disabled")) return;
+    btn.classList.remove("btn-click-ack");
+    // restart animation if user clicks quickly several times
+    void btn.offsetWidth;
+    btn.classList.add("btn-click-ack");
+    window.setTimeout(()=> btn.classList.remove("btn-click-ack"), 170);
+  }, true);
+}
+window.reportAppError = reportAppError;
+window.addEventListener("error", (ev)=>{
+  const msg = String(ev?.message || "").trim();
+  const src = String(ev?.filename || "").trim();
+  // "Script error." vient souvent d'un script cross-origin sans détail exploitable.
+  // On l'ignore pour ne pas polluer l'UI avec une fausse alerte bloquante.
+  if(msg === "Script error." && !ev?.error && !src){
+    console.warn("[window.error] Script error cross-origin ignorée");
+    return;
+  }
+  const details = ev?.error || `${msg}${src ? ` @ ${src}:${ev?.lineno||0}:${ev?.colno||0}` : ""}` || "Erreur JavaScript";
+  reportAppError(details, "window.error");
+});
+window.addEventListener("unhandledrejection", (ev)=>{
+  reportAppError(ev?.reason || "Promesse rejetee", "promise");
+});
+
+document.addEventListener("DOMContentLoaded", ()=>{
+  el("appErrorClose")?.addEventListener("click", ()=> el("appErrorBanner")?.classList.add("hidden"));
+  el("appErrorReload")?.addEventListener("click", ()=> window.location.reload());
+  bindGlobalButtonClickFeedback();
+});
+
+
+
+/* =========================================================
+
+   SUPABASE GREFFE MINIMALE (NE TOUCHE PAS A L'UI)
+
+   - Pas de module
+
+   - Pas de refactor
+
+   - Supabase est appele APRES saveState()
+
+   - Chargement Supabase APRES premier rendu UI
+
+   Fonctions autorisees (globals) :
+
+     window.supabaseLogin(email, password)
+
+     window.saveAppStateToSupabase(state)
+
+     window.loadAppStateFromSupabase()
+
+========================================================= */
+
+
+
+// ---- CONFIG (TES VALEURS) ----
+
+const SUPABASE_URL  = "https://uioqchhbakcvemknqikh.supabase.co";
+
+const SUPABASE_KEY  = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVpb3FjaGhiYWtjdmVta25xaWtoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk3NjA4MTUsImV4cCI6MjA4NTMzNjgxNX0.W345e_uwKLGaFcP9KAZq0kNECBUSFluh2ErgHaHeO5w";
+
+const SUPABASE_TABLE = "app_states";
+const SUPABASE_USERS_TABLE = "dashboard_users";
+const SUPABASE_LOGINS_TABLE = "dashboard_logins";
+const SUPABASE_SESSIONS_TABLE = "dashboard_sessions";
+
+
+// Auto-login (pour ne PAS utiliser la console)
+
+const SUPABASE_AUTO_EMAIL = "sebastien_duc@outlook.fr";
+
+const SUPABASE_AUTO_PASSWORD = "Mililum@tt45";
+
+
+
+// ---- client ----
+
+let _sb = null;
+
+function _getSupabaseClient(){
+
+  try{
+
+    if(_sb) return _sb;
+
+    if(!window.supabase || !window.supabase.createClient){
+
+      console.warn("Supabase CDN non charge");
+
+      return null;
+
+    }
+
+    _sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    return _sb;
+
+  }catch(e){
+
+    console.warn("Supabase init failed", e);
+
+    return null;
+
+  }
+
+}
+
+
+
+// ---- helper : session ----
+
+async function _ensureSession(){
+
+  const sb = _getSupabaseClient();
+
+  if(!sb) return null;
+
+
+
+  try{
+
+    const s = await sb.auth.getSession();
+
+    if(s && s.data && s.data.session) return s.data.session;
+
+
+
+    // pas de session -> auto login (si creds presentes)
+
+    if(SUPABASE_AUTO_EMAIL && SUPABASE_AUTO_PASSWORD){
+
+      const res = await sb.auth.signInWithPassword({
+
+        email: SUPABASE_AUTO_EMAIL,
+
+        password: SUPABASE_AUTO_PASSWORD
+
+      });
+
+      if(res && res.data && res.data.session) return res.data.session;
+
+    }
+
+  }catch(e){
+
+    console.warn("Supabase session failed", e);
+
+  }
+
+  return null;
+
+}
+
+
+
+/* ===============================
+
+   API GLOBALE AUTORISEE
+
+================================ */
+
+window.supabaseLogin = async function(email, password){
+
+  const sb = _getSupabaseClient();
+
+  if(!sb) return false;
+
+  try{
+
+    const res = await sb.auth.signInWithPassword({ email, password });
+
+    return !!(res && res.data && res.data.session);
+
+  }catch(e){
+
+    console.warn("supabaseLogin failed", e);
+
+    return false;
+
+  }
+
 };
 
-const state = {
-  data: null,
-  currentSheetPersonId: "",
-  editingEffectId: "",
-  editingReferenceId: "",
-  editingReplacementCostKey: "",
-  editingSimpleReference: null,
-  editingRepresentativeId: "",
-  isDirty: false,
-  shortcutsBound: false,
-  undoStack: [],
-  statusTimerId: 0,
-  pdfProgressTimerId: 0,
-  pdfGenerationActive: false,
-  pdfAttentionDismissed: {},
-  pdfAttentionHydrated: false,
-  mobileSignaturePollTimerId: 0,
-  mobileSignatureNetworkInfo: null,
-  autoSaveNavigationBound: false,
-  autoSaveInFlightPromise: null,
-  autoSaveTimerId: 0,
-  tableSorts: {
-    sheetEffects: { key: "typeEffet", dir: "asc" },
-    arrivalEffects: { key: "typeEffet", dir: "asc" },
-    exitEffects: { key: "typeEffet", dir: "asc" },
-    overviewPersons: { key: "nom", dir: "asc" },
-  },
-  filters: { ...DEFAULT_FILTERS },
-  referenceRenderContext: null,
-  urgentMode: false,
-  lastSaveInfo: null,
-  effectRowFlash: null,
-  effectTableFlash: null,
+
+
+window.saveAppStateToSupabase = async function(stateObj){
+  const sb = _getSupabaseClient();
+  if(!sb) return false;
+
+
+  const session = await _ensureSession();
+
+  if(!session || !session.user) return false;
+
+
+
+  try{
+
+    const payload = {
+
+      user_id: session.user.id,
+
+      state_json: stateObj,
+
+      updated_at: new Date().toISOString()
+
+    };
+
+    const { error } = await sb.from(SUPABASE_TABLE).upsert(payload, { onConflict: "user_id" });
+
+    if(error){ console.warn("Supabase upsert error", error); return false; }
+
+    return true;
+
+  }catch(e){
+
+    console.warn("saveAppStateToSupabase failed", e);
+    console.error("[SUPABASE ERROR]", e);
+
+    const statusEl = document.getElementById("saveStatusMessage") || document.getElementById("saveToastDetail");
+    if (statusEl) {
+      statusEl.textContent = "Erreur de sauvegarde cloud.";
+      statusEl.style.color = "red";
+    }
+
+    setTimeout(() => {
+      const toast = document.getElementById("saveToast");
+      if(toast) toast.classList.remove("show");
+    }, 4000);
+
+    return false;
+
+  }
+
 };
 
-const WORKING_DATA_KEY = "dashboard-working-data";
-const LEGACY_CONTRACT_TYPES = ["CDI", "CDD", "INTERIMAIRE"];
-const MAX_UNDO_STACK = 30;
-const ALL_SITES_VALUE = "TOUS SITES";
-const EFFECT_STATUS_CAUSES = ["HS", "PERTE", "VOL", "NON RENDU"];
-const BILLABLE_EFFECT_CAUSES = ["PERTE", "VOL", "NON RENDU"];
-const MOBILE_SIGNATURE_REQUEST_TTL_MS = 10 * 60 * 1000;
-const SUPABASE_PROJECT_URL = "https://dphrvdhqhgycmllietuk.supabase.co";
-const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_2wYXnIDj4-c8daQZW8D5hA_2Py6k7z6";
-const SUPABASE_APP_STATE_TABLE = "app_state";
-const SUPABASE_APP_STATE_ID = "main";
-const DEFAULT_SUPABASE_PDF_BUCKET = "pdf";
-const DEFAULT_SUPABASE_SIGNATURES_BUCKET = "signatures";
-const NAVIGATION_CONTEXT_KEY = "dotations-navigation-context";
-const PDF_ATTENTION_DISMISSED_STORAGE_KEY = "dotations-pdf-attention-dismissed";
-const PDF_LAYOUT_VERSION = "2026-03-14-exit-layout-fix-3";
-const PDF_FORMAT_LOCK = "v1";
-let pdfModalCleanupBound = false;
-const signatureCanvases = new WeakMap();
-
-function setKpiCountAnimated(node, nextValue) {
-  if (!node) {
-    return;
+// ---- users (simple, sans RLS) ----
+async function saveUsersToSupabase(users){
+  const sb = _getSupabaseClient();
+  if(!sb) return false;
+  const session = await _ensureSession();
+  if(!session || !session.user) return false;
+  try{
+    const payload = {
+      user_id: session.user.id,
+      users_json: users,
+      updated_at: new Date().toISOString()
+    };
+    const { error } = await sb.from(SUPABASE_USERS_TABLE).upsert(payload, { onConflict: "user_id" });
+    if(error){ console.warn("Supabase users upsert error", error); return false; }
+    return true;
+  }catch(e){
+    console.warn("saveUsersToSupabase failed", e);
+    return false;
   }
-  const target = Number(nextValue);
-  if (!Number.isFinite(target)) {
-    node.textContent = String(nextValue);
-    return;
-  }
-  const current = Number.parseInt(String(node.dataset.kpiValue || node.textContent || "0"), 10);
-  if (!Number.isFinite(current) || current === target) {
-    node.textContent = String(target);
-    node.dataset.kpiValue = String(target);
-    return;
-  }
+}
 
-  const start = current;
-  const delta = target - start;
-  const duration = 260;
-  const startAt = performance.now();
-  node.classList.remove("kpi-value--changed");
-  void node.offsetWidth;
-  node.classList.add("kpi-value--changed");
+// expose for login overlay (index.html)
+window.saveUsersToSupabase = saveUsersToSupabase;
 
-  const tick = (now) => {
-    const progress = Math.min(1, (now - startAt) / duration);
-    const eased = 1 - Math.pow(1 - progress, 3);
-    const value = Math.round(start + delta * eased);
-    node.textContent = String(value);
-    if (progress < 1) {
-      window.requestAnimationFrame(tick);
-      return;
+async function logLoginToSupabase(payload){
+  const sb = _getSupabaseClient();
+  if(!sb) return false;
+  const session = await _ensureSession();
+  const userId = session?.user?.id || "anon";
+  try{
+    const row = {
+      user_id: userId,
+      email: payload?.email || "",
+      name: payload?.name || "",
+      role: payload?.role || "user",
+      ts: payload?.ts || new Date().toISOString()
+    };
+    const { error } = await sb.from(SUPABASE_LOGINS_TABLE).insert(row);
+    if(error){
+      console.warn("Supabase logins insert error", error);
+      try{ localStorage.setItem("login_log_last_error", error.message || "insert_failed"); }catch(e){ softCatch(e); }
+      return false;
     }
-    node.dataset.kpiValue = String(target);
-    window.setTimeout(() => {
-      node.classList.remove("kpi-value--changed");
-    }, 280);
-  };
+    try{ localStorage.removeItem("login_log_last_error"); }catch(e){ softCatch(e); }
+    return true;
+  }catch(e){
+    console.warn("logLoginToSupabase failed", e);
+    try{ localStorage.setItem("login_log_last_error", e?.message || "insert_failed"); }catch(err){}
+    return false;
+  }
+}
+window.logUserLogin = async function(payload){
+  try{
+    return await logLoginToSupabase(payload);
+  }catch(e){
+    return false;
+  }
+};
 
-  window.requestAnimationFrame(tick);
+async function sha256Hex(str){
+  const enc = new TextEncoder().encode(str || "");
+  const buf = await crypto.subtle.digest("SHA-256", enc);
+  return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,"0")).join("");
 }
 
-function pulseSaveButtons() {
-  document.querySelectorAll(".js-save-data").forEach((button) => {
-    if (!(button instanceof HTMLElement)) {
-      return;
+async function createSessionToken(token, payload, ttlDays=30){
+  const sb = _getSupabaseClient();
+  if(!sb) return false;
+  const tokenHash = await sha256Hex(token);
+  const expires = new Date();
+  expires.setDate(expires.getDate() + (ttlDays || 30));
+  try{
+    const row = {
+      token_hash: tokenHash,
+      email: payload?.email || "",
+      name: payload?.name || "",
+      role: payload?.role || "user",
+      expires_at: expires.toISOString(),
+      created_at: new Date().toISOString()
+    };
+    const { error } = await sb.from(SUPABASE_SESSIONS_TABLE).insert(row);
+    if(error){ console.warn("Supabase sessions insert error", error); return false; }
+    return true;
+  }catch(e){
+    console.warn("createSessionToken failed", e);
+    return false;
+  }
+}
+
+async function validateSessionToken(token, renewDays=30){
+  const sb = _getSupabaseClient();
+  if(!sb) return null;
+  try{
+    const tokenHash = await sha256Hex(token);
+    const { data, error } = await sb
+      .from(SUPABASE_SESSIONS_TABLE)
+      .select("email,name,role,expires_at")
+      .eq("token_hash", tokenHash)
+      .maybeSingle();
+    if(error){ console.warn("Supabase sessions select error", error); return null; }
+    if(!data) return null;
+    const exp = data.expires_at ? new Date(data.expires_at) : null;
+    if(!exp || isNaN(exp) || exp < new Date()) return null;
+    if(renewDays){
+      const next = new Date();
+      next.setDate(next.getDate() + renewDays);
+      await sb.from(SUPABASE_SESSIONS_TABLE)
+        .update({ expires_at: next.toISOString() })
+        .eq("token_hash", tokenHash);
     }
-    button.classList.remove("button--save-ok");
-    void button.offsetWidth;
-    button.classList.add("button--save-ok");
-    window.setTimeout(() => {
-      button.classList.remove("button--save-ok");
-    }, 520);
-  });
-}
-redirectToLocalServerIfNeeded();
-applyPdfModeFromQuery();
-enforceInitialTopScroll();
-
-function enforceInitialTopScroll() {
-  if (window.history && "scrollRestoration" in window.history) {
-    window.history.scrollRestoration = "manual";
+    return { email: data.email || "", name: data.name || "", role: data.role || "user" };
+  }catch(e){
+    console.warn("validateSessionToken failed", e);
+    return null;
   }
-  const scrollTop = () => {
-    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
-  };
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", scrollTop, { once: true });
-  } else {
-    scrollTop();
-  }
-  window.addEventListener("pageshow", scrollTop, { once: true });
 }
 
-function normalizeText(value) {
-  return String(value || "")
+window.createSessionToken = createSessionToken;
+window.validateSessionToken = validateSessionToken;
+
+async function cleanupExpiredSessions(){
+  const sb = _getSupabaseClient();
+  if(!sb) return false;
+  try{
+    const nowIso = new Date().toISOString();
+    const { error } = await sb
+      .from(SUPABASE_SESSIONS_TABLE)
+      .delete()
+      .lt("expires_at", nowIso);
+    if(error){ console.warn("Supabase sessions cleanup error", error); return false; }
+    return true;
+  }catch(e){
+    console.warn("cleanupExpiredSessions failed", e);
+    return false;
+  }
+}
+window.cleanupExpiredSessions = cleanupExpiredSessions;
+
+async function loadLoginsFromSupabase(startISO, endISO){
+  const sb = _getSupabaseClient();
+  if(!sb) return [];
+  const session = await _ensureSession();
+  const userId = session?.user?.id || null;
+  try{
+    let q = sb.from(SUPABASE_LOGINS_TABLE)
+      .select("email,name,role,ts")
+      .order("ts", { ascending: true });
+    if(userId) q = q.in("user_id", [userId, "anon"]);
+    if(startISO) q = q.gte("ts", startISO);
+    if(endISO) q = q.lte("ts", endISO);
+    const { data, error } = await q;
+    if(error){ console.warn("Supabase logins select error", error); return []; }
+    return data || [];
+  }catch(e){
+    console.warn("loadLoginsFromSupabase failed", e);
+    return [];
+  }
+}
+
+async function loadUsersFromSupabase(force=false){
+  const sb = _getSupabaseClient();
+  if(!sb) return false;
+  const session = await _ensureSession();
+  if(!session || !session.user) return false;
+  try{
+    if(!force){
+      const localUsers = loadUsers();
+      if(localUsers && localUsers.length > 0 && !isHostedGithubPages()){
+        return false;
+      }
+    }
+    const { data, error } = await sb
+      .from(SUPABASE_USERS_TABLE)
+      .select("users_json, updated_at")
+      .eq("user_id", session.user.id)
+      .maybeSingle();
+    if(error){ console.warn("Supabase users select error", error); return false; }
+    if(!data || !data.users_json) return false;
+    const normalized = (data.users_json || []).map(u=>{
+      if(!u || typeof u !== "object") return u;
+      if(!u.theme) u.theme = "sable";
+      if(!u.id) u.id = uid();
+      return u;
+    });
+    saveUsers(normalized);
+    if(typeof window.populateLoginUsers === "function") window.populateLoginUsers();
+    return true;
+  }catch(e){
+    console.warn("loadUsersFromSupabase failed", e);
+    return false;
+  }
+}
+window.forceLoadUsersFromSupabase = async function(){
+  try{
+    return await loadUsersFromSupabase(true);
+  }catch(e){
+    return false;
+  }
+};
+
+
+window.loadAppStateFromSupabase = async function(){
+
+  const sb = _getSupabaseClient();
+
+  if(!sb) return false;
+
+
+
+  const session = await _ensureSession();
+
+  if(!session || !session.user) return false;
+
+
+
+  try{
+
+    const { data, error } = await sb
+
+      .from(SUPABASE_TABLE)
+
+      .select("state_json, updated_at")
+
+      .eq("user_id", session.user.id)
+
+      .maybeSingle();
+
+
+
+    if(error){ console.warn("Supabase select error", error); return false; }
+
+    if(!data || !data.state_json) return false;
+
+
+
+    // IMPORTANT : on remplace UNIQUEMENT l'eétat global, puis on rend
+
+    state = normalizeState(data.state_json);
+
+    renderAll();
+
+    clearDirty();
+
+    return true;
+
+  }catch(e){
+
+    console.warn("loadAppStateFromSupabase failed", e);
+
+    return false;
+
+  }
+
+};
+
+
+
+// ---- auto-load apres 1er rendu UI ----
+
+let _supabaseAutoloadScheduled = false;
+function _scheduleSupabaseAutoLoad(){
+  if(_supabaseAutoloadScheduled) return;
+  _supabaseAutoloadScheduled = true;
+
+  // pas d'await au chargement initial : on laisse l'UI se rendre d'abord
+  setTimeout(function(){
+    try{
+      window.loadAppStateFromSupabase();
+      loadUsersFromSupabase();
+    }catch(e){ softCatch(e); }
+  }, 120);
+}
+
+
+const uid = ()=> Math.random().toString(16).slice(2,10) + Date.now().toString(16);
+
+const normId = (v)=> (v===undefined || v===null) ? "" : String(v).trim();
+
+
+
+let state = null;
+
+let selectedProjectId = null;
+
+let selectedTaskId = null;
+
+let taskOrderMap = {};
+
+let selectedStatusSet = new Set();
+
+let sortMaster = {key:"start", dir:"asc"};
+
+let sortProject = {key:"start", dir:"asc"};
+
+let tabsSortMode = "progress_asc"; // default de tri projets : avancement 0% -> 100%
+
+let unsavedChanges = false;
+let lastUndoSnapshot = null;
+let _stateVersion = 0;
+let _filteredCache = { key:"", version:-1, tasks:null };
+let _missingHoursFlow = null;
+
+let isLocked = true; // verrou logique = droits utilisateur (admin = false)
+const isHostedGithubPages = ()=>{
+  try{
+    const host = (location.hostname || "").toLowerCase();
+    return host.endsWith("github.io");
+  }catch(e){ return false; }
+};
+window.isHostedGithubPages = isHostedGithubPages;
+
+let workloadRangeType = "all"; // all | custom | school | civil
+
+let workloadRangeStart = "";
+
+let workloadRangeEnd = "";
+
+let workloadRangeYear = "";
+
+let workloadRangeTypeProject = "all";
+let workloadRangeStartProject = "";
+let workloadRangeEndProject = "";
+let workloadRangeYearProject = "";
+let ganttExportContext = "master"; // master | project
+let unifiedExportSelectedProjectIds = [];
+
+function resetMasterWorkloadFilters(){
+  workloadRangeType = "all";
+  workloadRangeYear = "";
+  workloadRangeStart = "";
+  workloadRangeEnd = "";
+  const typeNode = el("workloadRangeType");
+  const yearNode = el("workloadRangeYear");
+  const startNode = el("workloadRangeStart");
+  const endNode = el("workloadRangeEnd");
+  if(typeNode) typeNode.value = "all";
+  if(yearNode) yearNode.value = "";
+  if(startNode) startNode.value = "";
+  if(endNode) endNode.value = "";
+}
+
+function resetProjectWorkloadFilters(){
+  workloadRangeTypeProject = "all";
+  workloadRangeYearProject = "";
+  workloadRangeStartProject = "";
+  workloadRangeEndProject = "";
+  const typeNode = el("workloadRangeTypeProject");
+  const yearNode = el("workloadRangeYearProject");
+  const startNode = el("workloadRangeStartProject");
+  const endNode = el("workloadRangeEndProject");
+  if(typeNode) typeNode.value = "all";
+  if(yearNode) yearNode.value = "";
+  if(startNode) startNode.value = "";
+  if(endNode) endNode.value = "";
+}
+const CONFIG_KEY = "dashboard_config_v1";
+const USERS_KEY = "dashboard_users_v1";
+let ganttColVisibility = {
+
+  masterVendor: true,
+
+  masterStatus: true,
+
+  projectVendor: true,
+
+  projectStatus: true
+
+};
+
+
+
+const DEFAULT_STATUSES = [
+
+  {v:"CHANTIER_COMPLET", label:"Chantier complet"},
+
+  {v:"ELECTRICITE", label:"Électricité"},
+
+  {v:"PEINTURE", label:"Peinture"},
+
+  {v:"SOL", label:"Sol"},
+
+  {v:"PLACO", label:"Placo / cloisons"},
+
+  {v:"FAUX_PLAFOND", label:"Faux plafond"},
+
+  {v:"AMENAGEMENTS", label:"Aménagements"},
+
+  {v:"MOBILIER", label:"Mobilier"},
+
+  {v:"PLOMBERIE", label:"Plomberie"},
+
+  {v:"PREPARATION", label:"Préparation"},
+
+  {v:"TDV",          label:"TDV"},
+
+  {v:"MACONNERIE",   label:"Maçonnerie"},
+
+  {v:"HUISSERIES", label:"Huisseries"},
+
+  {v:"RESEAUX",      label:"Réseaux"},
+
+  {v:"TOITURE",      label:"Toiture / étanchéité"},
+  {v:"TERRASSEMENT", label:"Terrassement"},
+  {v:"ETUDE",        label:"Étude"},
+
+];
+
+let STATUSES = DEFAULT_STATUSES.map(s=>({ ...s }));
+
+const sortedStatuses = ()=> [...STATUSES].sort((a,b)=> a.label.localeCompare(b.label,"fr",{sensitivity:"base"}));
+
+
+
+const STATUS_COLORS = {
+
+  CHANTIER_COMPLET: "#1e3a8a",
+
+  ELECTRICITE:      "#d97706",
+
+  PEINTURE:         "#2563eb",
+
+  SOL:              "#0f766e",
+
+  PLACO:            "#7c3aed",
+
+  FAUX_PLAFOND:     "#b45309",
+
+  AMENAGEMENTS:     "#db2777",
+
+  MOBILIER:         "#9333ea",
+
+  PLOMBERIE:        "#15803d",
+
+  PREPARATION:      "#16a34a",
+
+  TDV:              "#f97316",
+
+  MACONNERIE:       "#a16207",
+
+  HUISSERIES:      "#6b7280",
+
+
+  RESEAUX:          "#0ea5b0",
+
+  TOITURE:          "#0d9488",
+
+  TERRASSEMENT:     "#8b5a2b",
+
+  ETUDE:            "#0284c7",
+};
+const STATUS_PALETTE = [
+  "#0ea5e9",
+  "#22c55e",
+  "#f59e0b",
+  "#ef4444",
+  "#8b5cf6",
+  "#14b8a6",
+  "#84cc16",
+  "#f97316",
+  "#06b6d4",
+  "#e11d48"
+];
+
+const THEMES = [
+  { id:"clair", label:"Clair neutre", swatch:["#f8fafc","#e2e8f0"] },
+  { id:"sable", label:"Sable doux", swatch:["#f2e8d5","#d2b48c"] },
+  { id:"ardoise", label:"Ardoise", swatch:["#94a3b8","#475569"] },
+  { id:"chantier", label:"Chantier orange", swatch:["#f59e0b","#b45309"] },
+  { id:"orange_brule", label:"Orange brûlé", swatch:["#9a3412","#f97316"] },
+  { id:"petrole", label:"Vert pétrole", swatch:["#0f766e","#14b8a6"] },
+  { id:"nuit", label:"Bleu nuit", swatch:["#0ea5e9","#1e3a8a"] },
+  { id:"acier_bleu", label:"Acier bleu", swatch:["#0b1b2b","#1e3a8a"] },
+  { id:"marine", label:"Bleu marine", swatch:["#0f172a","#2563eb"] },
+  { id:"vert_nuit", label:"Vert nuit", swatch:["#0b1f18","#14532d"] },
+  { id:"cobalt_rouge", label:"Cobalt & Rouge", swatch:["#0f3d8a","#c81e1e"] },
+  { id:"olive_or", label:"Olive & Or", swatch:["#2f3e1f","#d4a017"] },
+  { id:"noir_cyan", label:"Noir & Cyan", swatch:["#0b0f1a","#00c2d1"] },
+  { id:"gris", label:"Gris profond", swatch:["#374151","#111827"] },
+  { id:"industriel", label:"Industriel sombre", swatch:["#6b7280","#111827"] },
+  { id:"carbone", label:"Carbone contrasté", swatch:["#1f2937","#0f172a"] },
+  { id:"carbone_nuit", label:"Carbone profond", swatch:["#0a0b0f","#1f2937"] },
+  { id:"obsidienne", label:"Obsidienne", swatch:["#0a0a0a","#1f2937"] },
+  { id:"noir_or", label:"Noir & Or", swatch:["#111111","#f59e0b"] },
+  { id:"noir", label:"Noir absolu", swatch:["#0b0b0b","#f8fafc"] }
+];
+
+const THEME_ACCENTS = {
+  clair:"#d66b1f",
+  sable:"#d66b1f",
+  ardoise:"#2563eb",
+  chantier:"#f97316",
+  orange_brule:"#f97316",
+  petrole:"#14b8a6",
+  nuit:"#22d3ee",
+  acier_bleu:"#3b82f6",
+  marine:"#38bdf8",
+  vert_nuit:"#22c55e",
+  cobalt_rouge:"#ef4444",
+  olive_or:"#f59e0b",
+  noir_cyan:"#06b6d4",
+  gris:"#9ca3af",
+  industriel:"#94a3b8",
+  carbone:"#3b82f6",
+  carbone_nuit:"#64748b",
+  obsidienne:"#94a3b8",
+  noir_or:"#f59e0b",
+  noir:"#f8fafc"
+};
+
+
+
+const statusColor = (v)=>{
+  const key = (v||"").toUpperCase();
+  if(STATUS_COLORS[key]) return STATUS_COLORS[key];
+  if(!key) return "#1f2937";
+  let hash = 0;
+  for(let i=0;i<key.length;i++) hash = ((hash<<5)-hash) + key.charCodeAt(i);
+  const idx = Math.abs(hash) % STATUS_PALETTE.length;
+  return STATUS_PALETTE[idx] || "#1f2937";
+};
+
+const statusDot = (v)=> `<span class="icon-dot" style="background:${statusColor(v)};border-color:${statusColor(v)}"></span>`;
+
+const parseStatuses = (s)=> (s||"").split(",").map(x=>x.trim()).filter(Boolean);
+
+const taskProgress = (t)=>{
+  if(!t?.start || !t?.end) return 0;
+  const s = new Date(t.start+"T00:00:00");
+  const e = new Date(t.end+"T00:00:00");
+  if(isNaN(s) || isNaN(e) || e < s) return 0;
+  const today = new Date();
+  today.setHours(0,0,0,0);
+  if(today <= s) return 0;
+  if(today >= e) return 100;
+  const total = countWeekdays(s, e);
+  if(!total) return 0;
+  const elapsed = countWeekdays(s, today);
+  return Math.max(0, Math.min(100, Math.round((elapsed / total) * 100)));
+};
+
+function setTaskProgressUI(val){
+  const v = Math.max(0, Math.min(100, Math.round(val || 0)));
+  const fill = el("taskProgressFill");
+  const label = el("taskProgressLabel");
+  if(fill) fill.style.width = `${v}%`;
+  if(label) label.textContent = `${v}%`;
+}
+function setProjectProgressUI(val){
+  const v = Math.max(0, Math.min(100, Math.round(val || 0)));
+  const fill = el("projectProgressFill");
+  const label = el("projectProgressLabel");
+  if(fill) fill.style.width = `${v}%`;
+  if(label) label.textContent = `${v}%`;
+}
+
+function calcProgressFromInputs(){
+  const s = unformatDate(el("t_start")?.value || "");
+  const e = unformatDate(el("t_end")?.value || "");
+  return taskProgress({start:s, end:e});
+}
+
+const deepClone = (obj)=> JSON.parse(JSON.stringify(obj));
+
+const siteColor = (_site="")=>"transparent";
+
+const attrEscape = (s="")=> s.replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+
+const uiUpperNoAccent = (value="")=>
+  String(value)
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
-    .toUpperCase()
-    .trim();
-}
+    .toUpperCase();
 
-function normalizeFunctionLabel(value) {
-  const normalized = normalizeText(value);
-  const corrections = {
-    ENSEIGNENT: "ENSEIGNANT",
-    "LABORENTIN(E)": "LABORANTIN(E)",
-    RESPONSBLE: "RESPONSABLE",
-    "RESPONSBLE INFORMATIQUE": "RESPONSABLE INFORMATIQUE",
-  };
-  return corrections[normalized] || normalized;
-}
-
-function normalizeAmount(value) {
-  const normalized = String(value ?? "")
-    .replace(/\s/g, "")
-    .replace(",", ".")
-    .replace(/[^0-9.-]/g, "");
-  const parsed = Number.parseFloat(normalized);
-  return Number.isFinite(parsed) ? Number(parsed.toFixed(2)) : 0;
-}
-
-function normalizeHttpUrl(value) {
-  const raw = String(value || "").trim();
-  if (!raw) {
-    return "";
-  }
-  try {
-    const parsed = new URL(raw);
-    if (!["http:", "https:"].includes(parsed.protocol)) {
-      return "";
+function applyUiUpperNoAccent(root=document.body){
+  if(!root) return;
+  if(root.nodeType === Node.TEXT_NODE){
+    const parent = root.parentElement;
+    if(parent){
+      const tag = parent.tagName;
+      if(tag==="SCRIPT" || tag==="STYLE" || tag==="NOSCRIPT" || tag==="TEXTAREA") return;
+      if(parent.closest("[contenteditable='true']")) return;
     }
-    return parsed.href.replace(/\/$/, "");
-  } catch (error) {
-    return "";
-  }
-}
-
-function normalizeBucketName(value, fallback = "") {
-  const normalized = String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9_-]/g, "");
-  return normalized || String(fallback || "").trim().toLowerCase();
-}
-
-function isLocalRuntime() {
-  const host = String(window.location.hostname || "").toLowerCase();
-  return (
-    window.location.protocol === "file:" ||
-    host === "localhost" ||
-    host === "127.0.0.1"
-  );
-}
-
-function isSupabaseConfigured() {
-  const url = normalizeHttpUrl(SUPABASE_PROJECT_URL);
-  const key = String(SUPABASE_PUBLISHABLE_KEY || "").trim();
-  return Boolean(url && key && key.startsWith("sb_"));
-}
-
-function getDataBackendMode() {
-  if (isLocalRuntime()) {
-    return "LOCAL_API";
-  }
-  if (isSupabaseConfigured()) {
-    return "SUPABASE";
-  }
-  return "HOSTED_NO_BACKEND";
-}
-
-function getSupabaseRestEndpoint() {
-  const baseUrl = normalizeHttpUrl(SUPABASE_PROJECT_URL);
-  return `${baseUrl}/rest/v1/${SUPABASE_APP_STATE_TABLE}`;
-}
-
-function getSupabaseHeaders(extra = {}, options = {}) {
-  const key = String(SUPABASE_PUBLISHABLE_KEY || "").trim();
-  const includeAuthorization = options?.includeAuthorization ?? "auto";
-  const headers = {
-    apikey: key,
-    ...extra,
-  };
-  const keyLooksLikeJwt = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(key);
-  const shouldAddAuthorization =
-    includeAuthorization === true || (includeAuthorization === "auto" && keyLooksLikeJwt);
-  if (shouldAddAuthorization) {
-    headers.Authorization = `Bearer ${key}`;
-  }
-  return headers;
-}
-
-function encodeStorageObjectPath(path) {
-  return String(path || "")
-    .split("/")
-    .map((part) => encodeURIComponent(String(part || "").trim()))
-    .filter(Boolean)
-    .join("/");
-}
-
-function getSupabaseStoragePublicUrl(bucket, objectPath) {
-  const baseUrl = normalizeHttpUrl(SUPABASE_PROJECT_URL);
-  const normalizedBucket = normalizeBucketName(bucket);
-  const encodedPath = encodeStorageObjectPath(objectPath);
-  if (!baseUrl || !normalizedBucket || !encodedPath) {
-    return "";
-  }
-  return `${baseUrl}/storage/v1/object/public/${encodeURIComponent(normalizedBucket)}/${encodedPath}`;
-}
-
-function parseStorageSchemePath(value) {
-  const raw = String(value || "").trim();
-  if (!raw) {
-    return null;
-  }
-  const match = raw.match(/^storage:\/\/([^\/]+)\/(.+)$/i);
-  if (!match) {
-    return null;
-  }
-  return {
-    bucket: normalizeBucketName(match[1]),
-    objectPath: String(match[2] || "").trim().replace(/^\/+/, ""),
-  };
-}
-
-function getStoragePdfBucketName() {
-  return normalizeBucketName(
-    state.data?.meta?.storagePdfBucket,
-    DEFAULT_SUPABASE_PDF_BUCKET
-  );
-}
-
-function getStorageSignaturesBucketName() {
-  return normalizeBucketName(
-    state.data?.meta?.storageSignaturesBucket,
-    DEFAULT_SUPABASE_SIGNATURES_BUCKET
-  );
-}
-
-function getSupabaseStorageUploadEndpoint(bucket, objectPath) {
-  const baseUrl = normalizeHttpUrl(SUPABASE_PROJECT_URL);
-  const normalizedBucket = normalizeBucketName(bucket);
-  const encodedPath = encodeStorageObjectPath(objectPath);
-  if (!baseUrl || !normalizedBucket || !encodedPath) {
-    return "";
-  }
-  return `${baseUrl}/storage/v1/object/${encodeURIComponent(normalizedBucket)}/${encodedPath}`;
-}
-
-async function blobToBase64(blob) {
-  const buffer = await blob.arrayBuffer();
-  let binary = "";
-  const bytes = new Uint8Array(buffer);
-  const chunkSize = 0x8000;
-  for (let index = 0; index < bytes.length; index += chunkSize) {
-    const chunk = bytes.subarray(index, index + chunkSize);
-    binary += String.fromCharCode(...chunk);
-  }
-  return btoa(binary);
-}
-
-async function extractSupabaseErrorText(response, limit = 220) {
-  let errorText = "";
-  try {
-    errorText = (await response.text()) || "";
-  } catch (error) {
-    errorText = "";
-  }
-  return errorText.replace(/\s+/g, " ").trim().slice(0, limit);
-}
-
-async function uploadBlobToSupabaseStorage(bucket, objectPath, blob, contentType) {
-  if (getDataBackendMode() === "LOCAL_API") {
-    const response = await fetch("/api/storage-upload", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        projectUrl: normalizeHttpUrl(SUPABASE_PROJECT_URL),
-        publishableKey: String(SUPABASE_PUBLISHABLE_KEY || "").trim(),
-        bucket: normalizeBucketName(bucket),
-        objectPath: String(objectPath || "").trim().replace(/^\/+/, ""),
-        contentType: String(contentType || "application/octet-stream"),
-        payloadBase64: await blobToBase64(blob),
-      }),
-    });
-    const payload = await response.json().catch(() => null);
-    if (!response.ok || !payload?.ok) {
-      const status = Number(payload?.status || response.status || 0);
-      const details = String(payload?.error || "").trim().slice(0, 220);
-      throw new Error(`SUPABASE STORAGE UPLOAD FAILED [${status}]${details ? ` ${details}` : ""}`);
+    if(root.nodeValue && root.nodeValue.trim()){
+      root.nodeValue = uiUpperNoAccent(root.nodeValue);
     }
     return;
   }
-
-  const endpoint = getSupabaseStorageUploadEndpoint(bucket, objectPath);
-  if (!endpoint) {
-    throw new Error("SUPABASE STORAGE ENDPOINT INVALIDE");
-  }
-  const executeUpload = async (includeAuthorization) => {
-    const buildRequestOptions = (method) => ({
-      method,
-      headers: getSupabaseHeaders(
-        {
-          "Content-Type": contentType,
-          "x-upsert": "true",
-        },
-        { includeAuthorization }
-      ),
-      body: blob,
-    });
-    let response = await fetch(endpoint, buildRequestOptions("POST"));
-    if (!response.ok) {
-      console.warn("[SUPABASE][STORAGE] POST failed", {
-        status: response.status,
-        bucket,
-        objectPath,
-        includeAuthorization: Boolean(includeAuthorization),
-      });
-      response = await fetch(endpoint, buildRequestOptions("PUT"));
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode(node){
+      if(!node || !node.nodeValue || !node.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
+      const parent = node.parentElement;
+      if(!parent) return NodeFilter.FILTER_REJECT;
+      const tag = parent.tagName;
+      if(tag==="SCRIPT" || tag==="STYLE" || tag==="NOSCRIPT" || tag==="TEXTAREA") return NodeFilter.FILTER_REJECT;
+      if(parent.closest("[contenteditable='true']")) return NodeFilter.FILTER_REJECT;
+      return NodeFilter.FILTER_ACCEPT;
     }
-    return response;
+  });
+  let node = null;
+  while((node = walker.nextNode())){
+    node.nodeValue = uiUpperNoAccent(node.nodeValue);
+  }
+  if(typeof root.querySelectorAll !== "function") return;
+  root.querySelectorAll("input[placeholder], textarea[placeholder]").forEach((n)=>{
+    n.placeholder = uiUpperNoAccent(n.placeholder || "");
+  });
+  root.querySelectorAll("option").forEach((opt)=>{
+    opt.textContent = uiUpperNoAccent(opt.textContent || "");
+  });
+}
+
+let uiUpperObserver = null;
+function ensureUiUpperNoAccentObserver(){
+  if(uiUpperObserver || !document.body) return;
+  uiUpperObserver = new MutationObserver((mutations)=>{
+    for(const mutation of mutations){
+      mutation.addedNodes?.forEach((node)=>{
+        applyUiUpperNoAccent(node);
+      });
+    }
+  });
+  uiUpperObserver.observe(document.body, { childList:true, subtree:true });
+}
+
+function updateTopbarHeight(){
+
+  const tb = document.querySelector(".topbar");
+
+  if(!tb) return;
+
+  document.documentElement.style.setProperty("--topbar-h", `${tb.offsetHeight}px`);
+
+}
+
+function updateSidebarTop(){
+  const tb = document.querySelector(".topbar");
+  if(!tb) return;
+  const top = Math.max(0, tb.offsetHeight + 14);
+  window.__sidebarTopLocked = top;
+  document.documentElement.style.setProperty("--sidebar-top", `${top}px`);
+}
+function updateSidebarScrollState(){
+  const sb = document.querySelector(".sidebar");
+  if(!sb) return;
+  // Sidebar ne doit plus scroller : seul le bloc Onglets scrolle
+  sb.classList.remove("sidebar-scroll");
+}
+
+function scrollViewToTop(){
+  try{ window.scrollTo(0,0); }catch(e){ softCatch(e); }
+  document.querySelectorAll(".tablewrap").forEach(el=>{
+    el.scrollTop = 0;
+    el.scrollLeft = 0;
+  });
+  document.querySelectorAll(".tabs-scroll").forEach(el=>{
+    el.scrollTop = 0;
+  });
+}
+
+// verrouille la position de la sidebar une fois la mise en page stabilisée
+function _lockSidebarAfterLayout(){
+  updateSidebarTop();
+  updateSidebarScrollState();
+  applySidebarTopLock();
+}
+window.addEventListener("load", _lockSidebarAfterLayout);
+function applySidebarTopLock(){
+  if(typeof window.__sidebarTopLocked !== "number") return;
+  document.documentElement.style.setProperty("--sidebar-top", `${window.__sidebarTopLocked}px`);
+}
+
+function updateTaskDatesWarning(){
+
+  const warn = el("t_dates_warn");
+
+  const start = el("t_start")?.value;
+
+  const end = el("t_end")?.value;
+
+  if(!warn) return;
+
+  if(start && end && end < start){
+
+    warn.classList.remove("hidden");
+
+  }else{
+
+    warn.classList.add("hidden");
+
+  }
+
+}
+
+function formatShortDate(d){
+
+  const dd = String(d.getDate()).padStart(2,"0");
+
+  const mm = String(d.getMonth()+1).padStart(2,"0");
+
+  const yy = String(d.getFullYear()).slice(-2);
+
+  return `${dd}-${mm}-${yy}`;
+
+}
+
+function formatShortDateTwoLinesHTML(d){
+  const dd = String(d.getDate()).padStart(2,"0");
+  const mm = String(d.getMonth()+1).padStart(2,"0");
+  const yy = String(d.getFullYear()).slice(-2);
+  return `<span class="wk-date-top">${dd}-${mm}</span><span class="wk-date-bottom">${yy}</span>`;
+}
+
+function isTodayInWeek(weekStart){
+
+  const today = new Date();
+
+  const s = startOfWeek(today);
+
+  return +s === +weekStart;
+
+}
+
+function setToggleBtnState(id, isOn){
+
+  const b = el(id);
+
+  if(!b) return;
+
+  b.classList.toggle("btn-primary", !!isOn);
+
+  b.classList.toggle("btn-ghost", !isOn);
+
+}
+
+function applyGanttColumnVisibility(){
+
+  const masterTable = document.querySelector("#masterGantt table");
+
+  if(masterTable){
+
+    masterTable.classList.toggle("hide-vendor", !ganttColVisibility.masterVendor);
+
+    masterTable.classList.toggle("hide-status", !ganttColVisibility.masterStatus);
+
+  }
+
+  const projectTable = document.querySelector("#gantt table");
+
+  if(projectTable){
+
+    projectTable.classList.toggle("hide-vendor", !ganttColVisibility.projectVendor);
+
+    projectTable.classList.toggle("hide-status", !ganttColVisibility.projectStatus);
+
+  }
+
+  setToggleBtnState("btnToggleMasterVendor", ganttColVisibility.masterVendor);
+
+  setToggleBtnState("btnToggleMasterStatus", ganttColVisibility.masterStatus);
+
+  setToggleBtnState("btnToggleProjectVendor", ganttColVisibility.projectVendor);
+
+  setToggleBtnState("btnToggleProjectStatus", ganttColVisibility.projectStatus);
+
+}
+
+function openTaskFromGantt(taskId){
+  const task = state.tasks.find(x=>x.id===taskId);
+  if(!task) return;
+  selectedTaskId = taskId;
+  navigateTo(task.projectId, taskId, true);
+}
+function closeAllOverlays(){
+  try{ showVendorDropdown(false); }catch(e){ softCatch(e); }
+  try{ showDescriptionDropdown(false); }catch(e){ softCatch(e); }
+  try{ toggleStatusMenu(false); }catch(e){ softCatch(e); }
+  const vBox = el("vendorDropdown");
+  if(vBox){ vBox.style.display="none"; vBox.classList.remove("open"); }
+  const dBox = el("descDropdown");
+  if(dBox){ dBox.style.display="none"; dBox.classList.remove("open"); }
+  const vPanel = el("vendorManagerPanel");
+  if(vPanel) vPanel.style.display="none";
+  const dPanel = el("descManagerPanel");
+  if(dPanel) dPanel.style.display="none";
+  const statusMenu = el("t_status_menu");
+  if(statusMenu) statusMenu.classList.add("hidden");
+  const overlay = el("descOverlay");
+  if(overlay) overlay.classList.remove("show");
+  document.querySelectorAll(".vendor-open").forEach(n=>n.classList.remove("vendor-open"));
+  document.querySelectorAll(".desc-open").forEach(n=>n.classList.remove("desc-open"));
+  document.querySelectorAll(".desc-panel-open").forEach(n=>n.classList.remove("desc-panel-open"));
+  floatingMap.forEach((anchor, el)=>{ closeFloating(el); });
+}
+function loadConfig(){
+  try{
+    const raw = localStorage.getItem(CONFIG_KEY);
+    return raw ? JSON.parse(raw) : {};
+  }catch(e){
+    return {};
+  }
+}
+function saveConfig(cfg){
+  try{
+    localStorage.setItem(CONFIG_KEY, JSON.stringify(cfg||{}));
+  }catch(e){ softCatch(e); }
+}
+function normalizeStatusId(label){
+  const base = (label||"").trim();
+  if(!base) return "";
+  const ascii = base.normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+  return ascii.toUpperCase().replace(/[^A-Z0-9]+/g,"_").replace(/^_+|_+$/g,"");
+}
+function normalizeStatusList(list){
+  const out=[];
+  const seen=new Set();
+  (list||[]).forEach(item=>{
+    if(!item) return;
+    const label = (item.label || item.name || "").toString().trim();
+    if(!label) return;
+    const vRaw = (item.v || "").toString().trim();
+    const v = (vRaw ? vRaw : normalizeStatusId(label)).toUpperCase();
+    if(!v) return;
+    if(seen.has(v)) return;
+    seen.add(v);
+    out.push({v, label});
+  });
+  return out;
+}
+function loadStatusConfig(){
+  const cfg = loadConfig();
+  if(Array.isArray(cfg.statuses) && cfg.statuses.length){
+    STATUSES = normalizeStatusList(cfg.statuses);
+  }else{
+    STATUSES = deepClone(DEFAULT_STATUSES);
+  }
+}
+function saveStatusConfig(){
+  const cfg = loadConfig();
+  cfg.statuses = STATUSES;
+  saveConfig(cfg);
+}
+function getHoursConfig(){
+  return { internal: 4, external: 4, rsg: 2 };
+}
+function loadUsers(){
+  try{
+    const raw = localStorage.getItem(USERS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  }catch(e){
+    return [];
+  }
+}
+function saveUsers(list){
+  try{
+    localStorage.setItem(USERS_KEY, JSON.stringify(list||[]));
+    try{
+      if(typeof window.populateLoginUsers === "function") window.populateLoginUsers();
+    }catch(e){ softCatch(e); }
+    try{ saveUsersToSupabase(list||[]); }catch(e){ softCatch(e); }
+  }catch(e){ softCatch(e); }
+}
+
+function getCurrentUserName(){
+  return sessionStorage.getItem("current_user") || "";
+}
+function getCurrentUserEmail(){
+  return sessionStorage.getItem("current_email") || "";
+}
+function getCurrentUserRecord(){
+  const email = getCurrentUserEmail();
+  const name = getCurrentUserName();
+  const users = loadUsers();
+  if(email){
+    const found = users.find(u=>(u.email||"").toLowerCase()===email.toLowerCase());
+    if(found) return found;
+  }
+  if(!name) return null;
+  return users.find(u=>u.name===name) || null;
+}
+function applyTheme(themeId){
+  const id = themeId || "sable";
+  document.documentElement.setAttribute("data-theme", id);
+  const grid = el("themeGrid");
+  if(grid){
+    grid.querySelectorAll(".theme-swatch").forEach(n=>{
+      n.classList.toggle("active", n.dataset.theme===id);
+    });
+  }
+}
+function applyThemeForCurrentUser(){
+  const u = getCurrentUserRecord();
+  const sessionTheme = sessionStorage.getItem("current_theme") || "";
+  const theme = (u && u.theme) ? u.theme : (sessionTheme || "sable");
+  applyTheme(theme);
+}
+function setCurrentUserTheme(themeId){
+  const name = getCurrentUserName();
+  const email = getCurrentUserEmail();
+  try{ sessionStorage.setItem("current_theme", themeId || "sable"); }catch(e){ softCatch(e); }
+  if(!name){
+    applyTheme(themeId);
+    return;
+  }
+  const users = loadUsers();
+  let idx = -1;
+  if(email){
+    idx = users.findIndex(u=>(u.email||"").toLowerCase()===email.toLowerCase());
+  }
+  if(idx < 0){
+    idx = users.findIndex(u=>u.name===name);
+  }
+  if(idx>=0){
+    users[idx].theme = themeId;
+    saveUsers(users);
+  }
+  applyTheme(themeId);
+}
+function initThemePicker(){
+  const grid = el("themeGrid");
+  const picker = el("themePicker");
+  const toggle = el("themeToggle");
+  if(!grid || !picker || !toggle) return;
+  const hexToRgb = (hex)=>{
+    const v = (hex || "").replace("#","").trim();
+    if(v.length !== 6) return {r:0,g:0,b:0};
+    return {
+      r: parseInt(v.slice(0,2),16),
+      g: parseInt(v.slice(2,4),16),
+      b: parseInt(v.slice(4,6),16)
+    };
+  };
+  const luma = (hex)=>{
+    const {r,g,b} = hexToRgb(hex);
+    return 0.2126*r + 0.7152*g + 0.0722*b;
+  };
+  const themesSorted = [...THEMES].sort((a,b)=>{
+    const ac = a.swatch || ["#ffffff","#ffffff"];
+    const bc = b.swatch || ["#ffffff","#ffffff"];
+    const al = (luma(ac[0]) + luma(ac[1])) / 2;
+    const bl = (luma(bc[0]) + luma(bc[1])) / 2;
+    return bl - al; // clair -> foncé
+  });
+  grid.innerHTML = themesSorted.map(t=>{
+    const colors = t.swatch || ["#e2e8f0","#94a3b8"];
+    const accent = THEME_ACCENTS[t.id] || colors[1] || "#94a3b8";
+    const style = `background:linear-gradient(135deg, ${colors[0]} 0%, ${colors[1]} 55%, ${accent} 100%);`;
+    return `<button type="button" class="theme-swatch" data-theme="${t.id}" title="${t.label}" style="${style}"></button>`;
+  }).join("");
+
+  grid.querySelectorAll(".theme-swatch").forEach(btn=>{
+    btn.addEventListener("click", ()=> setCurrentUserTheme(btn.dataset.theme || "sable"));
+    btn.addEventListener("mouseenter", ()=>{
+      const t = btn.dataset.theme || "sable";
+      applyTheme(t);
+    });
+    btn.addEventListener("mouseleave", ()=>{
+      applyThemeForCurrentUser();
+    });
+  });
+  toggle.addEventListener("click", (e)=>{
+    e.stopPropagation();
+    picker.classList.toggle("open");
+    if(!picker.classList.contains("open")) applyThemeForCurrentUser();
+  });
+  document.addEventListener("click", (e)=>{
+    if(!picker.classList.contains("open")) return;
+    if(picker.contains(e.target)) return;
+    picker.classList.remove("open");
+    applyThemeForCurrentUser();
+  });
+  applyThemeForCurrentUser();
+}
+function getCurrentRole(){
+  return sessionStorage.getItem("current_role") || "user";
+}
+function updateRoleUI(){
+  const role = getCurrentRole();
+  const cfgBtn = el("btnConfig");
+  if(cfgBtn) cfgBtn.style.display = (role==="admin") ? "inline-flex" : "none";
+  const topUser = el("topbarUser");
+  if(topUser){
+    const name = sessionStorage.getItem("current_user") || "Invité";
+    const email = sessionStorage.getItem("current_email") || "";
+    const roleLabel = role==="admin" ? "Admin" : "Utilisateur";
+    const emailPart = email ? ` - ${email}` : "";
+    topUser.textContent = `Utilisateur connecté: ${name}${emailPart} - ${roleLabel}`;
+  }
+  applyThemeForCurrentUser();
+}
+function applyRoleAccess(){
+  const role = getCurrentRole();
+  // UI métier accessible à tous; "Configuration" reste réservé aux admins.
+  isLocked = false;
+  const lockClass = "is-disabled";
+  const ids = [
+    "btnAddProject","btnAddTask",
+    "btnSaveProject","btnDeleteProject",
+    "btnSaveTask","btnNewTask","btnDuplicateTask","btnDeleteTask"
+  ];
+  ids.forEach(id=>{
+    const n=el(id);
+    if(!n) return;
+    n.classList.toggle(lockClass, false);
+    n.removeAttribute("disabled");
+  });
+  const cfgBtn = el("btnConfig");
+  if(cfgBtn){
+    cfgBtn.style.display = role==="admin" ? "inline-flex" : "none";
+  }
+  const switchBtn = el("btnSwitchUser");
+  if(switchBtn){
+    switchBtn.style.display = "inline-flex";
+  }
+  const logoutBtn = el("btnLogout");
+  if(logoutBtn){
+    logoutBtn.style.display = "inline-flex";
+  }
+  const manageBtn = el("btnManageVendors");
+  if(manageBtn){
+    manageBtn.classList.toggle(lockClass, false);
+    manageBtn.removeAttribute("disabled");
+  }
+  const manageDescBtn = el("btnManageDescriptions");
+  if(manageDescBtn){
+    manageDescBtn.classList.toggle(lockClass, false);
+    manageDescBtn.removeAttribute("disabled");
+  }
+  const tabCloses = document.querySelectorAll(".tab-close");
+  tabCloses.forEach(n=>{
+    n.classList.toggle(lockClass, false);
+    n.removeAttribute("aria-disabled");
+  });
+  const dangerBtns = document.querySelectorAll("button.btn-danger");
+  dangerBtns.forEach(btn=>{
+    btn.classList.toggle(lockClass, false);
+    btn.removeAttribute("disabled");
+  });
+  const live = el("masterLive");
+  if(live){
+    live.classList.toggle("is-disabled", false);
+  }
+  const plive = el("projectLive");
+  if(plive){
+    plive.classList.toggle("is-disabled", false);
+  }
+  updateRoleUI();
+}
+window.applyRoleAccess = applyRoleAccess;
+async function hashPassword(str){
+  const enc = new TextEncoder().encode(str || "");
+  const buf = await crypto.subtle.digest("SHA-256", enc);
+  return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,"0")).join("");
+}
+function renderUsersList(){
+  const list = el("cfg_users_list");
+  if(!list) return;
+  const users = loadUsers();
+  if(users.length===0){
+    list.innerHTML = `<div class="config-user-meta">Aucun utilisateur</div>`;
+    return;
+  }
+  list.innerHTML = users.map(u=>`
+    <div class="config-user-item">
+      <div>
+        <div><strong>${attrEscape(u.name||"")}</strong></div>
+        <div class="config-user-meta">${attrEscape(u.email||"") || ""}  ${u.role==="admin" ? "Admin" : "Utilisateur"}</div>
+      </div>
+      <div class="config-user-actions">
+        <button class="btn btn-ghost cfg-user-edit" data-user-id="${attrEscape(u.id||"")}">Modifier</button>
+        <button class="btn btn-ghost cfg-user-pass" data-user-id="${attrEscape(u.id||"")}">Changer mdp</button>
+        <button class="btn btn-danger cfg-user-del" data-user-id="${attrEscape(u.id||"")}">Supprimer</button>
+      </div>
+    </div>
+  `).join("");
+  list.querySelectorAll(".cfg-user-pass").forEach(btn=>{
+    btn.onclick = async ()=>{
+      const id = btn.dataset.userId;
+      const users = loadUsers();
+      const u = users.find(x=>x.id===id);
+      if(!u) return;
+      const next = prompt(`Nouveau mot de passe pour ${u.name} :`);
+      if(!next) return;
+      const h = await hashPassword(next);
+      users.forEach(x=>{ if(x.id===id) x.hash = h; });
+      saveUsers(users);
+      renderUsersList();
+    };
+  });
+  list.querySelectorAll(".cfg-user-edit").forEach(btn=>{
+    btn.onclick = ()=>{
+      const id = btn.dataset.userId;
+      const users = loadUsers();
+      const idx = users.findIndex(u=>u.id===id);
+      if(idx<0) return;
+      const newName = prompt("Nom d'utilisateur :", users[idx].name) || "";
+      if(!newName) return;
+      const newEmail = prompt("Email :", users[idx].email||"") || "";
+      const newRole = (prompt("Rôle (admin/user) :", users[idx].role||"user") || users[idx].role || "user").toLowerCase();
+      const role = newRole === "admin" ? "admin" : "user";
+      if(newEmail && users.some((u,i)=> i!==idx && (u.email||"").toLowerCase()===newEmail.toLowerCase())){
+        alert("Email déjà utilisé."); return;
+      }
+      users[idx].name = newName;
+      users[idx].email = newEmail;
+      users[idx].role = role;
+      saveUsers(users);
+      const current = sessionStorage.getItem("current_user") || "";
+      const currentEmail = sessionStorage.getItem("current_email") || "";
+      if((currentEmail && users[idx].email && currentEmail.toLowerCase()===users[idx].email.toLowerCase()) || (current && current === users[idx].name)){
+        sessionStorage.setItem("current_user", newName);
+        sessionStorage.setItem("current_role", role);
+        if(users[idx].email) sessionStorage.setItem("current_email", users[idx].email);
+        updateRoleUI();
+      }
+      renderUsersList();
+    };
+  });
+  list.querySelectorAll(".cfg-user-del").forEach(btn=>{
+    btn.onclick = ()=>{
+      const id = btn.dataset.userId;
+      const users = loadUsers();
+      const u = users.find(x=>x.id===id);
+      if(!u) return;
+      if(!confirm(`Supprimer ${u.name} ?`)) return;
+      const admins = users.filter(u=>u.role==="admin");
+      if(admins.length<=1 && admins.some(x=>x.id===id)){
+        alert("Impossible de supprimer le dernier admin.");
+        return;
+      }
+      const next = users.filter(x=>x.id!==id);
+      users.length = 0;
+      users.push(...next);
+      saveUsers(users);
+      renderUsersList();
+    };
+  });
+}
+
+function refreshStatusUi(){
+  buildStatusMenu();
+  updateStatusDisplay();
+  renderFilters();
+  if(selectedProjectId) renderProject();
+  else renderMaster();
+}
+
+function renderConfigStatusList(){
+  const list = el("cfg_status_list");
+  if(!list) return;
+  if(!STATUSES || STATUSES.length===0){
+    list.innerHTML = `<div class="config-user-meta">Aucun statut</div>`;
+    return;
+  }
+  const sorted = [...STATUSES].sort((a,b)=> (a.label||"").localeCompare((b.label||""),"fr",{sensitivity:"base"}));
+  list.innerHTML = sorted.map(s=>`
+    <div class="config-user-item">
+      <div>
+        <div><strong>${attrEscape(s.label||"")}</strong></div>
+        <div class="config-user-meta">${attrEscape(s.v||"")}</div>
+      </div>
+      <div class="config-user-actions">
+        <button class="btn btn-ghost cfg-status-edit" data-v="${attrEscape(s.v||"")}">Renommer</button>
+        <button class="btn btn-danger cfg-status-del" data-v="${attrEscape(s.v||"")}">Supprimer</button>
+      </div>
+    </div>
+  `).join("");
+
+  list.querySelectorAll(".cfg-status-edit").forEach(btn=>{
+    btn.onclick = ()=>{
+      const v = (btn.dataset.v || "").toUpperCase();
+      const s = STATUSES.find(x=>x.v===v);
+      if(!s) return;
+      const next = prompt("Nouveau libellé du statut :", s.label || "") || "";
+      const trimmed = next.trim();
+      if(!trimmed) return;
+      s.label = trimmed;
+      saveStatusConfig();
+      renderConfigStatusList();
+      refreshStatusUi();
+    };
+  });
+
+  list.querySelectorAll(".cfg-status-del").forEach(btn=>{
+    btn.onclick = ()=>{
+      const v = (btn.dataset.v || "").toUpperCase();
+      const s = STATUSES.find(x=>x.v===v);
+      if(!s) return;
+      if(!confirm(`Supprimer le statut "${s.label}" ?`)) return;
+      STATUSES = STATUSES.filter(x=>x.v!==v);
+      // retirer de toutes les tâches
+      (state?.tasks||[]).forEach(t=>{
+        const list = parseStatuses(t.status).filter(x=>x.toUpperCase()!==v);
+        t.status = list.join(",");
+      });
+      saveStatusConfig();
+      renderConfigStatusList();
+      setStatusSelection("");
+      refreshStatusUi();
+    };
+  });
+}
+
+function renderConfigVendorsList(){
+  const list = el("cfg_vendor_list");
+  if(!list) return;
+  const registry = loadVendorsRegistry();
+  const deleted = new Set(loadDeletedVendors().map(x=>x.toLowerCase()));
+  const vendors = dedupVendors(registry).filter(v=>!deleted.has(v.toLowerCase()))
+    .sort((a,b)=>a.localeCompare(b,"fr",{sensitivity:"base"}));
+  vendorsCache = vendors.slice();
+  if(vendors.length===0){
+    list.innerHTML = `<div class="config-user-meta">Aucun prestataire</div>`;
+    return;
+  }
+  list.innerHTML = vendors.map(v=>`
+    <div class="config-user-item">
+      <div>
+        <div><strong>${attrEscape(v)}</strong></div>
+        <div class="config-user-meta">Prestataire externe</div>
+      </div>
+      <div class="config-user-actions">
+        <button class="btn btn-ghost cfg-vendor-edit" data-v="${attrEscape(v)}">Renommer</button>
+        <button class="btn btn-danger cfg-vendor-del" data-v="${attrEscape(v)}">Supprimer</button>
+      </div>
+    </div>
+  `).join("");
+
+  list.querySelectorAll(".cfg-vendor-edit").forEach(btn=>{
+    btn.onclick = ()=>{
+      const oldName = btn.dataset.v || "";
+      const next = prompt("Nouveau nom du prestataire :", oldName) || "";
+      const trimmed = next.trim();
+      if(!trimmed) return;
+      let deleted = loadDeletedVendors().filter(x=> x.toLowerCase()!==oldName.toLowerCase());
+      saveDeletedVendors(deleted);
+      vendorsCache = vendorsCache.map(x=> x.toLowerCase()===oldName.toLowerCase() ? trimmed : x);
+      vendorsCache = dedupVendors(vendorsCache).sort((a,b)=>a.localeCompare(b,"fr",{sensitivity:"base"}));
+      saveVendorsRegistry(vendorsCache);
+      (state?.tasks||[]).forEach(t=>{
+        if((t.vendor||"").toLowerCase()===oldName.toLowerCase()) t.vendor = trimmed;
+      });
+      renderConfigVendorsList();
+      refreshVendorsList();
+      renderAll();
+    };
+  });
+
+  list.querySelectorAll(".cfg-vendor-del").forEach(btn=>{
+    btn.onclick = ()=>{
+      const name = btn.dataset.v || "";
+      if(!name) return;
+      if(!confirm(`Supprimer le prestataire "${name}" ?`)) return;
+      vendorsCache = vendorsCache.filter(x=>x.toLowerCase()!==name.toLowerCase());
+      vendorsCache = dedupVendors(vendorsCache);
+      saveVendorsRegistry(vendorsCache);
+      const deleted = Array.from(new Set([...loadDeletedVendors(), name]));
+      saveDeletedVendors(deleted);
+      (state?.tasks||[]).forEach(t=>{
+        if((t.vendor||"").toLowerCase()===name.toLowerCase()) t.vendor = "";
+      });
+      saveState();
+      renderConfigVendorsList();
+      refreshVendorsList();
+      renderAll();
+    };
+  });
+}
+function openConfigModal(){
+  if(getCurrentRole()!=="admin") return;
+  const modal = el("configModal");
+  if(!modal) return;
+  const cfg = loadConfig();
+  el("cfg_name").value = cfg.name || "";
+  el("cfg_http").value = cfg.http || "";
+  el("cfg_front").value = cfg.front || "";
+  el("cfg_back").value = cfg.back || "";
+  const linkify = (inputId, linkId)=>{
+    const input = el(inputId);
+    const link = el(linkId);
+    if(!link) return;
+    const val = (input?.value || "").trim();
+    if(val){
+      link.href = val;
+      link.textContent = val;
+      link.classList.remove("hidden");
+    }else{
+      link.removeAttribute("href");
+      link.textContent = "Ouvrir";
+      link.classList.add("hidden");
+    }
+  };
+  linkify("cfg_http","cfg_http_link");
+  linkify("cfg_front","cfg_front_link");
+  linkify("cfg_back","cfg_back_link");
+  const timeDateInput = el("t_time_date_input");
+  timeDateInput?.addEventListener("change", ()=>{
+    const t = state?.tasks?.find(x=>x.id===selectedTaskId && x.projectId===selectedProjectId);
+    updateTimeLogUI(t || null, true);
+  });
+  timeDateInput?.addEventListener("input", ()=>{
+    const t = state?.tasks?.find(x=>x.id===selectedTaskId && x.projectId===selectedProjectId);
+    updateTimeLogUI(t || null, true);
+  });
+  const role = getCurrentRole();
+  const usersSection = el("cfg_users_section");
+  if(usersSection){
+    const wrap = usersSection.closest(".cfg-accordion");
+    if(wrap) wrap.style.display = role==="admin" ? "block" : "none";
+    usersSection.style.display = "";
+  }
+  if(role==="admin") renderUsersList();
+  const statusSection = el("cfg_status_section");
+  if(statusSection){
+    const wrap = statusSection.closest(".cfg-accordion");
+    if(wrap) wrap.style.display = role==="admin" ? "block" : "none";
+    statusSection.style.display = "";
+  }
+  if(role==="admin"){
+    loadStatusConfig();
+    renderConfigStatusList();
+  }
+  const vendorSection = el("cfg_vendor_section");
+  if(vendorSection){
+    const wrap = vendorSection.closest(".cfg-accordion");
+    if(wrap) wrap.style.display = role==="admin" ? "block" : "none";
+    vendorSection.style.display = "";
+  }
+  if(role==="admin"){
+    refreshVendorsList();
+    renderConfigVendorsList();
+  }
+  const loginSection = el("cfg_login_section");
+  if(loginSection){
+    const wrap = loginSection.closest(".cfg-accordion");
+    if(wrap) wrap.style.display = role==="admin" ? "block" : "none";
+    loginSection.style.display = "";
+  }
+  if(role==="admin") initLoginJournalUI();
+  initVacationConfigUI();
+  modal.classList.remove("hidden");
+  modal.style.display = "flex";
+  modal.setAttribute("aria-hidden","false");
+}
+function closeConfigModal(){
+  const modal = el("configModal");
+  if(!modal) return;
+  hideModalSafely(modal);
+}
+function resetModalScrollTop(modal){
+  if(!modal) return;
+  try{
+    modal.scrollTop = 0;
+    modal.querySelectorAll(".modal-card,.modal-body,.modal-content,.config-col,.config-users-list,.export-modules-list,#exportPdfModulesList").forEach((n)=>{
+      if(n && typeof n.scrollTop === "number") n.scrollTop = 0;
+    });
+  }catch(e){ softCatch(e); }
+}
+function showModalSafely(modal){
+  if(!modal) return;
+  modal.classList.remove("hidden");
+  modal.style.display = "flex";
+  modal.setAttribute("aria-hidden","false");
+  resetModalScrollTop(modal);
+  try{
+    requestAnimationFrame(()=> resetModalScrollTop(modal));
+    setTimeout(()=> resetModalScrollTop(modal), 60);
+  }catch(e){ softCatch(e); }
+}
+function hideModalSafely(modal, focusFallbackSelector=""){
+  if(!modal) return;
+  try{
+    const active = document.activeElement;
+    if(active && modal.contains(active) && typeof active.blur === "function"){
+      active.blur();
+    }
+  }catch(e){ softCatch(e); }
+  try{
+    if(focusFallbackSelector){
+      const target = document.querySelector(focusFallbackSelector);
+      if(target && typeof target.focus === "function") target.focus();
+    }
+  }catch(e){ softCatch(e); }
+  modal.classList.add("hidden");
+  modal.style.display = "none";
+  modal.setAttribute("aria-hidden","true");
+}
+
+function initVacationConfigUI(){
+  const yearInput = el("cfg_vac_year");
+  const schoolInput = el("cfg_vac_school");
+  const internalInput = el("cfg_vac_internal");
+  const list = el("cfg_vac_years");
+  if(!yearInput || !schoolInput || !internalInput) return;
+  const years = getVacationYears();
+  if(list){
+    list.innerHTML = years.map(y=>`<option value="${y}"></option>`).join("");
+  }
+  const setYear = (y)=>{
+    if(!y) return;
+    yearInput.value = y;
+    schoolInput.value = (VACANCES_ZONE_B_WEEKS[y] || []).join(",");
+    internalInput.value = (VACANCES_INTERNE_WEEKS[y] || []).join(",");
+  };
+  if(!yearInput.value){
+    const defYear = getSchoolYearKey(new Date());
+    setYear(years.includes(defYear) ? defYear : (years[0] || defYear));
+  }else{
+    setYear(yearInput.value.trim());
+  }
+}
+function navigateTo(projectId=null, taskId=null, push=true){
+  selectedProjectId = projectId || null;
+  selectedTaskId = taskId || null;
+  if(push){
+    try{
+      history.pushState({projectId:selectedProjectId, taskId:selectedTaskId}, "");
+    }catch(e){ softCatch(e); }
+  }
+  closeAllOverlays();
+  setTimeout(()=> closeAllOverlays(), 0);
+  const view = document.querySelector(".main");
+  if(view){
+    view.classList.remove("view-fade");
+    void view.offsetWidth;
+    view.classList.add("view-fade");
+  }
+  renderAll();
+  setTimeout(()=> scrollViewToTop(), 0);
+}
+function selectTaskInProject(taskId){
+  selectedTaskId = taskId || null;
+  renderProject();
+}
+const FLOAT_Z = 1000000;
+
+const floatingMap = new Map();
+
+function positionFloating(el, anchor){
+
+  if(!el || !anchor) return;
+
+  const rect = anchor.getBoundingClientRect();
+
+  const top = rect.bottom + 4;
+
+  const maxH = Math.max(120, window.innerHeight - top - 12);
+
+  el.style.position = "fixed";
+
+  el.style.left = `${rect.left}px`;
+
+  el.style.top = `${top}px`;
+
+  el.style.width = `${rect.width}px`;
+
+  el.style.maxHeight = `${maxH}px`;
+
+  el.style.zIndex = `${FLOAT_Z}`;
+
+}
+
+function openFloating(el, anchor){
+
+  if(!el || !anchor) return;
+
+  if(!el.__floatParent){
+
+    el.__floatParent = el.parentElement;
+
+    el.__floatNext = el.nextSibling;
+
+  }
+
+  document.body.appendChild(el);
+
+  positionFloating(el, anchor);
+
+  floatingMap.set(el, anchor);
+
+}
+
+function closeFloating(el){
+
+  if(!el || !el.__floatParent) return;
+
+  floatingMap.delete(el);
+
+  el.style.position = "";
+
+  el.style.left = "";
+
+  el.style.top = "";
+
+  el.style.width = "";
+
+  el.style.maxHeight = "";
+
+  el.style.zIndex = "";
+
+  if(el.__floatNext) el.__floatParent.insertBefore(el, el.__floatNext);
+
+  else el.__floatParent.appendChild(el);
+
+}
+
+let vendorsCache = [];
+
+let descCache = [];
+
+const VENDOR_STORE_KEY = "vendors_registry";
+
+const VENDOR_DELETE_KEY = "vendors_deleted";
+
+const DESC_STORE_KEY = "descriptions_registry";
+
+const DESC_DELETE_KEY = "descriptions_deleted";
+
+const normalizeVendor = (v="")=> v.trim();
+
+const normalizeDesc = (v="")=> v.trim();
+
+const dedupVendors = (arr=[])=>{
+
+  const seen=new Set();
+
+  const out=[];
+
+  arr.forEach(v=>{
+
+    const norm = normalizeVendor(v);
+
+    if(!norm) return;
+
+    const key = norm.toLowerCase();
+
+    if(seen.has(key)) return;
+
+    seen.add(key);
+
+    out.push(norm);
+
+  });
+
+  return out;
+
+};
+
+const dedupDescriptions = (arr=[])=>{
+
+  const seen=new Set();
+
+  const out=[];
+
+  arr.forEach(v=>{
+
+    const norm = normalizeDesc(v);
+
+    if(!norm) return;
+
+    const key = norm.toLowerCase();
+
+    if(seen.has(key)) return;
+
+    seen.add(key);
+
+    out.push(norm);
+
+  });
+
+  return out;
+
+};
+
+const ownerType = (o="")=>{
+
+  const k=o.toLowerCase();
+
+  if(k.includes("rsg/ri")) return "rsg";
+  if(k.includes("rsg")) return "rsg";
+  if(k.includes("ri")) return "ri";
+
+  const hasInt = k.includes("interne");
+
+  const hasExt = k.includes("externe");
+
+  // Plus de catégorie "mixte" : on priorise "interne" si exclusif, sinon "externe".
+
+  if(hasInt && !hasExt) return "interne";
+
+  if(hasExt) return "externe";
+
+  return "inconnu";
+
+};
+
+const ownerBadge = (o="", labelOverride="")=>{
+
+  const k = o.toLowerCase();
+  const label = (labelOverride || o || "").toString();
+
+  // Palette aligne avec le graphique de charge
+
+  let color = "#16a34a"; // interne par défaut
+
+  if(k.includes("rsg/ri") || k.includes("rsg")) color = "#2563eb"; // RSG
+  if(k.includes("ri")) color = "#7c3aed"; // RI
+  if(k.includes("interne") && k.includes("externe")) color = "#b45309"; // mix -> externe
+
+  else if(k.includes("externe")) color = "#b45309"; // prestataire externe
+
+  else if(k.includes("interne")) color = "#16a34a"; // INTERNE
+
+  return `<span class="badge owner" style="background:${color};border-color:${color};color:#fff;">${label}</span>`;
+
+};
+
+function ownerBadgeForTask(t){
+  if(!t) return "";
+  const owner = t.owner || "";
+  if(!owner) return "";
+  const typ = ownerType(owner);
+  let label = owner;
+  if(typ === "interne"){
+    label = "INTERNE";
+  }
+  if(typ === "rsg"){
+    label = "RSG";
+  }
+  if(typ === "ri"){
+    label = "RI";
+  }
+  if(typ === "externe"){
+    const v = (t.vendor || "").trim();
+    label = v || "Prestataire non renseigné";
+  }
+  return ownerBadge(owner, label);
+}
+
+const SITE_PHOTOS = {
+  "CDM": "assets/sites/CDM.jpg",
+  "LGT": "assets/sites/LGT.jpg",
+  "COLLÈGE": "assets/sites/College.jpg",
+  "COLLEGE": "assets/sites/College.jpg",
+  "ÉCOLE": "assets/sites/Ecole.jpg",
+  "ECOLE": "assets/sites/Ecole.jpg",
+  "NDC": "assets/sites/NDC.jpg"
+};
+
+function updateSitePhoto(site){
+  const img = el("sitePhoto");
+  const empty = el("sitePhotoEmpty");
+  if(!img || !empty) return;
+  const key = (site||"").trim().toUpperCase();
+  const src = SITE_PHOTOS[key];
+  if(!src){
+    img.src = "";
+    img.style.display = "none";
+    empty.style.display = "block";
+    return;
+  }
+  img.onerror = () => {
+    img.style.display = "none";
+    empty.style.display = "block";
+  };
+  img.onload = () => {
+    img.style.display = "block";
+    empty.style.display = "none";
+  };
+  img.src = src;
+}
+const ownerColor = (o="")=>{
+  const typ = ownerType(o);
+  if(typ === "interne") return "#16a34a";
+  if(typ === "externe") return "#b45309";
+  if(typ === "rsg") return "#2563eb";
+  if(typ === "ri") return "#7c3aed";
+  return "#4b5563";
+};
+
+
+
+const vendorBadge = (v="")=>{
+
+  const k = v.toLowerCase();
+
+  if(k.includes("rsg/ri") || k.includes("rsg")){
+    return `<span class="badge owner" style="background:#2563eb;border-color:#2563eb;color:#fff;">${v}</span>`;
+  }
+  if(k.includes("ri")){
+    return `<span class="badge owner" style="background:#7c3aed;border-color:#7c3aed;color:#fff;">${v}</span>`;
+  }
+
+  const isInternal = k.includes("interne");
+  const isExternal = k.includes("externe") || (!isInternal && v);
+
+  const color = isInternal ? "#16a34a" : (isExternal ? "#b45309" : "#4b5563");
+
+  return `<span class="badge owner" style="background:${color};border-color:${color};color:#fff;">${v}</span>`;
+
+};
+
+
+
+function refreshVendorsList(){
+
+  const input = el("t_vendor");
+
+  if(!input) return;
+
+  const registry = loadVendorsRegistry();
+
+  const deleted = new Set(loadDeletedVendors().map(x=>x.toLowerCase()));
+
+  const fromTasks = (state?.tasks||[])
+
+    .map(t=> normalizeVendor(t.vendor||""))
+
+    .filter(Boolean)
+
+    .filter(v=> !deleted.has(v.toLowerCase()));
+
+  vendorsCache = dedupVendors([...registry, ...fromTasks])
+
+    .filter(v=> !deleted.has(v.toLowerCase()))
+
+    .sort((a,b)=>a.localeCompare(b,"fr",{sensitivity:"base"}));
+
+  const current = normalizeVendor(input.value);
+
+  if(current && !vendorsCache.map(x=>x.toLowerCase()).includes(current.toLowerCase())){
+
+    vendorsCache.unshift(current);
+
+  }
+
+  saveVendorsRegistry(vendorsCache);
+
+  renderVendorDropdown(current);
+
+}
+
+
+
+function refreshDescriptionsList(){
+
+  const input = el("t_room");
+
+  if(!input) return;
+
+  const registry = loadDescriptionsRegistry();
+
+  const deleted = new Set(loadDeletedDescriptions().map(x=>x.toLowerCase()));
+
+  const fromTasks = (state?.tasks||[])
+
+    .map(t=> normalizeDesc(t.roomNumber||""))
+
+    .filter(Boolean)
+
+    .filter(v=> !deleted.has(v.toLowerCase()));
+
+  descCache = dedupDescriptions([...registry, ...fromTasks])
+
+    .filter(v=> !deleted.has(v.toLowerCase()))
+
+    .sort((a,b)=>a.localeCompare(b,"fr",{sensitivity:"base"}));
+
+  const current = normalizeDesc(input.value);
+
+  if(current && !descCache.map(x=>x.toLowerCase()).includes(current.toLowerCase())){
+
+    descCache.unshift(current);
+
+  }
+
+  saveDescriptionsRegistry(descCache);
+
+  renderDescriptionDropdown(current);
+
+}
+
+
+
+function setupVendorPicker(){
+
+  const input = el("t_vendor");
+
+  const manageBtn = el("btnManageVendors");
+
+  const panel = el("vendorManagerPanel");
+
+  const wrap = input ? input.closest(".vendor-wrap") : null;
+
+  const card = input ? input.closest(".card") : null;
+
+  const setManagerOpen = (open)=>{
+
+    if(panel) panel.style.display = open ? "block" : "none";
+
+    wrap?.classList.toggle("vendor-open", !!open);
+
+    card?.classList.toggle("vendor-panel-open", !!open);
+
+    if(open && input && panel) openFloating(panel, input);
+
+    else closeFloating(panel);
+
   };
 
-  let response = await executeUpload(false);
-  if (!response.ok && (response.status === 401 || response.status === 403)) {
-    console.warn("[SUPABASE][STORAGE] retry with Authorization header", {
-      status: response.status,
-      bucket,
-      objectPath,
-    });
-    response = await executeUpload(true);
+  if(!input) return;
+
+  const openList = ()=>{
+
+    renderVendorDropdown(input.value);
+
+    showVendorDropdown(true);
+
+  };
+
+  input.addEventListener("click", openList);
+
+  input.addEventListener("focus", openList);
+
+  input.addEventListener("keydown",(e)=>{
+
+    if(e.key==="ArrowDown" || e.key==="F4"){
+
+      e.preventDefault();
+
+      openList();
+
+    }else if(e.key==="Escape"){
+
+      showVendorDropdown(false);
+
+    }
+
+  });
+
+  input.addEventListener("input", ()=>{
+
+    renderVendorDropdown(input.value);
+
+    showVendorDropdown(true);
+
+  });
+
+  document.addEventListener("click",(e)=>{
+
+    const box = el("vendorDropdown");
+
+    if(!box || !input) return;
+
+    if(!box.contains(e.target) && e.target!==input){ showVendorDropdown(false); }
+
+    if(panel && !panel.contains(e.target) && e.target!==manageBtn){ setManagerOpen(false); }
+
+  });
+
+  const box = el("vendorDropdown");
+
+  if(box){
+
+    box.addEventListener("mousedown",(e)=>e.preventDefault()); // empcher blur avant le click
+
   }
-  if (!response.ok) {
-    const compactError = await extractSupabaseErrorText(response);
-    throw new Error(
-      `SUPABASE STORAGE UPLOAD FAILED [${response.status}]${compactError ? ` ${compactError}` : ""}`
+
+  if(manageBtn){
+
+    manageBtn.disabled = isLocked;
+
+    manageBtn.onclick=(e)=>{
+
+      e.stopPropagation();
+
+      if(isLocked) return;
+
+      const visible = panel?.style.display==="block";
+
+      if(visible){
+
+        setManagerOpen(false);
+
+      }else{
+
+        renderVendorManager();
+
+        setManagerOpen(true);
+
+        showVendorDropdown(false);
+
+      }
+
+    };
+
+  }
+
+}
+
+
+
+function setupDescriptionPicker(){
+
+  const input = el("t_room");
+
+  const manageBtn = el("btnManageDescriptions");
+
+  const panel = el("descManagerPanel");
+
+  const wrap = input ? input.closest(".desc-wrap") : null;
+
+  const card = input ? input.closest(".card") : null;
+
+  const setManagerOpen = (open)=>{
+
+    if(panel) panel.style.display = open ? "block" : "none";
+
+    wrap?.classList.toggle("desc-open", !!open);
+
+    card?.classList.toggle("desc-panel-open", !!open);
+
+    if(open && input && panel) openFloating(panel, input);
+
+    else closeFloating(panel);
+
+  };
+
+  if(!input) return;
+
+  const openList = ()=>{
+
+    renderDescriptionDropdown(input.value);
+
+    showDescriptionDropdown(true);
+
+  };
+
+  input.addEventListener("click", openList);
+
+  input.addEventListener("focus", openList);
+
+  input.addEventListener("keydown",(e)=>{
+
+    if(e.key==="ArrowDown" || e.key==="F4"){
+
+      e.preventDefault();
+
+      openList();
+
+    }else if(e.key==="Escape"){
+
+      showDescriptionDropdown(false);
+
+    }
+
+  });
+
+  input.addEventListener("input", ()=>{
+
+    renderDescriptionDropdown(input.value);
+
+    showDescriptionDropdown(true);
+
+  });
+
+  document.addEventListener("click",(e)=>{
+
+    const box = el("descDropdown");
+
+    if(!box || !input) return;
+
+    if(!box.contains(e.target) && e.target!==input){ showDescriptionDropdown(false); }
+
+    if(panel && !panel.contains(e.target) && e.target!==manageBtn){ setManagerOpen(false); }
+
+  });
+
+  const box = el("descDropdown");
+
+  if(box){
+
+    box.addEventListener("mousedown",(e)=>e.preventDefault()); // empcher blur avant le click
+
+  }
+
+  if(manageBtn){
+
+    manageBtn.disabled = isLocked;
+
+    manageBtn.onclick=(e)=>{
+
+      e.stopPropagation();
+
+      if(isLocked) return;
+
+      const visible = panel?.style.display==="block";
+
+      if(visible){
+
+        setManagerOpen(false);
+
+      }else{
+
+        renderDescriptionManager();
+
+        setManagerOpen(true);
+
+        showDescriptionDropdown(false);
+
+      }
+
+    };
+
+  }
+
+}
+
+
+
+function renderVendorDropdown(filter=""){
+
+  const box = el("vendorDropdown");
+
+  const input = el("t_vendor");
+
+  if(!box || !input) return;
+
+  // s'assurer que les prestataires supprims ne rapparaissent pas
+
+  const deleted = new Set(loadDeletedVendors().map(x=>x.toLowerCase()));
+
+  const q = normalizeVendor(filter||"").toLowerCase();
+
+  const list = vendorsCache
+
+    .filter(v=> !deleted.has(v.toLowerCase()))
+
+    .filter(v=>!q || v.toLowerCase().includes(q))
+
+    .slice(0,50);
+
+  if(list.length===0){
+
+    box.innerHTML = `<div class="vendor-empty">Aucun résultat</div>`;
+
+  }else{
+
+    box.innerHTML = list.map(v=>`<div class="vendor-item" role="option" tabindex="0">${attrEscape(v)}</div>`).join("");
+
+  }
+
+  box.querySelectorAll(".vendor-item").forEach(item=>{
+
+    item.onclick=()=>{ input.value=item.textContent; showVendorDropdown(false); };
+
+    item.onkeydown=(e)=>{ if(e.key==="Enter"){ input.value=item.textContent; showVendorDropdown(false); } };
+
+  });
+
+  showVendorDropdown(list.length>0 && document.activeElement===input);
+
+}
+
+
+
+function showVendorDropdown(show){
+
+  const box = el("vendorDropdown");
+
+  if(!box) return;
+
+  box.style.display = show ? "block" : "none";
+
+  box.classList.toggle("open", !!show);
+
+  const input = el("t_vendor");
+
+  if(show && input) openFloating(box, input);
+
+  else closeFloating(box);
+
+}
+
+
+
+function renderVendorManager(){
+
+  const panel = el("vendorManagerPanel");
+
+  if(!panel) return;
+
+  if(vendorsCache.length===0){
+
+    panel.innerHTML = `<div class="vendor-empty">Aucun prestataire enregistré</div>`;
+
+    return;
+
+  }
+
+  panel.innerHTML = dedupVendors(vendorsCache).map(v=>`
+
+    <div class="vendor-row">
+
+      <span class="vendor-name">${attrEscape(v)}</span>
+
+      <div class="vendor-actions">
+
+        <button class="btn btn-ghost vendor-rename" data-v="${attrEscape(v)}">Renommer</button>
+
+        <button class="btn btn-danger vendor-delete" data-v="${attrEscape(v)}">Supprimer</button>
+
+      </div>
+
+    </div>
+
+  `).join("");
+
+  panel.querySelectorAll(".vendor-rename").forEach(btn=>{
+
+    btn.onclick=()=>{
+
+      const oldName = btn.dataset.v || "";
+
+      const newName = prompt("Nouveau nom du prestataire :", oldName) || "";
+
+      const trimmed = newName.trim();
+
+      if(!trimmed) return;
+
+      // retirer de la liste des supprims si prsent
+
+      let deleted = loadDeletedVendors().filter(x=> x.toLowerCase()!==oldName.toLowerCase());
+
+      saveDeletedVendors(deleted);
+
+      vendorsCache = vendorsCache.map(x=> x.toLowerCase()===oldName.toLowerCase() ? trimmed : x);
+
+      vendorsCache = dedupVendors(vendorsCache);
+
+      vendorsCache = Array.from(new Set(vendorsCache)).sort((a,b)=>a.localeCompare(b,"fr",{sensitivity:"base"}));
+
+      saveVendorsRegistry(vendorsCache);
+
+      // mettre  jour toutes les tâches utilisant l'ancien nom
+
+      (state?.tasks||[]).forEach(t=>{
+
+        if((t.vendor||"").toLowerCase()===oldName.toLowerCase()) t.vendor = trimmed;
+
+      });
+
+      renderVendorDropdown(el("t_vendor")?.value||"");
+
+      renderVendorManager();
+
+      renderAll();
+
+    };
+
+  });
+
+  panel.querySelectorAll(".vendor-delete").forEach(btn=>{
+
+    btn.onclick=()=>{
+
+      const name = btn.dataset.v || "";
+
+      if(!name) return;
+
+      if(!confirm(`Supprimer le prestataire "${name}" ?`)) return;
+
+      vendorsCache = vendorsCache.filter(x=>x.toLowerCase()!==name.toLowerCase());
+
+      vendorsCache = dedupVendors(vendorsCache);
+
+      saveVendorsRegistry(vendorsCache);
+
+      // ajouter  la liste des supprims pour filtrage futur
+
+      const deleted = Array.from(new Set([...loadDeletedVendors(), name]));
+
+      saveDeletedVendors(deleted);
+
+      // retirer ce prestataire des tâches existantes
+
+      (state?.tasks||[]).forEach(t=>{
+
+        if((t.vendor||"").toLowerCase()===name.toLowerCase()) t.vendor = "";
+
+      });
+
+      saveState();
+
+      renderVendorDropdown(el("t_vendor")?.value||"");
+
+      renderVendorManager();
+
+      renderAll();
+
+    };
+
+  });
+
+}
+
+
+
+function renderDescriptionDropdown(filter=""){
+
+  const box = el("descDropdown");
+
+  const input = el("t_room");
+
+  if(!box || !input) return;
+
+  const deleted = new Set(loadDeletedDescriptions().map(x=>x.toLowerCase()));
+
+  const q = normalizeDesc(filter||"").toLowerCase();
+
+  const list = descCache
+
+    .filter(v=> !deleted.has(v.toLowerCase()))
+
+    .filter(v=>!q || v.toLowerCase().includes(q))
+
+    .slice(0,50);
+
+  if(list.length===0){
+
+    box.innerHTML = `<div class="vendor-empty">Aucun résultat</div>`;
+
+  }else{
+
+    box.innerHTML = list.map(v=>`<div class="vendor-item" role="option" tabindex="0">${attrEscape(v)}</div>`).join("");
+
+  }
+
+  box.querySelectorAll(".vendor-item").forEach(item=>{
+
+    item.onclick=()=>{ input.value=item.textContent; showDescriptionDropdown(false); };
+
+    item.onkeydown=(e)=>{ if(e.key==="Enter"){ input.value=item.textContent; showDescriptionDropdown(false); } };
+
+  });
+
+  showDescriptionDropdown(list.length>0 && document.activeElement===input);
+
+}
+
+
+
+function showDescriptionDropdown(show){
+
+  const box = el("descDropdown");
+
+  if(!box) return;
+
+  const input = el("t_room");
+
+  const wrap = input ? input.closest(".desc-wrap") : null;
+
+  const card = input ? input.closest(".card") : null;
+
+  box.style.display = show ? "block" : "none";
+
+  box.classList.toggle("open", !!show);
+
+  wrap?.classList.toggle("desc-open", !!show);
+
+  card?.classList.toggle("desc-panel-open", !!show);
+
+  if(show && input) openFloating(box, input);
+
+  else closeFloating(box);
+
+}
+
+
+
+function renderDescriptionManager(){
+
+  const panel = el("descManagerPanel");
+
+  if(!panel) return;
+
+  if(descCache.length===0){
+
+    panel.innerHTML = `<div class="vendor-empty">Aucune description enregistrée</div>`;
+
+    return;
+
+  }
+
+  panel.innerHTML = dedupDescriptions(descCache).map(v=>`
+
+    <div class="vendor-row">
+
+      <span class="vendor-name">${attrEscape(v)}</span>
+
+      <div class="vendor-actions">
+
+        <button class="btn btn-ghost desc-rename" data-v="${attrEscape(v)}">Renommer</button>
+
+        <button class="btn btn-danger desc-delete" data-v="${attrEscape(v)}">Supprimer</button>
+
+      </div>
+
+    </div>
+
+  `).join("");
+
+  panel.querySelectorAll(".desc-rename").forEach(btn=>{
+
+    btn.onclick=()=>{
+
+      const oldName = btn.dataset.v || "";
+
+      const newName = prompt("Nouvelle description :", oldName) || "";
+
+      const trimmed = newName.trim();
+
+      if(!trimmed) return;
+
+      let deleted = loadDeletedDescriptions().filter(x=> x.toLowerCase()!==oldName.toLowerCase());
+
+      saveDeletedDescriptions(deleted);
+
+      descCache = descCache.map(x=> x.toLowerCase()===oldName.toLowerCase() ? trimmed : x);
+
+      descCache = dedupDescriptions(descCache);
+
+      descCache = Array.from(new Set(descCache)).sort((a,b)=>a.localeCompare(b,"fr",{sensitivity:"base"}));
+
+      saveDescriptionsRegistry(descCache);
+
+      (state?.tasks||[]).forEach(t=>{
+
+        if((t.roomNumber||"").toLowerCase()===oldName.toLowerCase()) t.roomNumber = trimmed;
+
+      });
+
+      markDirty();
+
+      renderDescriptionDropdown(el("t_room")?.value||"");
+
+      renderProject();
+
+    };
+
+  });
+
+  panel.querySelectorAll(".desc-delete").forEach(btn=>{
+
+    btn.onclick=()=>{
+
+      const name = btn.dataset.v || "";
+
+      if(!name) return;
+
+      if(!confirm(`Supprimer "${name}" ?`)) return;
+
+      descCache = descCache.filter(x=>x.toLowerCase()!==name.toLowerCase());
+
+      descCache = dedupDescriptions(descCache);
+
+      saveDescriptionsRegistry(descCache);
+
+      const deleted = Array.from(new Set([...loadDeletedDescriptions(), name]));
+
+      saveDeletedDescriptions(deleted);
+
+      (state?.tasks||[]).forEach(t=>{
+
+        if((t.roomNumber||"").toLowerCase()===name.toLowerCase()) t.roomNumber = "";
+
+      });
+
+      markDirty();
+
+      renderDescriptionDropdown(el("t_room")?.value||"");
+
+      renderProject();
+
+    };
+
+  });
+
+}
+
+
+
+function normalizeState(raw){
+
+  if(!raw){
+    const base = defaultState();
+    if(!Array.isArray(base.timeLogs)) base.timeLogs = [];
+    const orphans = detectOrphanTimeLogs(base);
+    base.orphanTimeLogs = orphans;
+    if(orphans.length > 0){
+      console.warn("[INTEGRITY] Orphan timeLogs detected:", orphans.length);
+    }
+    return base;
+  }
+
+  const normalizeStatus = (s)=> (s||"").split(",").filter(Boolean).map(v=>{
+    const up = String(v || "").toUpperCase();
+    if(up==="PREPA") return "PREPARATION";
+    if(up==="HUIS_SER") return "HUISSERIES";
+    return up;
+  }).join(",");
+
+  const normProjects = (raw.projects||[]).map(p=>({...p, id:normId(p.id)}));
+
+  const normTasks = (raw.tasks||[]).map(t=>{
+    const ownerNorm = (String(t.owner||"").toUpperCase()==="RSG/RI") ? "RSG" : (t.owner||"");
+    let vendorNorm = (t.vendor||"").toString().trim();
+    if(String(ownerNorm).toLowerCase().includes("prestataire externe") && !vendorNorm){
+      vendorNorm = "PRESTATAIRE NON RENSEIGNE";
+    }
+    return {
+      ...t,
+      projectId:normId(t.projectId),
+      status: normalizeStatus(t.status),
+      owner: ownerNorm,
+      vendor: vendorNorm
+    };
+  });
+
+  const normLogs = (raw.timeLogs||[]).map(l=>({
+    id: l.id || uid(),
+    taskId: normId(l.taskId),
+    projectId: normId(l.projectId),
+    userKey: (l.userKey || "").toString(),
+    userName: (l.userName || "").toString(),
+    userEmail: (l.userEmail || "").toString(),
+    role: (l.role || "").toString(),
+    date: (l.date || "").toString().slice(0,10),
+    minutes: Number.isFinite(+l.minutes) ? Math.max(0, Math.round(+l.minutes)) : 0,
+    note: (l.note || "").toString(),
+    createdAt: l.createdAt || "",
+    updatedAt: l.updatedAt || ""
+  })).filter(l=>l.taskId && l.date);
+
+  const deleted = new Set(loadDeletedVendors().map(x=>x.toLowerCase()));
+  normTasks.forEach(t=>{
+    if(t.vendor && deleted.has(t.vendor.toLowerCase())) t.vendor = "";
+  });
+
+  const tasksById = new Map(normTasks.map(t=>[t.id, t]));
+  const keptLogs = [];
+  const orphanBuffer = [];
+  normLogs.forEach(l=>{
+    const task = tasksById.get(l.taskId);
+    if(!task){
+      orphanBuffer.push(l);
+      return;
+    }
+    const fixed = {...l};
+    if(task.projectId) fixed.projectId = task.projectId;
+    if(task.start && fixed.date < task.start){
+      orphanBuffer.push(fixed);
+      return;
+    }
+    if(task.end && fixed.date > task.end){
+      orphanBuffer.push(fixed);
+      return;
+    }
+    const expectedRole = getTaskRoleKey(task);
+    const actualRole = normalizeTimeLogRole(fixed);
+    if(expectedRole && actualRole !== expectedRole){
+      fixed.roleKey = expectedRole;
+      fixed.role = String(expectedRole).toUpperCase();
+    }
+    keptLogs.push(fixed);
+  });
+
+  const dedupMap = new Map();
+  keptLogs.forEach(l=>{
+    const rk = normalizeTimeLogRole(l);
+    const key = `${l.taskId}|${l.date}|${rk}`;
+    const prev = dedupMap.get(key);
+    if(!prev){
+      dedupMap.set(key, l);
+      return;
+    }
+    const prevTs = new Date(prev.updatedAt || prev.createdAt || 0).getTime();
+    const curTs = new Date(l.updatedAt || l.createdAt || 0).getTime();
+    if(curTs >= prevTs) dedupMap.set(key, l);
+  });
+
+  const state = {projects:normProjects, tasks:normTasks, ui: raw.ui||{}, timeLogs: Array.from(dedupMap.values())};
+  const detectedOrphans = detectOrphanTimeLogs(state);
+  const archivedOrphans = Array.isArray(raw.orphanTimeLogs) ? raw.orphanTimeLogs : [];
+  const orphans = [...archivedOrphans, ...orphanBuffer, ...detectedOrphans];
+  state.orphanTimeLogs = orphans;
+  if(detectedOrphans.length > 0){
+    console.warn("[INTEGRITY] Orphan timeLogs detected:", detectedOrphans.length);
+  }
+  return state;
+
+}
+function detectOrphanTimeLogs(state) {
+  const taskIds = new Set((state.tasks || []).map(t => t.id));
+  const projectIds = new Set((state.projects || []).map(p => p.id));
+
+  const orphans = [];
+
+  for (const log of (state.timeLogs || [])) {
+    if (!taskIds.has(log.taskId) || !projectIds.has(log.projectId)) {
+      orphans.push(log);
+    }
+  }
+
+  return orphans;
+}
+
+const formatDate = (s)=>{
+
+  if(!s) return "";
+
+  const parts = s.split("-");
+
+  if(parts.length!==3) return s;
+
+  return `${parts[2]}/${parts[1]}/${parts[0]}`;
+
+};
+
+const unformatDate = (fr)=>{
+
+  if(!fr) return "";
+
+  const parts = fr.split("/");
+
+  if(parts.length!==3) return fr;
+
+  const [jj,mm,aa] = parts;
+
+  return `${aa}-${mm}-${jj}`;
+
+};
+
+function toInputDate(val){
+  if(!val) return "";
+  if(val instanceof Date){
+    return val.toISOString().slice(0,10);
+  }
+  const s = String(val).trim();
+  if(!s) return "";
+  if(/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if(m) return `${m[3]}-${m[2]}-${m[1]}`;
+  return s;
+}
+
+function toLocalDateKey(d){
+  const y = d.getFullYear();
+  const m = String(d.getMonth()+1).padStart(2,"0");
+  const day = String(d.getDate()).padStart(2,"0");
+  return `${y}-${m}-${day}`;
+}
+function getYesterdayKey(){
+  const d = new Date();
+  d.setDate(d.getDate()-1);
+  return toLocalDateKey(d);
+}
+function getSelectedLogDate(){
+  const input = el("t_time_date_input");
+  const raw = (input?.value || "").trim();
+  if(raw) return raw;
+  return getYesterdayKey();
+}
+function isTaskActiveOn(t, dateKey){
+  if(!t || !t.start || !t.end || !dateKey) return false;
+  return t.start <= dateKey && t.end >= dateKey;
+}
+
+
+
+// -------- Sélection unique Statuts / Corps d'état --------
+
+function buildStatusMenu(){
+
+  const menu = el("t_status_menu");
+
+  if(!menu) return;
+
+  let h="";
+
+  sortedStatuses().forEach(s=>{
+    h+=`<div class="ms-item" data-v="${s.v}">
+          <span class="ms-label">${s.label}</span>
+        </div>`;
+  });
+
+  menu.innerHTML=h;
+
+  menu.querySelectorAll(".ms-item").forEach(item=>{
+
+    item.onclick=(e)=>{
+
+      e.stopPropagation();
+
+      const v=item.dataset.v;
+
+      if(selectedStatusSet.has(v)) selectedStatusSet.clear();
+
+      else{
+        selectedStatusSet.clear();
+        selectedStatusSet.add(v);
+      }
+
+      updateStatusDisplay();
+      toggleStatusMenu(false);
+
+    };
+
+  });
+
+}
+
+
+
+function updateStatusDisplay(){
+
+  const display = el("t_status_display");
+
+  const menu = el("t_status_menu");
+
+  if(!display || !menu) return;
+
+  // visuels des coche
+
+  menu.querySelectorAll(".ms-item").forEach(item=>{
+
+    const v=item.dataset.v;
+
+    if(selectedStatusSet.has(v)) item.classList.add("selected");
+
+    else item.classList.remove("selected");
+
+  });
+
+  if(selectedStatusSet.size===0){
+
+    display.textContent="Sélectionner";
+
+  }else{
+
+    const labels = STATUSES.filter(s=>selectedStatusSet.has(s.v)).map(s=>s.label);
+
+    display.textContent = labels.join(", ");
+
+  }
+
+}
+
+
+
+function setStatusSelection(values){
+
+  const first = (values||"").split(",").filter(Boolean)[0] || "";
+  selectedStatusSet = new Set(first ? [first] : []);
+
+  updateStatusDisplay();
+
+}
+
+
+
+function toggleStatusMenu(show){
+
+  const menu = el("t_status_menu");
+
+  if(!menu) return;
+
+  const shouldShow = show!==undefined ? show : menu.classList.contains("hidden");
+
+  if(shouldShow) menu.classList.remove("hidden");
+
+  else menu.classList.add("hidden");
+
+}
+
+
+
+const EMBEDDED_BACKUP = {
+
+  projects: [
+
+    { id:"3e86100919c04fb8456", name:"Bureau Pastorale", site:"CDM", constraints:"", subproject:"Rénovation" },
+
+    { id:"0c644af019c05700845", name:"Internat Saint Gervais", site:"LGT", constraints:"", subproject:"Rénovation CH 011" }
+
+  ],
+
+  tasks: [
+
+    { id:"c807465d19c05012673", projectId:"3e86100919c04fb8456", roomNumber:"Rénovation", status:"ELECTRICITE,PEINTURE,MOBILIER,AMENAGEMENTS", owner:"INTERNE", start:"2026-02-02", end:"2026-02-27", notes:"" },
+
+    { id:"f490f0e019c0571bee2", projectId:"0c644af019c05700845", roomNumber:"Rénovation CH 011", status:"PEINTURE,TDV,AMENAGEMENTS", owner:"INTERNE", start:"2026-02-02", end:"2026-02-14", notes:"" },
+
+    { id:"840b3cb519c05732884", projectId:"0c644af019c05700845", roomNumber:"Rénovation CH 010", status:"PEINTURE,AMENAGEMENTS,TDV", owner:"INTERNE", start:"2026-02-16", end:"2026-02-28", notes:"" }
+
+  ],
+
+  ui: { activeTab:"3e86100919c04fb8456", filters:{} }
+
+};
+
+
+
+function defaultState(){
+
+  return deepClone(EMBEDDED_BACKUP);
+
+}
+
+
+
+function loadVendorsRegistry(){
+
+  try{
+
+    const raw = localStorage.getItem(VENDOR_STORE_KEY);
+
+    if(!raw) return [];
+
+    const arr = JSON.parse(raw);
+
+    if(Array.isArray(arr)) return dedupVendors(arr);
+
+    return [];
+
+  }catch(e){
+
+    console.warn("Unable to load vendor registry", e);
+
+    return [];
+
+  }
+
+}
+
+
+
+function loadDeletedVendors(){
+
+  try{
+
+    const raw = localStorage.getItem(VENDOR_DELETE_KEY);
+
+    if(!raw) return [];
+
+    const arr = JSON.parse(raw);
+
+    if(Array.isArray(arr)) return arr.filter(Boolean);
+
+    return [];
+
+  }catch(e){
+
+    console.warn("Unable to load deleted vendors", e);
+
+    return [];
+
+  }
+
+}
+
+
+
+function saveDeletedVendors(list){
+
+  try{
+
+    localStorage.setItem(VENDOR_DELETE_KEY, JSON.stringify(list));
+
+  }catch(e){
+
+    console.warn("Unable to save deleted vendors", e);
+
+  }
+
+}
+
+
+
+function saveVendorsRegistry(list){
+
+  try{
+
+    localStorage.setItem(VENDOR_STORE_KEY, JSON.stringify(dedupVendors(list)));
+
+  }catch(e){
+
+    console.warn("Unable to save vendor registry", e);
+
+  }
+
+}
+
+
+
+function loadDescriptionsRegistry(){
+
+  try{
+
+    const raw = localStorage.getItem(DESC_STORE_KEY);
+
+    if(!raw) return [];
+
+    const arr = JSON.parse(raw);
+
+    if(Array.isArray(arr)) return dedupDescriptions(arr);
+
+    return [];
+
+  }catch(e){
+
+    console.warn("Unable to load descriptions registry", e);
+
+    return [];
+
+  }
+
+}
+
+
+
+function loadDeletedDescriptions(){
+
+  try{
+
+    const raw = localStorage.getItem(DESC_DELETE_KEY);
+
+    if(!raw) return [];
+
+    const arr = JSON.parse(raw);
+
+    if(Array.isArray(arr)) return arr.filter(Boolean);
+
+    return [];
+
+  }catch(e){
+
+    console.warn("Unable to load deleted descriptions", e);
+
+    return [];
+
+  }
+
+}
+
+
+
+function saveDeletedDescriptions(list){
+
+  try{
+
+    localStorage.setItem(DESC_DELETE_KEY, JSON.stringify(list));
+
+  }catch(e){
+
+    console.warn("Unable to save deleted descriptions", e);
+
+  }
+
+}
+
+
+
+function saveDescriptionsRegistry(list){
+
+  try{
+
+    localStorage.setItem(DESC_STORE_KEY, JSON.stringify(dedupDescriptions(list)));
+
+  }catch(e){
+
+    console.warn("Unable to save descriptions registry", e);
+
+  }
+
+}
+
+
+
+function load(){
+
+  const skipFileFetch = (window.location && window.location.protocol === "file:");
+
+  const backupPromise = skipFileFetch
+
+    ? Promise.reject("skip-file-fetch")
+
+    : fetch(`suivi_chantiers_backup.json?v=${Date.now()}`, {cache:"no-store"});
+
+  // 1) tenter le fichier de backup du projet (persistant disque)
+
+  backupPromise
+
+    .then(resp=> resp.ok ? resp.json() : null)
+
+    .then(data=>{
+
+      if(data){
+
+        state = normalizeState(data);
+
+        renderAll();
+
+        clearDirty();
+
+        _scheduleSupabaseAutoLoad();
+
+        return;
+
+      }
+
+      // 2) sinon tenter le localStorage
+
+      try{
+
+        const raw = localStorage.getItem(STORAGE_KEY);
+
+        if(raw){
+
+          state = normalizeState(JSON.parse(raw));
+
+          renderAll();
+
+          clearDirty();
+
+          _scheduleSupabaseAutoLoad();
+
+          return;
+
+        }
+
+      }catch(e){ softCatch(e); }
+
+      // 3) fallback état embarqu
+
+      state = normalizeState(defaultState());
+
+      renderAll();
+
+      clearDirty();
+
+      _scheduleSupabaseAutoLoad();
+
+    })
+
+    .catch(()=>{
+
+      // si fetch choue, on tente localStorage puis default
+
+      try{
+
+        const raw = localStorage.getItem(STORAGE_KEY);
+
+        if(raw){
+
+          state = normalizeState(JSON.parse(raw));
+
+          renderAll();
+
+          clearDirty();
+
+          _scheduleSupabaseAutoLoad();
+
+          return;
+
+        }
+
+      }catch(e){ softCatch(e); }
+
+      state = normalizeState(defaultState());
+
+      renderAll();
+
+      clearDirty();
+
+      _scheduleSupabaseAutoLoad();
+
+    });
+
+}
+
+
+
+let _suppressSupabaseSave = false;
+let _saveToastTimer = null;
+
+function showSaveToast(type, title, detail){
+  const toast = el("saveToast");
+  if(!toast) return;
+  const icon = el("saveToastIcon");
+  const titleEl = el("saveToastTitle");
+  const detailEl = el("saveToastDetail");
+  toast.classList.remove("is-error");
+  if(type === "error") toast.classList.add("is-error");
+  if(icon) icon.textContent = (type === "error") ? "ERR" : "OK";
+  if(titleEl) titleEl.textContent = title || "Sauvegarde";
+  if(detailEl) detailEl.style.color = "";
+  if(detailEl) detailEl.textContent = detail || "";
+  const bar = el("saveToastProgressBar");
+  const duration = (type === "ok") ? 3000 : 4000;
+  if(bar){
+    bar.style.animation = "none";
+    void bar.offsetWidth;
+    bar.style.animation = `saveToastCountdown ${duration}ms linear forwards`;
+  }
+  toast.classList.add("show");
+  if(_saveToastTimer) clearTimeout(_saveToastTimer);
+  _saveToastTimer = setTimeout(()=> toast.classList.remove("show"), duration);
+}
+
+let _lastDataQualityReport = null;
+
+function collectDataQualityIssues(currentState=state){
+  const s = currentState || {};
+  const tasks = Array.isArray(s.tasks) ? s.tasks : [];
+  const logs = Array.isArray(s.timeLogs) ? s.timeLogs : [];
+  const taskById = new Map(tasks.map(t=>[t.id, t]));
+
+  let invalidDates = 0;
+  let externalWithoutVendor = 0;
+  let legacyStatus = 0;
+  let orphanLogs = 0;
+  let logsOutsideTaskRange = 0;
+
+  tasks.forEach(t=>{
+    const start = (t?.start || "").toString();
+    const end = (t?.end || "").toString();
+    if(!start || !end || end < start) invalidDates += 1;
+
+    const owner = (t?.owner || "").toString().toLowerCase();
+    const vendor = (t?.vendor || "").toString().trim();
+    if(owner.includes("prestataire externe") && !vendor) externalWithoutVendor += 1;
+
+    const statuses = String(t?.status || "").split(",").map(x=>x.trim().toUpperCase()).filter(Boolean);
+    if(statuses.includes("HUIS_SER")) legacyStatus += 1;
+  });
+
+  logs.forEach(l=>{
+    const task = taskById.get(l?.taskId);
+    if(!task){ orphanLogs += 1; return; }
+    const d = (l?.date || "").toString().slice(0,10);
+    if(!d) return;
+    const ts = (task?.start || "").toString();
+    const te = (task?.end || "").toString();
+    if(ts && d < ts) logsOutsideTaskRange += 1;
+    else if(te && d > te) logsOutsideTaskRange += 1;
+  });
+
+  const issues = [];
+  if(invalidDates > 0) issues.push(`${invalidDates} tâche(s) avec dates invalides`);
+  if(externalWithoutVendor > 0) issues.push(`${externalWithoutVendor} tâche(s) externes sans prestataire`);
+  if(legacyStatus > 0) issues.push(`${legacyStatus} tâche(s) en statut obsolète HUIS_SER`);
+  if(orphanLogs > 0) issues.push(`${orphanLogs} log(s) orphelins`);
+  if(logsOutsideTaskRange > 0) issues.push(`${logsOutsideTaskRange} log(s) hors période de tâche`);
+
+  return {
+    ok: issues.length === 0,
+    issues,
+    counts: { invalidDates, externalWithoutVendor, legacyStatus, orphanLogs, logsOutsideTaskRange }
+  };
+}
+
+function formatQualityIssuesForToast(report){
+  if(!report || report.ok) return "Aucune incohérence métier détectée";
+  const base = report.issues.slice(0,3).join(" | ");
+  if(report.issues.length <= 3) return base;
+  return `${base} | +${report.issues.length - 3} autre(s)`;
+}
+
+function updateDataQualityBanner(notify=false){
+  const brandSub = el("brandSub");
+  if(!brandSub) return;
+
+  const today = new Date();
+  const fmt = today.toLocaleDateString("fr-FR",{weekday:"long", day:"2-digit", month:"long", year:"numeric"});
+  const report = collectDataQualityIssues(state);
+  _lastDataQualityReport = report;
+
+  const badgeLabel = report.ok ? "Qualité données: OK" : `Qualité données: ${report.issues.length} incohérence(s)`;
+  const badgeStyle = report.ok
+    ? "color:#16a34a;border:1px solid #16a34a33;background:#16a34a14;padding:2px 8px;border-radius:10px;cursor:pointer;"
+    : "color:#b91c1c;border:1px solid #b91c1c33;background:#b91c1c14;padding:2px 8px;border-radius:10px;cursor:pointer;";
+
+  brandSub.innerHTML = `Tableau maître  Projets  Gantt  <span class="brand-date">${fmt}</span>  <span id="dataQualityBadge" style="${badgeStyle}">${badgeLabel}</span>`;
+  const badge = el("dataQualityBadge");
+  if(badge){
+    badge.onclick = ()=>{
+      const r = _lastDataQualityReport || collectDataQualityIssues(state);
+      showSaveToast(r.ok ? "ok" : "error", "Contrôle qualité", formatQualityIssuesForToast(r));
+    };
+  }
+
+  if(notify && !report.ok){
+    showSaveToast("error", "Contrôle qualité", formatQualityIssuesForToast(report));
+  }
+}
+function applyDataQualityCleanup(){
+  const before = collectDataQualityIssues(state);
+  const cleaned = normalizeState(deepClone(state));
+  const removedFromLogs = Math.max(0, (state?.timeLogs?.length || 0) - (cleaned?.timeLogs?.length || 0));
+  state.projects = cleaned.projects || [];
+  state.tasks = cleaned.tasks || [];
+  state.timeLogs = cleaned.timeLogs || [];
+  state.ui = cleaned.ui || state.ui || {};
+  state.orphanTimeLogs = cleaned.orphanTimeLogs || [];
+
+  const after = collectDataQualityIssues(state);
+  markDirty();
+  renderAll();
+
+  const detail = `Avant: ${before.issues.length} | Après: ${after.issues.length} | Logs retirés: ${removedFromLogs}`;
+  showSaveToast(after.ok ? "ok" : "error", "Nettoyage terminé", detail);
+  return { before, after, removedFromLogs };
+}
+
+function exportDataQualityReportPdf(){
+  const report = collectDataQualityIssues(state);
+  const today = new Date().toLocaleDateString("fr-FR",{day:"2-digit",month:"short",year:"numeric"});
+
+  setPrintPageFormat("A4 portrait", "6mm");
+  document.body.classList.add("print-mode");
+
+  const tpl = ensurePrintTemplate();
+  if(!tpl) return;
+
+  let container = document.getElementById("printInjection");
+  if(!container){
+    container = document.createElement("div");
+    container.id = "printInjection";
+    document.body.prepend(container);
+  }
+
+  container.innerHTML = tpl.innerHTML;
+  const header = container.querySelector("#printHeader");
+  const meta = container.querySelector("#printMeta");
+  const legend = container.querySelector("#printLegend");
+
+  if(header){
+    header.querySelector("h1").textContent = "Rapport qualité des données";
+  }
+  if(meta){
+    const rows = [
+      ["Date export", today],
+      ["État", report.ok ? "OK" : "Incohérences détectées"],
+      ["Nombre d'anomalies", String(report.issues.length)],
+      ["Tâches", String((state?.tasks || []).length)],
+      ["Logs temps", String((state?.timeLogs || []).length)]
+    ];
+    meta.innerHTML = rows.map(([k,v])=>`<div><strong>${k}</strong><br>${attrEscape(v)}</div>`).join("");
+  }
+  if(legend) legend.innerHTML = "";
+
+  container.querySelectorAll(".print-dynamic").forEach(n=>n.remove());
+  const wrap = document.createElement("div");
+  wrap.className = "print-dynamic";
+  const card = document.createElement("div");
+  card.className = "card print-block";
+
+  const lines = report.ok
+    ? ["Aucune incohérence métier détectée."]
+    : report.issues;
+
+  const listHtml = lines.map((x,i)=>`<li>${attrEscape(String(i+1))}. ${attrEscape(x)}</li>`).join("");
+  card.innerHTML = `
+    <div class="card-title">Contrôle qualité</div>
+    <div style="padding:10px 14px;">
+      <ul style="margin:0;padding-left:18px;line-height:1.5;">${listHtml}</ul>
+    </div>
+  `;
+  wrap.appendChild(card);
+  container.querySelector(".print-order")?.appendChild(wrap);
+
+  setTimeout(()=>{
+    maximizePrintContainer(container);
+    openPreparedPrintInNewWindow();
+  }, 0);
+}
+function animateMetricCounters(root){
+  if(!root) return;
+  const vals = root.querySelectorAll(".metric-val");
+  vals.forEach(node=>{
+    const raw = (node.textContent || "").trim();
+    const m = raw.match(/^(\d+)(\s*[^\d].*)?$/);
+    if(!m) return;
+    const end = Number(m[1] || 0);
+    const suffix = m[2] || "";
+    const start = 0;
+    const duration = 520;
+    const t0 = performance.now();
+    const step = (now)=>{
+      const p = Math.min(1, (now - t0) / duration);
+      const eased = 1 - Math.pow(1 - p, 3);
+      const val = Math.round(start + (end - start) * eased);
+      node.textContent = `${val}${suffix}`;
+      if(p < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  });
+}
+
+const _badgeChangeSignatures = new Map();
+function animateBadgeChanges(root){
+  if(!root) return;
+  const nodes = root.querySelectorAll(".num-badge, .badge.owner, .panel-chip .metric-val");
+  nodes.forEach((node, idx)=>{
+    const key = `${root.id || "root"}:${idx}:${node.className}`;
+    const sig = `${(node.textContent || "").trim()}|${node.getAttribute("style") || ""}`;
+    const prev = _badgeChangeSignatures.get(key);
+    if(prev !== undefined && prev !== sig){
+      node.classList.remove("badge-change-pulse");
+      void node.offsetWidth;
+      node.classList.add("badge-change-pulse");
+    }
+    _badgeChangeSignatures.set(key, sig);
+  });
+}
+
+function animateCardsInView(viewId){
+  const view = el(viewId);
+  if(!view) return;
+  const cards = view.querySelectorAll(".card, .tablewrap");
+  cards.forEach((node, idx)=>{
+    node.style.setProperty("--card-fade-delay", `${Math.min(idx * 0.025, 0.18)}s`);
+    node.classList.remove("card-fade-in");
+    void node.offsetWidth;
+    node.classList.add("card-fade-in");
+  });
+}
+
+function saveState(opts={}){
+
+  try{
+
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+
+    clearDirty();
+
+    // Supabase greffe : APRES sauvegarde locale
+
+    const skipSupabase = !!opts.skipSupabase || _suppressSupabaseSave;
+    if(!skipSupabase){
+      try{ if(window.saveAppStateToSupabase) window.saveAppStateToSupabase(state); }catch(e){ softCatch(e); }
+    }
+
+  }catch(e){
+
+    console.warn("save failed", e);
+
+  }
+
+}
+
+
+
+function updateSaveButton(){
+  const saveButtonIds = [
+    "btnSave",
+    "btnSaveProject",
+    "btnSaveTask",
+    "btnConfigSaveTop",
+    "btnConfigSave",
+    "btnVacSave"
+  ];
+  const buttons = saveButtonIds.map((id)=>el(id)).filter(Boolean);
+  if(!buttons.length) return;
+  buttons.forEach((btn)=>{
+    btn.classList.remove("btn-danger","btn-success");
+    if(unsavedChanges){
+      btn.classList.add("btn-primary");
+      btn.classList.remove("btn-save-idle");
+    }else{
+      btn.classList.remove("btn-primary");
+      btn.classList.add("btn-save-idle");
+    }
+  });
+
+}
+
+function markDirty(){
+  unsavedChanges = true;
+  _stateVersion += 1;
+  updateSaveButton();
+}
+function saveUIState(){
+  try{
+    if(!state) return;
+    state.ui = state.ui || {};
+    state.ui.filters = {
+      site: el("filterSite")?.value || "",
+      project: el("filterProject")?.value || "",
+      status: el("filterStatus")?.value || "",
+      search: el("filterSearch")?.value || "",
+      startAfter: el("filterStartAfter")?.value || "",
+      endBefore: el("filterEndBefore")?.value || ""
+    };
+  }catch(e){ softCatch(e); }
+}
+
+function saveUndoSnapshot(){
+  try{
+    lastUndoSnapshot = {
+      projects: deepClone(state.projects || []),
+      tasks: deepClone(state.tasks || []),
+      timeLogs: deepClone(state.timeLogs || []),
+      selectedProjectId,
+      selectedTaskId
+    };
+  }catch(e){
+    console.warn("Undo snapshot failed", e);
+  }
+}
+
+function restoreUndoSnapshot(){
+  if(!lastUndoSnapshot) return false;
+  state.projects = deepClone(lastUndoSnapshot.projects || []);
+  state.tasks = deepClone(lastUndoSnapshot.tasks || []);
+  state.timeLogs = deepClone(lastUndoSnapshot.timeLogs || []);
+  selectedProjectId = lastUndoSnapshot.selectedProjectId || null;
+  selectedTaskId = lastUndoSnapshot.selectedTaskId || null;
+  lastUndoSnapshot = null;
+  markDirty();
+  renderAll();
+  return true;
+}
+
+function clearDirty(){ unsavedChanges = false; updateSaveButton(); }
+
+
+
+function downloadBackup(){
+
+  try{
+
+    const data = JSON.stringify(state, null, 2);
+
+    const blob = new Blob([data], {type:"application/json"});
+
+    const a = document.createElement("a");
+
+    a.href = URL.createObjectURL(blob);
+
+    a.download = "suivi_chantiers_backup.json";
+
+    document.body.appendChild(a);
+
+    a.click();
+
+    a.remove();
+
+  }catch(e){
+
+    console.warn("download backup failed", e);
+
+  }
+
+}
+
+
+
+function writeBackupToDisk(){
+
+  try{
+
+    const data = JSON.stringify(state, null, 2);
+
+    if(window.showSaveFilePicker){
+
+      (async ()=>{
+
+        const handle = await window.showSaveFilePicker({
+
+          suggestedName: "suivi_chantiers_backup.json",
+
+          types:[{description:"JSON", accept:{"application/json":[".json"]}}]
+
+        });
+
+        const writable = await handle.createWritable();
+
+        await writable.write(data);
+
+        await writable.close();
+
+      })();
+
+    }
+
+  }catch(e){
+
+    console.warn("writeBackupToDisk failed", e);
+
+  }
+
+}
+
+
+
+function flashSaved(){
+
+  const btn = el("btnSave");
+
+  if(!btn) return;
+
+  const old = btn.textContent;
+
+  btn.textContent = " Sauvegard";
+
+  btn.classList.add("pulse");
+
+  setTimeout(()=>{ btn.textContent = old; btn.classList.remove("pulse"); },1200);
+
+}
+
+
+
+window.updateRoleUI = updateRoleUI;
+
+
+function statusLabels(values){
+
+  return parseStatuses(values).map(v=> (STATUSES.find(s=>s.v===v)?.label || v)).join(", ");
+
+}
+
+function toDateInput(d){
+
+  if(!d) return "";
+
+  const x = new Date(d.getTime());
+
+  return x.toISOString().slice(0,10);
+
+}
+
+function parseInputDate(v){
+
+  if(!v) return null;
+
+  const d = new Date(v+"T00:00:00");
+
+  return isNaN(d) ? null : d;
+
+}
+
+function getTasksDateBounds(tasks){
+
+  let min=null, max=null;
+
+  tasks.forEach((t,rowIdx)=>{
+
+    if(!t.start || !t.end) return;
+
+    const s = parseInputDate(t.start);
+
+    const e = parseInputDate(t.end);
+
+    if(!s || !e) return;
+
+    if(!min || s < min) min = s;
+
+    if(!max || e > max) max = e;
+
+  });
+
+  return {min,max};
+
+}
+
+function getWorkloadRange(tasks, boundsTasks=tasks, stateRef=null){
+
+  const {min, max} = getTasksDateBounds(boundsTasks);
+
+  if(!min || !max) return {start:null,end:null};
+
+  const type = (stateRef?.type ?? workloadRangeType) || "all";
+
+  if(type==="all"){
+
+    return {start:min, end:max};
+
+  }
+
+  if(type==="custom"){
+
+    const s = parseInputDate(stateRef?.start ?? workloadRangeStart) || min;
+
+    const e = parseInputDate(stateRef?.end ?? workloadRangeEnd) || max;
+
+    return {start:s, end:e};
+
+  }
+
+  const year = parseInt((stateRef?.year ?? workloadRangeYear) || String(min.getFullYear()),10);
+
+  if(type==="civil"){
+
+    return {start:new Date(year,0,1), end:new Date(year,11,31)};
+
+  }
+
+  // school: 1er sept -> 31 aot
+
+  return {start:new Date(year,8,1), end:new Date(year+1,7,31)};
+
+}
+
+let loginRangeStart = "";
+let loginRangeEnd = "";
+let loginLogSortKey = "ts";
+let loginLogSortDir = "desc";
+
+function toISODateStart(d){
+  if(!d) return "";
+  const x = new Date(d.getTime());
+  x.setHours(0,0,0,0);
+  return x.toISOString();
+}
+function toISODateEnd(d){
+  if(!d) return "";
+  const x = new Date(d.getTime());
+  x.setHours(23,59,59,999);
+  return x.toISOString();
+}
+function toLocalISODate(d){
+  if(!d || isNaN(d)) return "";
+  const y = d.getFullYear();
+  const m = String(d.getMonth()+1).padStart(2,"0");
+  const day = String(d.getDate()).padStart(2,"0");
+  return `${y}-${m}-${day}`;
+}
+
+function hexToRgba(hex, alpha){
+  const v = (hex || "").replace("#","").trim();
+  if(v.length !== 6) return `rgba(15,23,42,${alpha})`;
+  const r = parseInt(v.slice(0,2),16);
+  const g = parseInt(v.slice(2,4),16);
+  const b = parseInt(v.slice(4,6),16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+function clampLoginRange(start, end, maxDays=35){
+  const s = new Date(start.getTime());
+  const e = new Date(end.getTime());
+  const diff = Math.floor((e - s) / 86400000);
+  if(diff <= maxDays) return {start:s, end:e, clamped:false};
+  const ns = new Date(e.getTime());
+  ns.setDate(ns.getDate() - maxDays);
+  return {start:ns, end:e, clamped:true};
+}
+
+function buildLoginHeatmap(container, events, rangeStart, rangeEnd){
+  if(!container) return;
+  const start = rangeStart ? new Date(rangeStart+"T00:00:00") : new Date();
+  const end = rangeEnd ? new Date(rangeEnd+"T00:00:00") : new Date();
+  if(end < start){
+    const tmp = new Date(start.getTime());
+    start.setTime(end.getTime());
+    end.setTime(tmp.getTime());
+  }
+  const clamp = clampLoginRange(start, end, 34);
+  const startKey = toLocalISODate(clamp.start);
+  const endKey = toLocalISODate(clamp.end);
+  const byUser = {};
+  (events || []).forEach(ev=>{
+    const ts = ev.ts ? new Date(ev.ts) : null;
+    if(!ts || isNaN(ts)) return;
+    const key = toLocalISODate(ts);
+    const userKey = (ev.email || ev.name || "inconnu").toLowerCase();
+    if(!byUser[userKey]) byUser[userKey] = {};
+    byUser[userKey][key] = (byUser[userKey][key] || 0) + 1;
+  });
+  const days = [];
+  const cursor = new Date(clamp.start.getTime());
+  while(cursor <= clamp.end){
+    days.push(new Date(cursor.getTime()));
+    cursor.setDate(cursor.getDate()+1);
+  }
+  const startWeek = startOfWeek(clamp.start);
+  const endWeek = startOfWeek(clamp.end);
+  const weeks = [];
+  for(let w=new Date(startWeek); w<=endWeek; w=addDays(w,7)){
+    weeks.push(new Date(w.getTime()));
+  }
+  const monthLabels = weeks.map((w,i)=>{
+    const label = w.toLocaleDateString("fr-FR",{month:"short"});
+    const prev = i>0 ? weeks[i-1].toLocaleDateString("fr-FR",{month:"short"}) : "";
+    return (label !== prev) ? label : "";
+  });
+
+  const userKeys = Object.keys(byUser);
+  userKeys.sort((a,b)=>{
+    const suma = Object.values(byUser[a] || {}).reduce((x,y)=>x+y,0);
+    const sumb = Object.values(byUser[b] || {}).reduce((x,y)=>x+y,0);
+    if(sumb !== suma) return sumb - suma;
+    return a.localeCompare(b,"fr",{sensitivity:"base"});
+  });
+  const palette = ["#2563eb","#16a34a","#f59e0b","#db2777","#0ea5b7","#7c3aed","#dc2626","#059669"];
+  const userColors = {};
+  userKeys.forEach((u,i)=>{ userColors[u] = palette[i % palette.length]; });
+
+  const headerCells = [];
+  weeks.forEach(w=>{
+    for(let row=0; row<7; row++){
+      const d = addDays(w, row);
+      const key = toLocalISODate(d);
+      const inRange = (key >= startKey && key <= endKey);
+      const short = d.toLocaleDateString("fr-FR",{day:"2-digit",month:"2-digit"});
+      const hcls = inRange ? "in" : "out";
+      headerCells.push(`<span class="login-col-head ${hcls}">${short}</span>`);
+    }
+  });
+
+  const userRows = userKeys.map(u=>{
+    let max = 1;
+    Object.values(byUser[u] || {}).forEach(v=>{ if(v>max) max=v; });
+    const total = Object.values(byUser[u] || {}).reduce((a,b)=>a+b,0);
+    const cells = [];
+    weeks.forEach(w=>{
+      for(let row=0; row<7; row++){
+        const d = addDays(w, row);
+        const key = toLocalISODate(d);
+        const inRange = (key >= startKey && key <= endKey);
+        const count = inRange ? ((byUser[u] && byUser[u][key]) || 0) : 0;
+        const level = inRange ? Math.min(4, Math.ceil((count / max) * 4)) : 0;
+        const title = inRange ? `${d.toLocaleDateString("fr-FR")}: ${count} connexion(s)` : "";
+        const cls = inRange ? `lv${level}` : "out";
+        const label = count > 0 ? count : "";
+        cells.push(`<span class="login-cell ${cls}" style="background:${hexToRgba(userColors[u], 0.18 + (0.16*level))};" title="${title}">${label}</span>`);
+      }
+    });
+    const label = u.includes("@") ? u : u.charAt(0).toUpperCase()+u.slice(1);
+    return `<div class="login-user-row"><div class="login-user-name"><span class="login-user-dot" style="background:${userColors[u]};"></span>${label}</div><div class="login-user-count">${total}</div><div class="login-user-grid-wrap"><div class="login-user-grid">${cells.join("")}</div></div></div>`;
+  }).join("");
+
+  const legend = [0, 1, 2, 3, 4];
+  container.innerHTML = `
+    <div class="login-heatmap">
+      <div class="login-months">
+        ${monthLabels.map(m=>`<div>${m}</div>`).join("")}
+      </div>
+      <div class="login-col-head-row">
+        <div class="login-col-head-grid">${headerCells.join("")}</div>
+      </div>
+      <div class="login-users-stack">
+        ${userRows || `<div class="login-empty">Aucune connexion dans la période.</div>`}
+      </div>
+      <div class="login-legend">
+        <span>Moins</span>
+        ${legend.map((i)=>`<span class="login-cell lv${i}"></span>`).join("")}
+        <span>Plus</span>
+      </div>
+    </div>
+  `;
+  return {clamped: clamp.clamped, start: clamp.start, end: clamp.end, totalUsers: userKeys.length};
+}
+
+async function initLoginJournalUI(){
+  const wrap = el("cfg_login_heatmap");
+  const startInput = el("cfg_login_start");
+  const endInput = el("cfg_login_end");
+  const status = el("cfg_login_status");
+  const logBox = el("cfg_login_log");
+  const logHead = document.querySelector(".login-log-head");
+  if(!wrap || !startInput || !endInput) return;
+  if(!loginRangeEnd){
+    const end = new Date();
+    loginRangeEnd = end.toISOString().slice(0,10);
+  }
+  if(!loginRangeStart){
+    const start = new Date();
+    start.setDate(start.getDate()-29);
+    loginRangeStart = start.toISOString().slice(0,10);
+  }
+  if(!startInput.value) startInput.value = loginRangeStart;
+  if(!endInput.value) endInput.value = loginRangeEnd;
+  const events = await loadLoginsFromSupabase(
+    toISODateStart(parseInputDate(startInput.value)),
+    toISODateEnd(parseInputDate(endInput.value))
+  );
+  const info = buildLoginHeatmap(wrap, events, startInput.value, endInput.value);
+  if(status){
+    const err = localStorage.getItem("login_log_last_error");
+    const count = (events || []).length;
+    if(err){
+      status.textContent = `Erreur Supabase: ${err}`;
+    }else{
+      const extra = info?.clamped ? " (affichage limité à 30 jours)" : "";
+      status.textContent = `Connexions: ${count}${extra}`;
+    }
+    status.classList.toggle("is-error", !!err);
+  }
+  if(logBox){
+    const rows = (events || []).slice();
+    const dir = loginLogSortDir === "asc" ? 1 : -1;
+    rows.sort((a,b)=>{
+      const va = (a[loginLogSortKey] || "").toString().toLowerCase();
+      const vb = (b[loginLogSortKey] || "").toString().toLowerCase();
+      if(va < vb) return -1 * dir;
+      if(va > vb) return 1 * dir;
+      return 0;
+    });
+    const html = rows.slice(0, 200).map((ev, idx)=>{
+      const d = ev.ts ? new Date(ev.ts) : null;
+      const dateStr = d && !isNaN(d) ? d.toLocaleString("fr-FR") : "";
+      const name = ev.name || "";
+      const email = ev.email || "";
+      const role = (ev.role||"") === "admin" ? "Admin" : "Utilisateur";
+      const delay = Math.min(idx * 24, 300);
+      return `<div class="login-log-row" style="animation-delay:${delay}ms"><span>${dateStr}</span><span>${name}</span><span>${email}</span><span>${role}</span><span>1</span></div>`;
+    }).join("");
+    logBox.innerHTML = html || `<div class="login-empty">Aucune connexion dans la période.</div>`;
+  }
+  if(logHead){
+    logHead.querySelectorAll(".login-log-sort").forEach(btn=>{
+      btn.classList.toggle("active", btn.dataset.sort === loginLogSortKey);
+      btn.classList.toggle("asc", btn.dataset.sort === loginLogSortKey && loginLogSortDir === "asc");
+      btn.classList.toggle("desc", btn.dataset.sort === loginLogSortKey && loginLogSortDir === "desc");
+    });
+  }
+}
+
+
+function getMasterGanttExportRange(tasksAllOverride=null){
+  const tasks = (tasksAllOverride || filteredTasks()).filter(t=>t.start && t.end);
+  const {min, max} = getTasksDateBounds(tasks);
+  if(!min || !max) return null;
+  const typeNode = el("ganttExportRangeType");
+  const yearNode = el("ganttExportRangeYear");
+  const startNode = el("ganttExportRangeStart");
+  const endNode = el("ganttExportRangeEnd");
+  const type = typeNode ? typeNode.value : "all";
+  if(type === "all"){
+    const start = new Date(min.getFullYear(), 0, 1);
+    const end = new Date(max.getFullYear(), 11, 31);
+    end.setHours(23,59,59,999);
+    return {start, end};
+  }
+  if(type === "custom"){
+    let s = parseInputDate(startNode?.value) || min;
+    let e = parseInputDate(endNode?.value) || max;
+    if(e < s){ const tmp = s; s = e; e = tmp; }
+    return {start:s, end:e};
+  }
+  let year = parseInt(yearNode?.value || String(min.getFullYear()),10);
+  if(isNaN(year)){
+    year = min.getFullYear();
+  }
+  const endOfDay = (d)=>{ const x=new Date(d.getTime()); x.setHours(23,59,59,999); return x; };
+  if(type === "civil"){
+    return {start:new Date(year,0,1), end:endOfDay(new Date(year,11,31))};
+  }
+  // school year: 1er sept -> 31 aout (annee suivante)
+  const schoolYear = (min.getMonth() >= 8) ? min.getFullYear() : (min.getFullYear() - 1);
+  if(isNaN(year)) year = schoolYear;
+  return {start:new Date(year,8,1), end:endOfDay(new Date(year+1,7,31))};
+}
+
+function initGanttExportRangeUI(tasksAllOverride=null){
+  const tasks = (tasksAllOverride || filteredTasks()).filter(t=>t.start && t.end);
+  const {min, max} = getTasksDateBounds(tasks);
+  const typeNode = el("ganttExportRangeType");
+  const yearNode = el("ganttExportRangeYear");
+  const startNode = el("ganttExportRangeStart");
+  const endNode = el("ganttExportRangeEnd");
+  if(!typeNode || !yearNode || !startNode || !endNode) return;
+  if(!min || !max){
+    startNode.value = "";
+    endNode.value = "";
+    yearNode.innerHTML = "";
+    return;
+  }
+  const minYear = min.getFullYear() - 1;
+  const maxYear = max.getFullYear() + 1;
+  const prevType = yearNode.dataset.rangeType || "";
+  let opts = "";
+  const isSchool = (typeNode.value === "school");
+  for(let y=minYear; y<=maxYear; y++){
+    const label = isSchool ? `${y}-${y+1}` : `${y}`;
+    opts += `<option value="${y}">${label}</option>`;
+  }
+  yearNode.innerHTML = opts;
+  if(!yearNode.value || prevType !== typeNode.value){
+    let defaultYear = min.getFullYear();
+    if(typeNode.value === "school"){
+      defaultYear = (min.getMonth() >= 8) ? min.getFullYear() : (min.getFullYear() - 1);
+    }
+    yearNode.value = String(defaultYear);
+  }
+  yearNode.dataset.rangeType = typeNode.value;
+  if(!startNode.value) startNode.value = toDateInput(min);
+  if(!endNode.value) endNode.value = toDateInput(max);
+  const showDates = (typeNode.value === "custom");
+  const showYear = (typeNode.value === "civil" || typeNode.value === "school");
+  startNode.style.display = showDates ? "inline-block" : "none";
+  endNode.style.display = showDates ? "inline-block" : "none";
+  yearNode.style.display = showYear ? "inline-block" : "none";
+  renderGanttExportSites();
+}
+
+function syncWorkloadFilterUI(tasks, boundsTasks=tasks, uiIds=null, stateRef=null){
+
+  const typeSel = el("workloadRangeType");
+
+  const yearSel = el("workloadRangeYear");
+
+  const startInput = el("workloadRangeStart");
+
+  const endInput = el("workloadRangeEnd");
+
+  const typeNode = uiIds ? el(uiIds.type) : typeSel;
+
+  const yearNode = uiIds ? el(uiIds.year) : yearSel;
+
+  const startNode = uiIds ? el(uiIds.start) : startInput;
+
+  const endNode = uiIds ? el(uiIds.end) : endInput;
+
+  if(!typeNode || !yearNode || !startNode || !endNode) return;
+
+  const {min, max} = getTasksDateBounds(boundsTasks);
+
+  if(!min || !max) return;
+
+  const minYear = min.getFullYear() - 1;
+
+  const maxYear = max.getFullYear() + 1;
+
+  const st = stateRef || {type:workloadRangeType, year:workloadRangeYear, start:workloadRangeStart, end:workloadRangeEnd};
+  const type = st.type || "all";
+  const prevType = yearNode.dataset.rangeType || "";
+  const defaultSchoolYear = (min.getMonth() >= 8) ? min.getFullYear() : (min.getFullYear() - 1);
+
+  if(!st.start) st.start = toDateInput(min);
+  if(!st.end) st.end = toDateInput(max);
+  if(!st.year || prevType !== type){
+    st.year = String(type === "school" ? defaultSchoolYear : min.getFullYear());
+  }
+
+  // options années
+  let opts="";
+  for(let y=minYear; y<=maxYear; y++){
+    const label = (type === "school") ? `${y}-${y+1}` : `${y}`;
+    opts += `<option value="${y}">${label}</option>`;
+  }
+  yearNode.innerHTML = opts;
+  yearNode.value = st.year;
+  yearNode.dataset.rangeType = type;
+  typeNode.value = type;
+
+  startNode.value = st.start;
+
+  endNode.value = st.end;
+
+  const showDates = (typeNode.value==="custom");
+
+  const showYear = (typeNode.value==="civil" || typeNode.value==="school");
+
+  startNode.style.display = showDates ? "inline-block" : "none";
+
+  endNode.style.display = showDates ? "inline-block" : "none";
+
+  yearNode.style.display = showYear ? "inline-block" : "none";
+
+  if(stateRef){
+
+    stateRef.type = typeNode.value;
+
+    stateRef.year = yearNode.value;
+
+    stateRef.start = startNode.value;
+
+    stateRef.end = endNode.value;
+
+  }
+
+}
+
+function isWeekday(d){
+
+  const day = d.getDay();
+
+  return day >= 1 && day <= 5; // lundi-vendredi
+
+}
+
+function countWeekdays(start, end){
+
+  if(!start || !end || end < start) return 0;
+
+  let count = 0;
+
+  for(let d=new Date(start); d<=end; d.setDate(d.getDate()+1)){
+
+    if(isWeekday(d)) count += 1;
+
+  }
+
+  return count;
+
+}
+
+function durationDays(start,end){
+
+  if(!start || !end) return "";
+
+  const s=new Date(start+"T00:00:00");
+
+  const e=new Date(end+"T00:00:00");
+
+  if(isNaN(s) || isNaN(e) || e<s) return "";
+
+  const days = countWeekdays(s, e);
+
+  return days>0 ? days : "";
+
+}
+
+function hoursPerDayForOwner(owner){
+  const typ = ownerType(owner);
+  const h = getHoursConfig();
+  if(typ === "rsg") return h.rsg;
+  if(typ === "ri") return (h.ri !== undefined ? h.ri : h.rsg);
+  if(typ === "externe") return h.external;
+  return h.internal;
+}
+
+function durationLabelForTask(task){
+  if(!task) return "";
+  const days = durationDays(task.start, task.end);
+  if(!days && days !== 0) return "";
+  const totals = getTaskTimeTotals(task);
+  const realLabel = `réel ${formatHoursMinutes(totals.totalMinutes || 0)}`;
+  return `${days} j (${realLabel})`;
+}
+
+function taskTitle(t){
+
+  const p = state?.projects?.find(x=>x.id===t.projectId);
+
+  const projectName = (p?.name||"Projet").trim();
+
+  const sub = (p?.subproject||"").trim();
+
+  const desc = (t.roomNumber||"").trim();
+
+  if(sub && desc) return `${projectName} - ${sub} - ${desc}`;
+
+  if(sub) return `${projectName} - ${sub}`;
+
+  if(desc) return `${projectName} - ${desc}`;
+
+  return projectName;
+
+}
+
+
+
+function ganttLaneTitle(t){
+
+  const p = state?.projects?.find(x=>x.id===t.projectId);
+
+  const projectName = (p?.name || "Sans projet").trim() || "Sans projet";
+
+  const desc = (t.roomNumber || "").trim();
+
+  return desc ? `${projectName} - ${desc}` : projectName;
+
+}
+
+
+
+function computeTaskOrderMap(){
+
+  const map={};
+
+  state.projects.forEach(p=>{
+
+    const tasks=state.tasks.filter(t=>t.projectId===p.id);
+
+    tasks.sort((a,b)=>{
+
+      const sa = Date.parse(a.start||"9999-12-31");
+
+      const sb = Date.parse(b.start||"9999-12-31");
+
+      if(sa!==sb) return sa-sb;
+
+      const ea = Date.parse(a.end||"9999-12-31");
+
+      const eb = Date.parse(b.end||"9999-12-31");
+
+      if(ea!==eb) return ea-eb;
+
+      return (a.roomNumber||"").localeCompare(b.roomNumber||"");
+
+    });
+
+    tasks.forEach((t,i)=>{ map[t.id]=i+1; });
+
+  });
+
+  taskOrderMap=map;
+
+}
+
+
+
+// Gantt helpers
+
+function startOfWeek(d){
+
+  const x=new Date(d.getTime());
+
+  const day=(x.getDay()+6)%7; // lundi=0
+
+  x.setDate(x.getDate()-day);
+
+  x.setHours(0,0,0,0);
+
+  return x;
+
+}
+
+function endOfWorkWeek(d){
+
+  const x=new Date(d.getTime());
+
+  // vendredi = lundi + 4 jours
+
+  x.setDate(x.getDate()+4);
+
+  x.setHours(23,59,59,999);
+
+  return x;
+
+}
+
+function endOfWeek(d){
+  const x = startOfWeek(d);
+  x.setDate(x.getDate()+6);
+  x.setHours(23,59,59,999);
+  return x;
+}
+
+function addDays(d,n){ const x=new Date(d.getTime()); x.setDate(x.getDate()+n); return x; }
+
+// --- Vacances scolaires (Zone B) par NUMÉROS de semaines ---
+// Format : { "2025-2026": [8,9,16,17,28,29,30,31,32,33,34,35,43,44,52] }
+const DEFAULT_VACANCES_ZONE_B_WEEKS = {
+  "2025-2026": [8,9,16,17,28,29,30,31,32,33,34,35,43,44,52]
+};
+// --- Vacances internes (entreprise) par NUMÉROS de semaines ---
+// Format : { "2025-2026": [9,17,30,31,32,33] }
+const DEFAULT_VACANCES_INTERNE_WEEKS = {
+  "2025-2026": [9,17,30,31,32,33]
+};
+let VACANCES_ZONE_B_WEEKS = deepClone(DEFAULT_VACANCES_ZONE_B_WEEKS);
+let VACANCES_INTERNE_WEEKS = deepClone(DEFAULT_VACANCES_INTERNE_WEEKS);
+function getSchoolYearKey(d){
+  const y = d.getFullYear();
+  const m = d.getMonth(); // 0=janv
+  // année scolaire : septembre -> août
+  return (m >= 8) ? `${y}-${y+1}` : `${y-1}-${y}`;
+}
+
+function taskTitleProjectView(t){
+  const p = state?.projects?.find(x=>x.id===t.projectId);
+  const sub = (p?.subproject||"").trim();
+  const desc = (t.roomNumber||"").trim();
+  if(sub && desc) return `${sub} - ${desc}`;
+  if(sub) return sub;
+  if(desc) return desc;
+  return (p?.name||"Projet").trim();
+}
+function isVacationWeek(weekStart){
+  const info = isoWeekInfo(weekStart);
+  const schoolYear = getSchoolYearKey(weekStart);
+  const list = VACANCES_ZONE_B_WEEKS[schoolYear] || [];
+  return list.includes(info.week);
+}
+function isInternalVacationWeek(weekStart){
+  const info = isoWeekInfo(weekStart);
+  const schoolYear = getSchoolYearKey(weekStart);
+  const list = VACANCES_INTERNE_WEEKS[schoolYear] || [];
+  return list.includes(info.week);
+}
+
+function normalizeWeekList(raw){
+  if(!raw) return [];
+  const nums = (Array.isArray(raw) ? raw : raw.toString().split(/[,; \n]+/g))
+    .map(v=>parseInt(v,10))
+    .filter(v=>Number.isFinite(v) && v>=1 && v<=53);
+  return Array.from(new Set(nums)).sort((a,b)=>a-b);
+}
+function normalizeVacationMap(map){
+  const out = {};
+  if(!map || typeof map!=="object") return out;
+  Object.keys(map).forEach(k=>{
+    const weeks = normalizeWeekList(map[k]);
+    if(weeks.length) out[k]=weeks;
+  });
+  return out;
+}
+function applyVacationConfig(){
+  const cfg = loadConfig();
+  const school = normalizeVacationMap(cfg.vacances_school || {});
+  const internal = normalizeVacationMap(cfg.vacances_internal || {});
+  VACANCES_ZONE_B_WEEKS = Object.assign({}, deepClone(DEFAULT_VACANCES_ZONE_B_WEEKS), school);
+  VACANCES_INTERNE_WEEKS = Object.assign({}, deepClone(DEFAULT_VACANCES_INTERNE_WEEKS), internal);
+}
+function getVacationYears(){
+  const years = new Set([
+    ...Object.keys(VACANCES_ZONE_B_WEEKS||{}),
+    ...Object.keys(VACANCES_INTERNE_WEEKS||{})
+  ]);
+  return Array.from(years).sort();
+}
+
+function overlapDays(aStart,aEnd,bStart,bEnd){
+
+  const start = Math.max(aStart.getTime(), bStart.getTime());
+
+  const end   = Math.min(aEnd.getTime(), bEnd.getTime());
+
+  if(end < start) return 0;
+
+  const diff = (end - start)/(1000*60*60*24);
+
+  return Math.floor(diff)+1;
+
+}
+
+function barGeometry(taskStart, taskEnd, weekStart){
+
+  const weekEnd = addDays(weekStart,4); // semaine ouvre
+
+  const start = taskStart > weekStart ? taskStart : weekStart;
+
+  const end = taskEnd < weekEnd ? taskEnd : weekEnd;
+
+  const days = countWeekdays(start, end);
+
+  if(days<=0) return {days:0,width:0,offset:0};
+
+  let offsetDays = 0;
+
+  if(taskStart > weekStart){
+
+    const offsetEnd = addDays(taskStart, -1);
+
+    const offsetLimit = offsetEnd < weekEnd ? offsetEnd : weekEnd;
+
+    offsetDays = countWeekdays(weekStart, offsetLimit);
+
+  }
+
+  const offsetPct  = Math.min(100, (offsetDays/5)*100);
+
+  let widthPct = (days/5)*100;
+
+  // éviter dépassement au-delà de la cellule
+
+  if(offsetPct + widthPct > 100) widthPct = 100 - offsetPct;
+
+  widthPct = Math.max(12, Math.min(100, widthPct));
+
+  return {days, width:widthPct, offset:offsetPct};
+
+}
+
+function isoWeekInfo(d){
+
+  const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+
+  const day = date.getUTCDay() || 7;
+
+  date.setUTCDate(date.getUTCDate() + 4 - day);
+
+  const yearStart = new Date(Date.UTC(date.getUTCFullYear(),0,1));
+
+  const weekNo = Math.ceil(((date - yearStart)/86400000 +1)/7);
+
+  return {week:weekNo, year:date.getUTCFullYear()};
+
+}
+
+
+
+function weekKey(d){
+
+  const info=isoWeekInfo(d);
+
+  return `${info.year}-S${String(info.week).padStart(2,"0")}`;
+
+}
+
+function keyToLabel(key, mode){
+
+  if(mode==="day"){
+
+    const [y,m,da]=key.split("-");
+
+    return `${da}/${m}`;
+
+  }
+
+  // week
+
+  const parts=key.split("-S");
+
+  if(parts.length===2) return `S${parts[1]}/${String(parts[0]).slice(2)}`;
+
+  return key;
+
+}
+
+
+
+function computeWorkloadData(tasks, mode="week", rangeStart=null, rangeEnd=null){
+
+  const map = new Map(); // key -> {internal, external, rsg, ri, total, anchor}
+
+  const ids = new Set((tasks || []).map(t=>t.id));
+  const roleByTask = new Map((tasks || []).map(t=>[t.id, getTaskRoleKey(t)]));
+  const rangeByTask = new Map((tasks || []).map(t=>[t.id, {start:t.start||"", end:t.end||""}]));
+  if(ids.size === 0) return [];
+
+  getCanonicalTimeLogs().forEach(l=>{
+    if(!ids.has(l.taskId)) return;
+    if(!l.date) return;
+    const d = new Date(l.date+"T00:00:00");
+    if(isNaN(d)) return;
+    const range = rangeByTask.get(l.taskId);
+    if(range?.start && l.date < range.start) return;
+    if(range?.end && l.date > range.end) return;
+    if(rangeStart && d < rangeStart) return;
+    if(rangeEnd && d > rangeEnd) return;
+
+    const key = mode==="day" ? l.date : weekKey(d);
+    const anchor = mode==="day" ? d.getTime() : startOfWeek(d).getTime();
+    if(!map.has(key)) map.set(key,{internal:0,external:0,rsg:0,ri:0,total:0,anchor});
+    const slot = map.get(key);
+
+    const roleExpected = roleByTask.get(l.taskId);
+    const role = normalizeTimeLogRole(l);
+    if(roleExpected && role !== roleExpected) return;
+    const hours = (Number(l.minutes||0) / 60);
+    if(!hours) return;
+    const mult = (typeof roleHoursMultiplier === "function")
+      ? roleHoursMultiplier(role)
+      : (role === "interne" ? 2 : 1);
+    const weightedHours = hours * mult;
+    if(role==="rsg") slot.rsg+=weightedHours;
+    else if(role==="ri") slot.ri+=weightedHours;
+    else if(role==="interne") slot.internal+=weightedHours;
+    else slot.external+=weightedHours;
+    slot.total = slot.internal + slot.external + slot.rsg + slot.ri;
+  });
+
+  const arr = Array.from(map.entries()).map(([key,val])=>({...val,key}));
+  arr.sort((a,b)=> a.anchor - b.anchor);
+  return arr;
+
+}
+
+
+
+function niceMax(v){
+
+  if(v<=5) return 5;
+
+  const pow = Math.pow(10, Math.floor(Math.log10(v)));
+
+  const mul = Math.ceil(v / pow);
+
+  if(mul<=2) return 2*pow;
+
+  if(mul<=5) return 5*pow;
+
+  return 10*pow;
+
+}
+
+
+
+function renderGantt(projectId){
+
+  const wrap = el("gantt");
+
+  const legend = el("legend");
+
+  if(legend){
+
+    legend.innerHTML = sortedStatuses().map(s=>{
+
+      const c = STATUS_COLORS[s.v] || "#2563eb";
+
+      return `<span class="legend-item"><span class="legend-dot" style="background:${c};border-color:${c}"></span><span style="color:#111827;font-weight:600;">${s.label}</span></span>`;
+
+    }).join("");
+
+  }
+
+  if(!wrap) return;
+
+  const tasks = state.tasks.filter(t=>t.projectId===projectId && t.start && t.end);
+  const missingMap = buildMissingDaysMap(tasks);
+
+  if(tasks.length===0){
+
+    wrap.innerHTML="<div class='gantt-empty'>Aucune tâche date.</div>";
+
+    return;
+
+  }
+
+  const minStart = tasks.map(t=>new Date(t.start+"T00:00:00")).reduce((a,b)=>a<b?a:b);
+
+  const maxEnd   = tasks.map(t=>new Date(t.end+"T00:00:00")).reduce((a,b)=>a>b?a:b);
+
+  const weeks=[];
+  for(let w=startOfWeek(minStart); w<=addDays(startOfWeek(maxEnd),0); w=addDays(w,7)) weeks.push(new Date(w));
+  const vacWeeks = weeks.map(w=>isVacationWeek(w));
+  const internalVacWeeks = weeks.map(w=>isInternalVacationWeek(w));
+
+
+
+  // tri pour garder un ordre stable
+
+  tasks.sort((a,b)=>{
+    const sa=Date.parse(a.start||"9999-12-31"), sb=Date.parse(b.start||"9999-12-31");
+    if(sa!==sb) return sa-sb;
+    const ea=Date.parse(a.end||"9999-12-31"), eb=Date.parse(b.end||"9999-12-31");
+    if(ea!==eb) return ea-eb;
+    return taskTitle(a).localeCompare(taskTitle(b),"fr",{sensitivity:"base"});
+  });
+
+
+
+  let html="<div class='tablewrap gantt-table'><table class='table' style='--gcol0:70px;--gcol1:200px;--gcol2:120px;--gcol3:120px'>";
+
+  html+="<thead><tr><th class='gantt-col-site' style='width:70px'>Site / Zone</th><th class='gantt-task-col-project gantt-col-task'>Nom</th><th class='gantt-col-vendor' style='width:120px'>Prestataire</th><th class='gantt-col-status' style='width:120px'>Statut</th>";
+
+  weeks.forEach((w,i)=>{
+
+    const info=isoWeekInfo(w);
+
+    const wEnd=endOfWorkWeek(w);
+
+    const range=`${w.toLocaleDateString("fr-FR",{day:"2-digit"})}-${wEnd.toLocaleDateString("fr-FR",{day:"2-digit"})}/${wEnd.toLocaleDateString("fr-FR",{month:"2-digit",year:"2-digit"})}`;
+
+    const weekLabel = `S${String(info.week).padStart(2,"0")}`;
+
+    const mondayLabel = formatShortDateTwoLinesHTML(w);
+
+    const todayClass = isTodayInWeek(w) ? " week-today" : "";
+    const vacClass = vacWeeks[i] ? " vac-week" : "";
+    const internalVacClass = internalVacWeeks[i] ? " vac-week-internal" : "";
+    html+=`<th class="week-cell${todayClass}${vacClass}${internalVacClass}" data-range="${range}" style='width:72px;color:#111827'>${weekLabel}<div class="gantt-week-date">${mondayLabel}</div></th>`;
+
+  });
+
+  html+="</tr></thead><tbody>";
+
+
+
+  // 1 ligne par tâche (plus de regroupement)
+
+  tasks.forEach((t,rowIdx)=>{
+
+    const statuses = parseStatuses(t.status).map(v=>v.toUpperCase());
+
+    const mainStatus = statuses[0] || "";
+
+    const color = ownerColor(t.owner);
+
+    const ownerBadges = t.owner ? ownerBadgeForTask(t) : "";
+
+    const vendorBadges = (()=> {
+
+      const set = new Set();
+
+      if(t.vendor) set.add(t.vendor);
+
+      const typ = ownerType(t.owner);
+      if(typ === "interne") set.add("INTERNE");
+      if(typ === "rsg") set.add("RSG");
+      if(typ === "ri") set.add("RI");
+      if(typ === "externe" && !t.vendor) set.add("Prestataire non renseigné");
+
+      if(set.size===0) return "<span class='text-muted'></span>";
+
+      return Array.from(set).sort((a,b)=>a.localeCompare(b,"fr",{sensitivity:"base"}))
+
+        .map(v=>vendorBadge(v)).join(" ");
+
+    })();
+
+
+
+    const todayKey = new Date().toISOString().slice(0,10);
+    const isToday = !!(t.start && t.end && t.start<=todayKey && t.end>=todayKey);
+    const isLate = !!(t.end && t.end < todayKey);
+    const rowClass = t.id===selectedTaskId ? "gantt-row gantt-row-active" : "gantt-row";
+    const rowClassWithToday = `${rowClass}${isToday ? " today-row" : ""}${isLate ? " late-row" : ""}`;
+    html+=`<tr class="${rowClassWithToday}" data-task="${t.id}" onclick="openTaskFromGantt('${t.id}')">`;
+    const p = state?.projects?.find(x=>x.id===t.projectId);
+
+    const sub = (p?.subproject || "").trim();
+
+    const taskDesc = (t.roomNumber || "").trim();
+
+    const label = [sub, taskDesc].filter(Boolean).join("  ");
+
+    const siteLabel = (p?.site || "").trim();
+    html+=`<td class="gantt-col-site">${attrEscape(siteLabel || "")}</td>`;
+    const miss = missingMap.get(t.id) || 0;
+    const missDot = miss>0 ? `<span class="missing-dot" title="Heures réelles manquantes (${miss} j)"></span>` : "";
+    html+=`<td class="gantt-task-col-project gantt-col-task">${missDot}<b><span class="num-badge" style="--badge-color:${color};--badge-text:#fff;">${taskOrderMap[t.id]||""}</span></b> <span class="gantt-task-name">${attrEscape(label)}</span></td>`;
+
+    html+=`<td class="gantt-vendor-cell gantt-col-vendor"><div class="vendor-stack">${vendorBadges}</div></td>`;
+
+    html+=`<td class="gantt-status-cell gantt-col-status"><div class="gantt-status-stack"><div class="status-row"><span>${statusLabels(mainStatus)}</span></div></div></td>`;
+
+
+
+    weeks.forEach((w,i)=>{
+
+      const sDate=new Date(t.start+"T00:00:00");
+
+      const eDate=new Date(t.end+"T00:00:00");
+
+      const geo=barGeometry(sDate,eDate,w);
+
+      if(geo.days>0){
+
+        const title = t.vendor ? ` title="Prestataire : ${attrEscape(t.vendor)}"` : "";
+
+        const vacClass = vacWeeks[i] ? " vac-week" : "";
+        const internalVacClass = internalVacWeeks[i] ? " vac-week-internal" : "";
+        const barDelay = (rowIdx * 0.03 + i * 0.015).toFixed(3);
+        html+=`<td class="gantt-cell${vacClass}${internalVacClass}"><div class="gantt-cell-inner"><div class="bar-wrapper"><div class="gantt-bar bar-click" data-task="${t.id}" data-status="${mainStatus}"${title} style="width:${geo.width}%;margin-left:${geo.offset}%;background:${color};border-color:${color};--bar-delay:${barDelay}s"><span class="gantt-days">${geo.days} j</span></div></div></div></td>`;
+
+      }else{
+
+        const vacClass = vacWeeks[i] ? " vac-week" : "";
+        const internalVacClass = internalVacWeeks[i] ? " vac-week-internal" : "";
+        html+=`<td class="gantt-cell${vacClass}${internalVacClass}"><div class="gantt-cell-inner"><div class="gantt-spacer"></div></div></td>`;
+
+      }
+
+    });
+
+
+
+    html+="</tr>";
+
+  });
+
+
+
+  html+="</tbody></table></div>";
+
+  wrap.innerHTML=html;
+
+  applyGanttColumnVisibility();
+
+  wrap.querySelectorAll(".bar-click")?.forEach(bar=>{
+
+    bar.onclick=()=>{
+
+      const taskId = bar.dataset.task;
+
+      const task = state.tasks.find(x=>x.id===taskId);
+
+      if(!task) return;
+
+      selectedProjectId = task.projectId;
+
+      selectedTaskId = taskId;
+
+      renderProject();
+
+    };
+
+  });
+
+  wrap.querySelectorAll("tbody tr[data-task] td")?.forEach(td=>{
+
+    td.onclick=(e)=>{
+
+      if(e.target && e.target.closest(".bar-click")) return;
+
+      const row = e.currentTarget?.parentElement;
+
+      if(!row || !row.dataset.task) return;
+
+      const taskId = row.dataset.task;
+
+      const task = state.tasks.find(x=>x.id===taskId);
+
+      if(!task) return;
+
+      selectedProjectId = task.projectId;
+
+      selectedTaskId = taskId;
+
+      renderProject();
+
+    };
+
+  });
+
+}
+
+
+
+function renderProjectTasks(projectId){
+
+  const tbody = el("projectTasksTable")?.querySelector("tbody");
+
+  if(!tbody) return;
+
+  const tasks = state.tasks.filter(t=>t.projectId===projectId);
+
+  const sorted = sortTasks(tasks, sortProject);
+
+  if(sorted.length===0){
+
+    tbody.innerHTML="<tr><td colspan='7' class='empty-row'>Aucune tâche</td></tr>";
+
+    return;
+
+  }
+
+  let h="";
+  const missingMap = buildMissingDaysMap(sorted);
+
+  sorted.forEach(t=>{
+
+    const statuses = parseStatuses(t.status).map(v=>v.toUpperCase());
+
+    const c = ownerColor(t.owner);
+
+    const ownerBadgeHtml = t.owner ? ownerBadgeForTask(t) : "";
+    const durLabel = durationLabelForTask(t);
+    const todayKey = new Date().toISOString().slice(0,10);
+    const isToday = !!(t.start && t.end && t.start<=todayKey && t.end>=todayKey);
+    const isLate = !!(t.end && t.end < todayKey);
+    const isSelected = t.id===selectedTaskId;
+    const rowClass = `${isSelected ? "row-selected " : ""}${isToday ? "today-row " : ""}${isLate ? "late-row" : ""}`.trim();
+
+    const miss = missingMap.get(t.id) || 0;
+    const missDot = miss>0 ? `<span class="missing-dot" title="Heures réelles manquantes (${miss} j)"></span>` : "";
+    h+=`<tr class="${rowClass}" data-task="${t.id}">
+
+      <td>${missDot}<span class="num-badge" style="--badge-color:${c};--badge-text:#fff;">${taskOrderMap[t.id]||""}</span></td>
+
+      <td><span class="icon-picto"></span> ${taskTitleProjectView(t)}</td>
+
+      <td class="status-cell"><span class="status-left">${statusDot(statuses[0])}${statusLabels(t.status||"")}</span>${ownerBadgeHtml||""}</td>
+
+      <td>${formatDate(t.start)||""}${isToday ? `<span class="today-dot" title="En cours aujourd'hui"></span>` : ""}</td>
+
+      <td>${formatDate(t.end)||""}</td>
+
+      <td>${taskProgress(t)}%</td>
+      <td>${durLabel}</td>
+
+    </tr>`;
+
+  });
+
+  tbody.innerHTML=h;
+
+  tbody.querySelectorAll("tr").forEach(row=>{
+    row.onclick=()=>{
+      if(!row.dataset.task) return;
+      selectTaskInProject(row.dataset.task);
+    };
+  });
+  updateSortIndicators("projectTasksTable", sortProject);
+
+  const pf = el("projectFiltersBadge");
+
+  if(pf){
+
+    const active = (sortProject.key!=="start" || sortProject.dir!=="asc");
+
+    updateBadge(pf, active, "Tri/filtre actif", "Tri par défaut");
+    updateResetSortButtonVisual(el("btnResetSortProject"), active);
+
+  }
+
+}
+
+
+
+// Nouvelle version : 1 tâche = 1 ligne dans le gantt maître
+
+function buildMasterGanttHTMLForRange(rangeStart=null, rangeEnd=null, tasksOverride=null){
+  const tasksAll = (tasksOverride || filteredTasks()).filter(t=>t.start && t.end);
+  if(tasksAll.length===0) return "<div class='gantt-empty'>Aucune tâche date.</div>";
+
+  const rs = rangeStart || null;
+  const re = rangeEnd || null;
+  const tasks = (!rs || !re) ? tasksAll : tasksAll.filter(t=>{
+    const s = new Date(t.start+"T00:00:00");
+    const e = new Date(t.end+"T00:00:00");
+    return e >= rs && s <= re;
+  });
+
+  if(tasks.length===0) return "<div class='gantt-empty'>Aucune tâche date.</div>";
+  const missingMap = buildMissingDaysMap(tasks);
+
+  const minStart = rs || tasks.map(t=>new Date(t.start+"T00:00:00")).reduce((a,b)=>a<b?a:b);
+  const maxEnd   = re || tasks.map(t=>new Date(t.end+"T00:00:00")).reduce((a,b)=>a>b?a:b);
+  // Afficher la totalité des semaines concernées par la période choisie
+  const displayStart = rs ? startOfWeek(rs) : minStart;
+  const displayEnd = re ? endOfWeek(re) : endOfWeek(maxEnd);
+
+  const weeks=[];
+  for(let w=startOfWeek(displayStart); w<=addDays(startOfWeek(displayEnd),0); w=addDays(w,7)) weeks.push(new Date(w));
+  const vacWeeks = weeks.map(w=>isVacationWeek(w));
+  const internalVacWeeks = weeks.map(w=>isInternalVacationWeek(w));
+
+  tasks.sort((a,b)=>{
+    const sa=Date.parse(a.start||"9999-12-31"), sb=Date.parse(b.start||"9999-12-31");
+    if(sa!==sb) return sa-sb;
+    const ea=Date.parse(a.end||"9999-12-31"), eb=Date.parse(b.end||"9999-12-31");
+    if(ea!==eb) return ea-eb;
+    return taskTitle(a).localeCompare(taskTitle(b),"fr",{sensitivity:"base"});
+  });
+
+  const hideVendor = !ganttColVisibility.masterVendor;
+  const hideStatus = !ganttColVisibility.masterStatus;
+  const tableClass = `table${hideVendor ? " hide-vendor" : ""}${hideStatus ? " hide-status" : ""}`;
+
+  let html=`<div class='tablewrap gantt-table'><table class='${tableClass}' style='--gcol0:70px;--gcol1:120px;--gcol2:90px;--gcol3:90px'>`;
+  html+="<thead><tr><th class='gantt-col-site' style='width:70px'>Site / Zone</th><th class='gantt-col-task' style='width:120px'>Tâche</th><th class='gantt-col-vendor' style='width:90px'>Prestataire</th><th class='gantt-col-status' style='width:90px'>Statut</th>";
+
+  weeks.forEach((w,i)=>{
+    const info=isoWeekInfo(w);
+    const wEnd=endOfWorkWeek(w);
+    const range=`${w.toLocaleDateString("fr-FR",{day:"2-digit"})}-${wEnd.toLocaleDateString("fr-FR",{day:"2-digit"})}/${wEnd.toLocaleDateString("fr-FR",{month:"2-digit",year:"2-digit"})}`;
+    const weekLabel = `${info.week}`;
+    const mondayLabel = formatShortDateTwoLinesHTML(w);
+    const todayClass = isTodayInWeek(w) ? " week-today" : "";
+    const vacClass = vacWeeks[i] ? " vac-week" : "";
+    const internalVacClass = internalVacWeeks[i] ? " vac-week-internal" : "";
+    html+=`<th class="week-cell${todayClass}${vacClass}${internalVacClass}" data-range="${range}" style='width:20px;color:#111827'>${weekLabel}<div class="gantt-week-date">${mondayLabel}</div></th>`;
+  });
+
+  html+="</tr></thead><tbody>";
+
+  tasks.forEach((t,rowIdx)=>{
+    const statuses = parseStatuses(t.status).map(v=>v.toUpperCase());
+    const mainStatus = statuses[0] || "";
+    const color = ownerColor(t.owner);
+    const p = state?.projects?.find(x=>x.id===t.projectId);
+    const projectName = (p?.name || "Projet").trim() || "Projet";
+    const vendorBadges = (()=>{
+      const set = new Set();
+      if(t.vendor) set.add(t.vendor);
+      const typ = ownerType(t.owner);
+      if(typ === "interne") set.add("INTERNE");
+      if(typ === "rsg") set.add("RSG");
+      if(typ === "ri") set.add("RI");
+      if(typ === "externe" && !t.vendor) set.add("Prestataire non renseigné");
+      if(set.size===0) return "<span class='text-muted'></span>";
+      return Array.from(set).sort((a,b)=>a.localeCompare(b,"fr",{sensitivity:"base"})).map(v=>vendorBadge(v)).join(" ");
+    })();
+
+    const todayKey = new Date().toISOString().slice(0,10);
+    const isToday = !!(t.start && t.end && t.start<=todayKey && t.end>=todayKey);
+    const isLate = !!(t.end && t.end < todayKey);
+    const rowClassWithToday = `gantt-row${isToday ? " today-row" : ""}${isLate ? " late-row" : ""}`;
+    html+=`<tr class="${rowClassWithToday}" data-task="${t.id}">`;
+    html+=`<td class="gantt-col-site">${attrEscape((p?.site || "").trim())}</td>`;
+    const miss = missingMap.get(t.id) || 0;
+    const missDot = miss>0 ? `<span class="missing-dot" title="Heures réelles manquantes (${miss} j)"></span>` : "";
+    html+=`<td class="gantt-col-task">${missDot}<span class="num-badge" style="--badge-color:${color};--badge-text:#fff;">${taskOrderMap[t.id]||""}</span> <span class="gantt-task-name">${attrEscape(projectName)}</span></td>`;
+    html+=`<td class="gantt-vendor-cell gantt-col-vendor"><div class="vendor-stack">${vendorBadges}</div></td>`;
+    html+=`<td class="gantt-status-cell gantt-col-status"><div class="gantt-status-stack"><div class="status-row"><span>${statusLabels(mainStatus)}</span></div></div></td>`;
+
+    weeks.forEach((w,i)=>{
+      const sDate=new Date(t.start+"T00:00:00");
+      const eDate=new Date(t.end+"T00:00:00");
+      const geo=barGeometry(sDate,eDate,w);
+      if(geo.days>0){
+        const title = t.vendor ? ` title="Prestataire : ${attrEscape(t.vendor)}"` : "";
+        const vacClass = vacWeeks[i] ? " vac-week" : "";
+        const internalVacClass = internalVacWeeks[i] ? " vac-week-internal" : "";
+        const barDelay = (rowIdx * 0.03 + i * 0.015).toFixed(3);
+        html+=`<td class="gantt-cell${vacClass}${internalVacClass}"><div class="gantt-cell-inner"><div class="bar-wrapper"><div class="gantt-bar" data-task="${t.id}" data-status="${mainStatus}"${title} style="width:${geo.width}%;margin-left:${geo.offset}%;background:${color};border-color:${color};--bar-delay:${barDelay}s"><span class="gantt-days">${geo.days} j</span></div></div></div></td>`;
+      }else{
+        const vacClass = vacWeeks[i] ? " vac-week" : "";
+        const internalVacClass = internalVacWeeks[i] ? " vac-week-internal" : "";
+        html+=`<td class="gantt-cell${vacClass}${internalVacClass}"><div class="gantt-cell-inner"><div class="gantt-spacer"></div></div></td>`;
+      }
+    });
+    html+="</tr>";
+  });
+
+  html+="</tbody></table></div>";
+  return html;
+}
+
+function buildProjectGanttHTMLForRange(rangeStart=null, rangeEnd=null, tasksOverride=null, plainOverride=null){
+  const tasksAll = (tasksOverride || []).filter(t=>t.start && t.end);
+  if(tasksAll.length===0) return "<div class='gantt-empty'>Aucune tâche date.</div>";
+  const rs = rangeStart || null;
+  const re = rangeEnd || null;
+  const tasks = (!rs || !re) ? tasksAll : tasksAll.filter(t=>{
+    const s = new Date(t.start+"T00:00:00");
+    const e = new Date(t.end+"T00:00:00");
+    return e >= rs && s <= re;
+  });
+  if(tasks.length===0) return "<div class='gantt-empty'>Aucune tâche date.</div>";
+  const missingMap = buildMissingDaysMap(tasks);
+
+  const minStart = rs || tasks.map(t=>new Date(t.start+"T00:00:00")).reduce((a,b)=>a<b?a:b);
+  const maxEnd   = re || tasks.map(t=>new Date(t.end+"T00:00:00")).reduce((a,b)=>a>b?a:b);
+  const displayStart = rs ? startOfWeek(rs) : minStart;
+  const displayEnd = re ? endOfWeek(re) : endOfWeek(maxEnd);
+
+  const weeks=[];
+  for(let w=startOfWeek(displayStart); w<=addDays(startOfWeek(displayEnd),0); w=addDays(w,7)) weeks.push(new Date(w));
+  const vacWeeks = weeks.map(w=>isVacationWeek(w));
+  const internalVacWeeks = weeks.map(w=>isInternalVacationWeek(w));
+
+  tasks.sort((a,b)=>{
+    const oa=(taskOrderMap[a.id]||9999)-(taskOrderMap[b.id]||9999);
+    if(oa!==0) return oa;
+    const sa=Date.parse(a.start||"9999-12-31"), sb=Date.parse(b.start||"9999-12-31");
+    if(sa!==sb) return sa-sb;
+    return taskTitle(a).localeCompare(taskTitle(b));
+  });
+
+  const hideVendor = !ganttColVisibility.projectVendor;
+  const hideStatus = !ganttColVisibility.projectStatus;
+  const tableClass = `table${hideVendor ? " hide-vendor" : ""}${hideStatus ? " hide-status" : ""}`;
+
+  const isProjectPrint = (plainOverride===null)
+    ? (typeof document !== "undefined" && document.body && document.body.classList.contains("print-gantt-project"))
+    : !!plainOverride;
+
+  const buildTable = (subsetRows, rowOffset=0, plainMode=false)=>{
+    const tableCssClass = plainMode ? "table gantt-export-plain" : tableClass;
+    let html=`<div class='tablewrap gantt-table${plainMode ? " gantt-print-plain" : ""}'><table class='${tableCssClass}' style='--gcol1:120px;--gcol2:90px;--gcol3:90px'>`;
+    html+="<thead><tr><th class='gantt-task-col-project gantt-col-task'>Tâche</th><th class='gantt-col-vendor' style='width:90px'>Prestataire</th><th class='gantt-col-status' style='width:90px'>Statut</th>";
+
+    weeks.forEach((w,i)=>{
+      const info=isoWeekInfo(w);
+      const wEnd=endOfWorkWeek(w);
+      const range=`${w.toLocaleDateString("fr-FR",{day:"2-digit"})}-${wEnd.toLocaleDateString("fr-FR",{day:"2-digit"})}/${wEnd.toLocaleDateString("fr-FR",{month:"2-digit",year:"2-digit"})}`;
+      const weekLabel = `${info.week}`;
+      const mondayLabel = formatShortDateTwoLinesHTML(w);
+      const todayClass = isTodayInWeek(w) ? " week-today" : "";
+      const vacClass = vacWeeks[i] ? " vac-week" : "";
+      const internalVacClass = internalVacWeeks[i] ? " vac-week-internal" : "";
+      html+=`<th class="week-cell${todayClass}${vacClass}${internalVacClass}" data-range="${range}" style='width:20px;color:#111827'>${weekLabel}<div class="gantt-week-date">${mondayLabel}</div></th>`;
+    });
+
+    html+="</tr></thead><tbody>";
+
+    subsetRows.forEach((t,rowIdx)=>{
+      const statuses = parseStatuses(t.status).map(v=>v.toUpperCase());
+      const mainStatus = statuses[0] || "";
+      const color = ownerColor(t.owner);
+      const vendorBadges = (()=> {
+        const set = new Set();
+        if(t.vendor) set.add(t.vendor);
+        const typ = ownerType(t.owner);
+        if(typ === "interne") set.add("INTERNE");
+        if(typ === "rsg") set.add("RSG");
+        if(typ === "ri") set.add("RI");
+        if(typ === "externe" && !t.vendor) set.add("Prestataire non renseigné");
+        if(set.size===0) return "<span class='text-muted'></span>";
+        return Array.from(set).sort((a,b)=>a.localeCompare(b,"fr",{sensitivity:"base"})).map(v=>vendorBadge(v)).join(" ");
+      })();
+
+      const todayKey = new Date().toISOString().slice(0,10);
+      const isToday = !!(t.start && t.end && t.start<=todayKey && t.end>=todayKey);
+      const isLate = !!(t.end && t.end < todayKey);
+      const rowClassWithToday = `gantt-row${isToday ? " today-row" : ""}${isLate ? " late-row" : ""}`;
+      html+=`<tr class="${rowClassWithToday}" data-task="${t.id}">`;
+      const p = state?.projects?.find(x=>x.id===t.projectId);
+      const sub = (p?.subproject || "").trim();
+      const taskDesc = (t.roomNumber || "").trim();
+      const label = [sub, taskDesc].filter(Boolean).join("  ");
+      const miss = missingMap.get(t.id) || 0;
+      const missDot = miss>0 ? `<span class="missing-dot" title="Heures réelles manquantes (${miss} j)"></span>` : "";
+      html+=`<td class="gantt-task-col-project gantt-col-task">${missDot}<b><span class="num-badge" style="--badge-color:${color};--badge-text:#fff;">${taskOrderMap[t.id]||""}</span></b> <span class="gantt-task-name">${attrEscape(label)}</span></td>`;
+      html+=`<td class="gantt-vendor-cell gantt-col-vendor"><div class="vendor-stack">${vendorBadges}</div></td>`;
+      html+=`<td class="gantt-status-cell gantt-col-status"><div class="gantt-status-stack"><div class="status-row"><span>${statusLabels(mainStatus)}</span></div></div></td>`;
+
+      weeks.forEach((w,i)=>{
+        const sDate=new Date(t.start+"T00:00:00");
+        const eDate=new Date(t.end+"T00:00:00");
+        const geo=barGeometry(sDate,eDate,w);
+        const vacClass = vacWeeks[i] ? " vac-week" : "";
+        const internalVacClass = internalVacWeeks[i] ? " vac-week-internal" : "";
+        if(geo.days>0){
+          if(plainMode){
+            html+=`<td class="gantt-cell${vacClass}${internalVacClass}"><div class="gantt-cell-inner"><div class="bar-wrapper"><div class="gantt-print-bar" style="width:${geo.width}%;margin-left:${geo.offset}%;background:${color};border-color:${color};"></div></div></div></td>`;
+          }else{
+            const title = t.vendor ? ` title="Prestataire : ${attrEscape(t.vendor)}"` : "";
+            const barDelay = ((rowOffset + rowIdx) * 0.03 + i * 0.015).toFixed(3);
+            html+=`<td class="gantt-cell${vacClass}${internalVacClass}"><div class="gantt-cell-inner"><div class="bar-wrapper"><div class="gantt-bar" data-task="${t.id}" data-status="${mainStatus}"${title} style="width:${geo.width}%;margin-left:${geo.offset}%;background:${color};border-color:${color};--bar-delay:${barDelay}s"><span class="gantt-days">${geo.days} j</span></div></div></div></td>`;
+          }
+        }else{
+          html+=`<td class="gantt-cell${vacClass}${internalVacClass}"><div class="gantt-cell-inner"><div class="gantt-spacer"></div></div></td>`;
+        }
+      });
+      html+="</tr>";
+    });
+
+    html+="</tbody></table></div>";
+    return html;
+  };
+
+  if(!isProjectPrint){
+    return buildTable(tasks, 0, false);
+  }
+
+  return buildTable(tasks, 0, true);
+}
+function renderMasterGantt(){
+
+  const wrap = el("masterGantt");
+
+  if(!wrap) return;
+
+  const tasks = filteredTasks().filter(t=>t.start && t.end);
+
+  if(tasks.length===0){
+
+    wrap.innerHTML = "<div class='gantt-empty'>Aucune tâche date.</div>";
+
+    return;
+
+  }
+
+  const minStart = tasks.map(t=>new Date(t.start+"T00:00:00")).reduce((a,b)=>a<b?a:b);
+
+  const maxEnd   = tasks.map(t=>new Date(t.end+"T00:00:00")).reduce((a,b)=>a>b?a:b);
+
+  const weeks=[];
+  for(let w=startOfWeek(minStart); w<=addDays(startOfWeek(maxEnd),0); w=addDays(w,7)) weeks.push(new Date(w));
+  const vacWeeks = weeks.map(w=>isVacationWeek(w));
+  const internalVacWeeks = weeks.map(w=>isInternalVacationWeek(w));
+
+
+
+  tasks.sort((a,b)=>{
+    const sa=Date.parse(a.start||"9999-12-31"), sb=Date.parse(b.start||"9999-12-31");
+    if(sa!==sb) return sa-sb;
+    const ea=Date.parse(a.end||"9999-12-31"), eb=Date.parse(b.end||"9999-12-31");
+    if(ea!==eb) return ea-eb;
+    return taskTitle(a).localeCompare(taskTitle(b),"fr",{sensitivity:"base"});
+  });
+
+
+
+  let html="<div class='tablewrap gantt-table'><table class='table' style='--gcol0:70px;--gcol1:150px;--gcol2:140px;--gcol3:120px'>";
+
+  html+="<thead><tr><th class='gantt-col-site' style='width:70px'>Site / Zone</th><th class='gantt-col-task' style='width:150px'>Nom</th><th class='gantt-col-vendor' style='width:140px'>Prestataire</th><th class='gantt-col-status' style='width:120px'>Statut</th>";
+
+  weeks.forEach((w,i)=>{
+
+    const info=isoWeekInfo(w);
+
+    const wEnd=endOfWorkWeek(w);
+
+    const range=`${w.toLocaleDateString("fr-FR",{day:"2-digit"})}-${wEnd.toLocaleDateString("fr-FR",{day:"2-digit"})}/${wEnd.toLocaleDateString("fr-FR",{month:"2-digit",year:"2-digit"})}`;
+
+    const weekLabel = `S${String(info.week).padStart(2,"0")}`;
+
+    const mondayLabel = formatShortDateTwoLinesHTML(w);
+
+    const todayClass = isTodayInWeek(w) ? " week-today" : "";
+    const vacClass = vacWeeks[i] ? " vac-week" : "";
+    const internalVacClass = internalVacWeeks[i] ? " vac-week-internal" : "";
+    html+=`<th class="week-cell${todayClass}${vacClass}${internalVacClass}" data-range="${range}" style='width:72px;color:#111827'>${weekLabel}<div class="gantt-week-date">${mondayLabel}</div></th>`;
+
+  });
+
+  html+="</tr></thead><tbody>";
+
+
+
+  tasks.forEach((t,rowIdx)=>{
+
+    const statuses = parseStatuses(t.status).map(v=>v.toUpperCase());
+
+    const mainStatus = statuses[0] || "";
+
+    const color = ownerColor(t.owner);
+
+    const p = state?.projects?.find(x=>x.id===t.projectId);
+
+    const projectName = (p?.name || "Projet").trim() || "Projet";
+    const siteLabel = (p?.site || "").trim();
+
+    const vendorBadges = (()=> {
+
+      const set = new Set();
+
+      if(t.vendor) set.add(t.vendor);
+
+      const typ = ownerType(t.owner);
+      if(typ === "interne") set.add("INTERNE");
+      if(typ === "rsg") set.add("RSG");
+      if(typ === "ri") set.add("RI");
+      if(typ === "externe" && !t.vendor) set.add("Prestataire non renseigné");
+
+      if(set.size===0) return "<span class='text-muted'></span>";
+
+      return Array.from(set).sort((a,b)=>a.localeCompare(b,"fr",{sensitivity:"base"}))
+
+        .map(v=>vendorBadge(v)).join(" ");
+
+    })();
+
+
+
+    const todayKey = new Date().toISOString().slice(0,10);
+    const isToday = !!(t.start && t.end && t.start<=todayKey && t.end>=todayKey);
+    const isLate = !!(t.end && t.end < todayKey);
+    const rowClass = t.id===selectedTaskId ? "gantt-row gantt-row-active" : "gantt-row";
+    const rowClassWithToday = `${rowClass}${isToday ? " today-row" : ""}${isLate ? " late-row" : ""}`;
+    html+=`<tr class="${rowClassWithToday}" data-task="${t.id}" onclick="openTaskFromGantt('${t.id}')">`;
+    html+=`<td class="gantt-col-site">${attrEscape(siteLabel || "")}</td>`;
+    html+=`<td class="gantt-col-task"><span class="num-badge" style="--badge-color:${color};--badge-text:#fff;">${taskOrderMap[t.id]||""}</span> <span class="gantt-task-name">${attrEscape(projectName)}</span></td>`;
+
+    html+=`<td class="gantt-vendor-cell gantt-col-vendor"><div class="vendor-stack">${vendorBadges}</div></td>`;
+
+    html+=`<td class="gantt-status-cell gantt-col-status"><div class="gantt-status-stack"><div class="status-row"><span>${statusLabels(mainStatus)}</span></div></div></td>`;
+
+
+
+    weeks.forEach((w,i)=>{
+
+      const sDate=new Date(t.start+"T00:00:00");
+
+      const eDate=new Date(t.end+"T00:00:00");
+
+      const geo=barGeometry(sDate,eDate,w);
+
+      if(geo.days>0){
+
+        const title = t.vendor ? ` title="Prestataire : ${attrEscape(t.vendor)}"` : "";
+
+        const vacClass = vacWeeks[i] ? " vac-week" : "";
+        const internalVacClass = internalVacWeeks[i] ? " vac-week-internal" : "";
+        const barDelay = (rowIdx * 0.03 + i * 0.015).toFixed(3);
+        html+=`<td class="gantt-cell${vacClass}${internalVacClass}"><div class="gantt-cell-inner"><div class="bar-wrapper"><div class="gantt-bar bar-click" data-task="${t.id}" data-status="${mainStatus}"${title} style="width:${geo.width}%;margin-left:${geo.offset}%;background:${color};border-color:${color};--bar-delay:${barDelay}s"><span class="gantt-days">${geo.days} j</span></div></div></div></td>`;
+
+      }else{
+
+        const vacClass = vacWeeks[i] ? " vac-week" : "";
+        const internalVacClass = internalVacWeeks[i] ? " vac-week-internal" : "";
+        html+=`<td class="gantt-cell${vacClass}${internalVacClass}"><div class="gantt-cell-inner"><div class="gantt-spacer"></div></div></td>`;
+
+      }
+
+    });
+
+
+
+    html+="</tr>";
+
+  });
+
+
+
+  html+="</tbody></table></div>";
+
+  wrap.innerHTML=html;
+
+  applyGanttColumnVisibility();
+
+  wrap.querySelectorAll(".bar-click")?.forEach(bar=>{
+
+    bar.onclick=(e)=>{
+
+      if(e && e.stopPropagation) e.stopPropagation();
+
+      const taskId = bar.dataset.task;
+
+      const task = state.tasks.find(x=>x.id===taskId);
+
+      if(!task) return;
+
+      openTaskFromGantt(taskId);
+
+    };
+
+  });
+
+}
+
+
+
+
+
+
+function renderWorkloadChartFor(tasks, chartId, pieId, uiIds=null, stateRef=null, boundsTasks=null, autoReset=false){
+
+  const mode = "week";
+
+  const bounds = boundsTasks || tasks;
+
+  syncWorkloadFilterUI(tasks, bounds, uiIds, stateRef);
+
+  const range = getWorkloadRange(tasks, bounds, stateRef);
+
+  let data = computeWorkloadData(tasks, mode, range.start, range.end);
+
+  if(autoReset && tasks.length>0 && data.length===0 && stateRef){
+
+    // reset to "all" if filter excludes all data for this project
+
+    stateRef.type = "all";
+
+    stateRef.start = "";
+
+    stateRef.end = "";
+
+    stateRef.year = "";
+
+    syncWorkloadFilterUI(tasks, bounds, uiIds, stateRef);
+
+    const range2 = getWorkloadRange(tasks, bounds, stateRef);
+
+    data = computeWorkloadData(tasks, mode, range2.start, range2.end);
+
+  }
+
+  const svg = el(chartId);
+
+  if(!svg) return;
+
+  const pieSvg = pieId ? el(pieId) : null;
+
+  const idPrefix = (chartId || "workload").replace(/[^a-zA-Z0-9_-]/g,"");
+
+  const gradIntId = `${idPrefix}-grad-int`;
+
+  const gradExtId = `${idPrefix}-grad-ext`;
+  const gradRsgId = `${idPrefix}-grad-rsg`;
+  const gradRiId = `${idPrefix}-grad-ri`;
+  const pieShadowId = `${idPrefix}-pieShadow`;
+
+  const brushedId = `${idPrefix}-brushed`;
+
+  const brushedBaseId = `${idPrefix}-brushed-base`;
+
+  const barShadowId = `${idPrefix}-barShadow`;
+
+  const w=900, h=320, m={l:60,r:24,t:44,b:64};
+
+  const fontFamily = `"Segoe UI", Arial, sans-serif`;
+
+  svg.setAttribute("viewBox",`0 0 ${w} ${h}`);
+
+  svg.style.fontFamily = fontFamily;
+
+  svg.setAttribute("font-family", fontFamily);
+
+  svg.innerHTML="";
+
+  if(pieSvg) pieSvg.innerHTML="";
+
+  if(data.length===0){
+
+    svg.innerHTML = `<text x="${w/2}" y="${h/2}" text-anchor="middle" fill="#6b7280" font-size="12">Aucune tâche date</text>`;
+
+    if(pieSvg){
+
+      pieSvg.setAttribute("viewBox", "0 0 720 360");
+
+      pieSvg.innerHTML = `<text x="360" y="180" text-anchor="middle" fill="#6b7280" font-size="12">Aucune donnée</text>`;
+
+    }
+
+    return;
+
+  }
+
+  const maxVal = niceMax(Math.max(...data.map(d=>d.total),1));
+
+  const chartW = w - m.l - m.r;
+
+  const chartH = h - m.t - m.b;
+
+  const isDay = mode === "day";
+
+  const denseLayout = data.length > 22;
+  const groupGap = denseLayout ? 2 : 8;
+
+  const groupW = Math.max(8, Math.min(90, (chartW / data.length) - groupGap));
+
+  const innerGap = denseLayout ? 1 : 4;
+
+  const barW = Math.max(1.2, (groupW - innerGap*3) / 4);
+
+  const denseMode = data.length > 18;
+  const axisLabelStep = denseMode ? Math.ceil(data.length / 14) : 1;
+  const hideValueLabels = true;
+  const labelMinValue = maxVal >= 60 ? 5 : (maxVal >= 25 ? 3 : 1);
+  const maxLabelsPerGroup = maxVal >= 25 ? 2 : 4;
+
+  const xStart = m.l;
+
+  let grid="";
+
+  const ticks=4;
+  const fmtHours = (v)=>{
+    if(!isFinite(v)) return "0";
+    const r = Math.round(v * 10) / 10;
+    return Number.isInteger(r) ? String(r) : r.toFixed(1);
+  };
+
+  for(let i=0;i<=ticks;i++){
+
+    const y = m.t + chartH - (i/ticks)*chartH;
+
+    const val = (i/ticks)*maxVal;
+
+    grid+=`<line class="wl-grid" x1="${m.l}" y1="${y}" x2="${w-m.r}" y2="${y}"></line>`;
+
+    grid+=`<text class="wl-axis" x="${m.l-10}" y="${y+4}" text-anchor="end">${fmtHours(val)} h</text>`;
+
+  }
+
+  // vertical guides
+
+  data.forEach((d,idx)=>{
+
+    const gx = xStart + idx*(groupW+groupGap) + groupW/2;
+
+    grid+=`<line class="wl-grid-vert" x1="${gx}" y1="${m.t}" x2="${gx}" y2="${m.t+chartH}"></line>`;
+
+  });
+
+
+
+  let bars="";
+
+  data.forEach((d,idx)=>{
+
+    const gx = xStart + idx*(groupW+groupGap);
+
+    const xInt = gx;
+    const xExt = gx + barW + innerGap;
+    const xRsg = gx + (barW + innerGap) * 2;
+    const xRi  = gx + (barW + innerGap) * 3;
+
+    let hInt = (d.internal/maxVal)*chartH;
+    let hExt = (d.external/maxVal)*chartH;
+    let hRsg = (d.rsg/maxVal)*chartH;
+    let hRi  = (d.ri/maxVal)*chartH;
+
+    if(d.internal > 0 && hInt < 6) hInt = 6;
+    if(d.external > 0 && hExt < 6) hExt = 6;
+    if(d.rsg > 0 && hRsg < 6) hRsg = 6;
+    if(d.ri > 0 && hRi < 6) hRi = 6;
+
+    const yBase = m.t + chartH;
+
+    const yInt = yBase - hInt;
+    const yExt = yBase - hExt;
+    const yRsg = yBase - hRsg;
+    const yRi = yBase - hRi;
+
+    const dInt = (idx * 0.06 + 0.00).toFixed(2);
+    const dExt = (idx * 0.06 + 0.02).toFixed(2);
+    const dRsg = (idx * 0.06 + 0.04).toFixed(2);
+    const dRi  = (idx * 0.06 + 0.06).toFixed(2);
+    bars+=`<rect class="wl-bar-internal wl-anim-bar" style="--wl-delay:${dInt}s" fill="url(#${gradIntId})" filter="url(#${barShadowId})" x="${xInt}" y="${yInt}" width="${barW}" height="${hInt}" rx="3" ry="3"></rect>`;
+    bars+=`<rect class="wl-bar-external wl-anim-bar" style="--wl-delay:${dExt}s" fill="url(#${gradExtId})" filter="url(#${barShadowId})" x="${xExt}" y="${yExt}" width="${barW}" height="${hExt}" rx="3" ry="3"></rect>`;
+    bars+=`<rect class="wl-bar-rsg wl-anim-bar" style="--wl-delay:${dRsg}s" fill="url(#${gradRsgId})" filter="url(#${barShadowId})" x="${xRsg}" y="${yRsg}" width="${barW}" height="${hRsg}" rx="3" ry="3"></rect>`;
+    bars+=`<rect class="wl-bar-ri wl-anim-bar" style="--wl-delay:${dRi}s" fill="url(#${gradRiId})" filter="url(#${barShadowId})" x="${xRi}" y="${yRi}" width="${barW}" height="${hRi}" rx="3" ry="3"></rect>`;
+
+    const lbl = keyToLabel(d.key, mode);
+
+    const lx = gx + groupW/2;
+
+    const ly = h - m.b + 14;
+
+    const showXAxisLabel = (idx % axisLabelStep) === 0 || idx === data.length - 1;
+    if(showXAxisLabel){
+      bars+=`<text class="wl-axis" x="${lx}" y="${ly}" text-anchor="middle">${lbl}</text>`;
+    }
+
+    const valueYInt = Math.max(m.t + 12, yBase - Math.max(hInt, 0) - 8);
+    const valueYExt = Math.max(m.t + 12, yBase - Math.max(hExt, 0) - 8);
+    const valueYRsg = Math.max(m.t + 12, yBase - Math.max(hRsg, 0) - 8);
+    const valueYRi = Math.max(m.t + 12, yBase - Math.max(hRi, 0) - 8);
+
+    if(!hideValueLabels){
+      const labelCandidates = [
+        { v: Number(d.internal) || 0, x: xInt + barW/2, y: valueYInt },
+        { v: Number(d.external) || 0, x: xExt + barW/2, y: valueYExt },
+        { v: Number(d.rsg) || 0, x: xRsg + barW/2, y: valueYRsg },
+        { v: Number(d.ri) || 0, x: xRi + barW/2, y: valueYRi }
+      ]
+        .filter((c)=>c.v >= labelMinValue)
+        .sort((a,b)=>b.v-a.v)
+        .slice(0, maxLabelsPerGroup);
+      labelCandidates.forEach((c)=>{
+        bars+=`<text class="wl-value" x="${c.x}" y="${c.y}" text-anchor="middle">${fmtHours(c.v)} h</text>`;
+      });
+    }
+
+  });
+
+  const totalInt = data.reduce((s,d)=>s+d.internal,0);
+  const totalExt = data.reduce((s,d)=>s+d.external,0);
+  const totalRsg = data.reduce((s,d)=>s+d.rsg,0);
+  const totalRi  = data.reduce((s,d)=>s+d.ri,0);
+
+  const legend=`<g transform="translate(${w-280},12)">
+
+    <rect x="0" y="0" width="12" height="12" rx="3" fill="url(#${gradIntId})"></rect>
+
+    <text class="wl-axis" x="18" y="11">Interne ${fmtHours(totalInt)} h</text>
+
+    <rect x="0" y="20" width="12" height="12" rx="3" fill="url(#${gradExtId})"></rect>
+
+    <text class="wl-axis" x="18" y="31">Externe ${fmtHours(totalExt)} h</text>
+
+    <rect x="0" y="40" width="12" height="12" rx="3" fill="url(#${gradRsgId})"></rect>
+
+    <text class="wl-axis" x="18" y="51">RSG ${fmtHours(totalRsg)} h</text>
+
+    <rect x="0" y="60" width="12" height="12" rx="3" fill="url(#${gradRiId})"></rect>
+
+    <text class="wl-axis" x="18" y="71">RI ${fmtHours(totalRi)} h</text>
+
+  </g>`;
+
+  const legendOverlay = `
+
+    <g transform="translate(${w-470},12)">
+
+      <rect x="-6" y="-6" width="430" height="26" rx="8" ry="8" fill="rgba(255,255,255,0.92)" stroke="#e5e7eb"/>
+
+      <rect x="0" y="0" width="12" height="12" rx="3" fill="url(#${gradIntId})"></rect>
+
+      <text class="wl-axis" x="18" y="11">Interne ${fmtHours(totalInt)} h</text>
+
+      <rect x="120" y="0" width="12" height="12" rx="3" fill="url(#${gradExtId})"></rect>
+
+      <text class="wl-axis" x="138" y="11">Externe ${fmtHours(totalExt)} h</text>
+
+      <rect x="240" y="0" width="12" height="12" rx="3" fill="url(#${gradRsgId})"></rect>
+
+      <text class="wl-axis" x="258" y="11">RSG ${fmtHours(totalRsg)} h</text>
+
+      <rect x="320" y="0" width="12" height="12" rx="3" fill="url(#${gradRiId})"></rect>
+
+      <text class="wl-axis" x="338" y="11">RI ${fmtHours(totalRi)} h</text>
+
+    </g>`;
+
+  const defs = `
+
+    <defs>
+
+      <linearGradient id="${brushedBaseId}" x1="0" x2="1" y1="0" y2="0">
+
+        <stop offset="0%" stop-color="#f2f3f5"/>
+
+        <stop offset="45%" stop-color="#e3e6ea"/>
+
+        <stop offset="65%" stop-color="#f7f8fa"/>
+
+        <stop offset="100%" stop-color="#d9dde2"/>
+
+      </linearGradient>
+
+      <pattern id="${brushedId}" width="6" height="6" patternUnits="userSpaceOnUse">
+
+        <rect width="6" height="6" fill="url(#${brushedBaseId})"/>
+
+        <path d="M0 1 H6 M0 3 H6 M0 5 H6" stroke="#cfd3d9" stroke-width="0.4" opacity="0.45"/>
+
+      </pattern>
+
+      <linearGradient id="${gradIntId}" x1="0" x2="0" y1="0" y2="1">
+
+        <stop offset="0%" stop-color="#8bbf9f" stop-opacity="0.95"/>
+
+        <stop offset="55%" stop-color="#78ac8d" stop-opacity="0.9"/>
+
+        <stop offset="100%" stop-color="#679979" stop-opacity="0.86"/>
+
+      </linearGradient>
+
+      <linearGradient id="${gradExtId}" x1="0" x2="0" y1="0" y2="1">
+
+        <stop offset="0%" stop-color="#d6b27b" stop-opacity="0.95"/>
+
+        <stop offset="55%" stop-color="#c49b64" stop-opacity="0.9"/>
+
+        <stop offset="100%" stop-color="#b18754" stop-opacity="0.86"/>
+
+      </linearGradient>
+      <linearGradient id="${gradRsgId}" x1="0" x2="0" y1="0" y2="1">
+        <stop offset="0%" stop-color="#93abc7" stop-opacity="0.95"/>
+        <stop offset="55%" stop-color="#7f97b4" stop-opacity="0.9"/>
+        <stop offset="100%" stop-color="#6f86a2" stop-opacity="0.86"/>
+      </linearGradient>
+      <linearGradient id="${gradRiId}" x1="0" x2="0" y1="0" y2="1">
+        <stop offset="0%" stop-color="#b7a6ca" stop-opacity="0.95"/>
+        <stop offset="55%" stop-color="#a18dbc" stop-opacity="0.9"/>
+        <stop offset="100%" stop-color="#8d79aa" stop-opacity="0.86"/>
+      </linearGradient>
+
+      <filter id="${barShadowId}" x="-20%" y="-20%" width="140%" height="160%">
+
+        <feDropShadow dx="0" dy="1.2" stdDeviation="1.1" flood-color="#0b1424" flood-opacity="0.12"/>
+
+      </filter>
+      <filter id="${pieShadowId}" x="-30%" y="-30%" width="180%" height="190%">
+        <feDropShadow dx="0" dy="1.8" stdDeviation="1.6" flood-color="#0b1424" flood-opacity="0.14"/>
+      </filter>
+
+    </defs>
+
+  `;
+
+  svg.innerHTML = `${defs}<rect class="wl-bg" x="0" y="0" width="${w}" height="${h}" fill="url(#${brushedId})"></rect><g>${grid}</g><g>${bars}</g>${legendOverlay}`;
+
+
+
+  if(pieSvg){
+
+    const pw=720, ph=360;
+
+    pieSvg.setAttribute("viewBox", `0 0 ${pw} ${ph}`);
+
+    pieSvg.style.fontFamily = fontFamily;
+
+    pieSvg.setAttribute("font-family", fontFamily);
+
+    const pieTotal = Math.max(1, totalInt + totalExt + totalRsg + totalRi);
+
+    const cx = pw/2;
+    const cy = 148;
+    const r = 104;
+    const titleY = ph - 56;
+    const legendY = ph - 36;
+    const minLabelY = 24;
+    const maxLabelY = ph - 96;
+
+    const polar = (cx, cy, r, a)=>{
+
+      const rad = (a - 90) * Math.PI / 180;
+
+      return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
+
+    };
+
+    const arcPath = (cx, cy, r, start, end)=>{
+
+      const s = polar(cx, cy, r, end);
+
+      const e = polar(cx, cy, r, start);
+
+      const large = end - start <= 180 ? 0 : 1;
+
+      return `M ${cx} ${cy} L ${s.x} ${s.y} A ${r} ${r} 0 ${large} 0 ${e.x} ${e.y} Z`;
+
+    };
+
+    let pieMarkup = `<rect class="wl-bg" x="0" y="0" width="${pw}" height="${ph}" fill="url(#${brushedId})"></rect>`;
+
+    if(totalInt + totalExt + totalRsg + totalRi > 0){
+
+      const gap = 8;
+      const segments = [
+        { key:"interne", label:"Interne", value: totalInt, grad: gradIntId },
+        { key:"externe", label:"Externe", value: totalExt, grad: gradExtId },
+        { key:"rsg", label:"RSG", value: totalRsg, grad: gradRsgId },
+        { key:"ri", label:"RI", value: totalRi, grad: gradRiId },
+      ].filter(s=>s.value>0);
+
+      if(segments.length === 1){
+        const s = segments[0];
+          const labelPos = polar(cx, cy, r * 1.14, 90);
+        pieMarkup += `
+          <circle class="wl-anim-pie-seg" style="--pie-delay:0.02s" cx="${cx}" cy="${cy}" r="${r}" fill="url(#${s.grad})" filter="url(#${pieShadowId})"></circle>
+          <line x1="${cx}" y1="${cy - r * 0.95}" x2="${cx}" y2="${cy - r * 1.06}" stroke="#94a3b8" stroke-width="1" />
+          <text class="wl-axis wl-anim-pie-label" style="--pie-delay:0.12s" x="${labelPos.x}" y="${labelPos.y}" text-anchor="middle">${s.label}</text>
+          <text class="wl-value wl-anim-pie-label" style="--pie-delay:0.18s" x="${labelPos.x}" y="${labelPos.y + 14}" text-anchor="middle">${fmtHours(s.value)} h</text>
+        `;
+      }else{
+        let cursor = 0;
+        segments.forEach((seg,segIdx)=>{
+          const angle = (seg.value / pieTotal) * 360;
+          const startA = cursor;
+          const endA = cursor + angle;
+          const midA = startA + angle / 2;
+          const off = polar(0,0,gap,midA);
+          const path = arcPath(cx+off.x, cy+off.y, r, startA, endA);
+          const innerPos = polar(cx+off.x, cy+off.y, r*0.95, midA);
+          const outerPos = polar(cx+off.x, cy+off.y, r*1.14, midA);
+          const labelY = Math.max(minLabelY, Math.min(maxLabelY, outerPos.y));
+          const anchor = outerPos.x < cx ? "end" : "start";
+          const segDelay = (segIdx * 0.12 + 0.02).toFixed(2);
+          const labDelay = (segIdx * 0.12 + 0.14).toFixed(2);
+          pieMarkup += `
+            <path class="wl-anim-pie-seg" style="--pie-delay:${segDelay}s" d="${path}" fill="url(#${seg.grad})" filter="url(#${pieShadowId})"></path>
+            <line x1="${innerPos.x}" y1="${innerPos.y}" x2="${outerPos.x}" y2="${outerPos.y}" stroke="#94a3b8" stroke-width="1" />
+            <text class="wl-axis wl-anim-pie-label" style="--pie-delay:${labDelay}s" x="${outerPos.x}" y="${labelY}" text-anchor="${anchor}">${seg.label}</text>
+            <text class="wl-value wl-anim-pie-label" style="--pie-delay:${(Number(labDelay)+0.04).toFixed(2)}s" x="${outerPos.x}" y="${labelY + 14}" text-anchor="${anchor}">${fmtHours(seg.value)} h</text>
+          `;
+          cursor = endA;
+        });
+      }
+
+      pieMarkup += `
+        <text class="wl-axis" x="${cx}" y="${titleY}" text-anchor="middle">Répartition Interne / Externe / RSG / RI</text>
+        <g transform="translate(${cx-250},${legendY})">
+          <rect x="0" y="0" width="12" height="12" rx="3" fill="url(#${gradIntId})"></rect>
+          <text class="wl-axis" x="18" y="11">Interne ${fmtHours(totalInt)} h</text>
+          <rect x="150" y="0" width="12" height="12" rx="3" fill="url(#${gradExtId})"></rect>
+          <text class="wl-axis" x="168" y="11">Externe ${fmtHours(totalExt)} h</text>
+          <rect x="300" y="0" width="12" height="12" rx="3" fill="url(#${gradRsgId})"></rect>
+          <text class="wl-axis" x="318" y="11">RSG ${fmtHours(totalRsg)} h</text>
+          <rect x="420" y="0" width="12" height="12" rx="3" fill="url(#${gradRiId})"></rect>
+          <text class="wl-axis" x="438" y="11">RI ${fmtHours(totalRi)} h</text>
+        </g>
+      `;
+    }
+
+    pieSvg.innerHTML = `${defs}${pieMarkup}`;
+
+  }
+
+}
+
+
+
+function renderWorkloadChart(tasks){
+
+  const allTasks = state?.tasks || tasks || [];
+  const masterRange = {type:workloadRangeType, year:workloadRangeYear, start:workloadRangeStart, end:workloadRangeEnd};
+  renderWorkloadChartFor(
+    allTasks,
+    "workloadChart",
+    "workloadPie",
+    null,
+    masterRange,
+    allTasks,
+    true
+  );
+  workloadRangeType = masterRange.type;
+  workloadRangeYear = masterRange.year;
+  workloadRangeStart = masterRange.start;
+  workloadRangeEnd = masterRange.end;
+
+}
+
+
+
+function renderFilters(){
+
+  const fsSite = el("filterSite");
+  if(fsSite){
+    const baseSites = Object.keys(SITE_PHOTOS || {});
+    const projSites = (state.projects || []).map(p=>String(p?.site||"").trim()).filter(Boolean);
+    const all = [...baseSites, ...projSites];
+    const canonMap = new Map();
+    all.forEach(s=>{
+      const raw = String(s || "").trim();
+      if(!raw) return;
+      const key = raw.normalize("NFD").replace(/[\u0300-\u036f]/g,"").toUpperCase();
+      if(!canonMap.has(key)) canonMap.set(key, raw);
+    });
+    const sites = Array.from(canonMap.values())
+      .sort((a,b)=>a.localeCompare(b,"fr",{sensitivity:"base"}));
+    const current = fsSite.value || "";
+    let h=`<option value="" selected>Tous</option>`;
+    sites.forEach(s=>{ h+=`<option value="${attrEscape(s)}">${attrEscape(s)}</option>`; });
+    fsSite.innerHTML=h;
+    if(current && sites.includes(current)) fsSite.value = current;
+    else fsSite.value = "";
+  }
+
+  const sel = el("filterProject");
+
+  if(sel){
+
+    let h=`<option value="" selected>Tous</option>`;
+
+    state.projects.forEach(p=>{ h+=`<option value="${p.id}">${p.name||"Sans nom"}</option>`; });
+
+    sel.innerHTML=h;
+    if(!sel.value) sel.value = "";
+
+  }
+
+  const ss = el("filterStatus");
+
+  if(ss){
+
+    let h=`<option value="" selected>Tous</option>`;
+
+    sortedStatuses().forEach(s=>{ h+=`<option value="${s.v}">${s.label}</option>`; });
+
+    ss.innerHTML=h;
+    if(!ss.value) ss.value = "";
+
+  }
+
+}
+
+
+
+function renderTabs(){
+
+  const tabs = el("tabs");
+  const tabsMaster = el("tabsMaster");
+  const tabsSortBtn = el("btnTabsSortProgress");
+  const tabsSortResetBtn = el("btnTabsSortReset");
+
+  if(!tabs) return;
+
+  if(tabsSortBtn){
+    tabsSortBtn.textContent = (tabsSortMode === "progress_desc") ? "TRI 100%->0%" : "TRI 0%->100%";
+  }
+  if(tabsSortResetBtn){
+    tabsSortResetBtn.disabled = (tabsSortMode === "progress_asc");
+  }
+
+  const projectIcon = (name="")=>{
+
+    const n=name.toLowerCase();
+
+    if(n.includes("pastorale")) return "";
+
+    return "";
+
+  };
+
+  const masterBtn = `<button class="tab tab-master ${selectedProjectId?"":"active"}" data-tab="MASTER"><span class="tab-icon"></span> Tableau maître</button>`;
+
+  const getProjectCompletion = (projectId)=>{
+    const tasks = state.tasks.filter(t=>t.projectId===projectId && t.start && t.end);
+    if(!tasks.length) return 0;
+    let sum = 0;
+    let weight = 0;
+    tasks.forEach(t=>{
+      const w = Math.max(1, durationDays(t.start, t.end));
+      sum += taskProgress(t) * w;
+      weight += w;
+    });
+    return weight ? Math.round(sum / weight) : 0;
+  };
+
+  const projectsSorted = [...state.projects].sort((a,b)=>{
+    if(tabsSortMode === "progress_asc" || tabsSortMode === "progress_desc"){
+      const aProg = getProjectCompletion(a.id);
+      const bProg = getProjectCompletion(b.id);
+      if(aProg !== bProg){
+        return tabsSortMode === "progress_asc" ? (aProg - bProg) : (bProg - aProg);
+      }
+    }
+
+    // date de début minimale des tâches de chaque projet
+    const aDates = state.tasks.filter(t=>t.projectId===a.id && t.start).map(t=>Date.parse(t.start));
+    const bDates = state.tasks.filter(t=>t.projectId===b.id && t.start).map(t=>Date.parse(t.start));
+    const aMin = aDates.length ? Math.min(...aDates) : Infinity;
+    const bMin = bDates.length ? Math.min(...bDates) : Infinity;
+
+    if(aMin!==bMin) return aMin - bMin;
+    return (a.name||"").localeCompare(b.name||"");
+  });
+
+  let h="";
+  const total = projectsSorted.length || 1;
+  projectsSorted.forEach((p,idx)=>{
+    const hue = 0 + (120 * (idx/(total-1 || 1))); // rouge -> vert
+    const progress = getProjectCompletion(p.id);
+    h+=`<button class="tab ${selectedProjectId===p.id?"active":""}" data-tab="${p.id}" style="--tab-hue:${hue};--tab-progress:${progress}%;--tab-progress-color:hsl(${hue} 72% 45%);"><span class="tab-progress-fill" style="width:${progress}%;background:hsl(${hue} 78% 66% / .42);"></span><span>${p.name||"Projet"}</span><span class="tab-close" data-close="${p.id}" aria-label="Supprimer le projet"></span></button>`;
+  });
+
+  if(tabsMaster){ tabsMaster.innerHTML = masterBtn; }
+  tabs.innerHTML=h;
+
+  const allTabs = [
+    ...(tabsMaster ? Array.from(tabsMaster.querySelectorAll("button")) : []),
+    ...Array.from(tabs.querySelectorAll("button"))
+  ];
+  allTabs.forEach(btn=>{
+    btn.onclick=()=>{
+      const tab=btn.dataset.tab;
+      if(tab==="MASTER"){ navigateTo(null, null, true); }
+      else { navigateTo(tab, null, true); }
+    };
+  });
+  tabs.querySelectorAll(".tab-close").forEach(close=>{
+
+    close.onclick=(e)=>{
+
+      e.stopPropagation();
+
+      if(isLocked) return;
+
+      const pid = close.dataset.close;
+
+      if(!pid) return;
+
+      const name = state.projects.find(p=>p.id===pid)?.name || "ce projet";
+
+      if(!confirm(`Supprimer définitivement ${name} et toutes ses tâches ?`)) return;
+
+      state.projects = state.projects.filter(p=>p.id!==pid);
+
+      state.tasks    = state.tasks.filter(t=>t.projectId!==pid);
+
+      if(selectedProjectId===pid) { selectedProjectId=null; selectedTaskId=null; }
+
+      saveState();
+
+      renderAll();
+
+      el("btnNewTask")?.classList.remove("btn-armed");
+
+    };
+
+  });
+
+}
+
+
+
+function renderKPIs(tasks){
+
+  const box = el("kpis");
+
+  if(!box) return;
+
+  const total=tasks.length;
+
+  const byStatus={};
+
+  tasks.forEach(t=>{ byStatus[t.status]= (byStatus[t.status]||0)+1; });
+
+  let h=`<div class="kpi"><span class="kpi-dot" style="--kpi-dot:#64748b"></span>Total:&nbsp;<b>${total}</b></div>`;
+
+  STATUSES.forEach(s=>{
+
+    h+=`<div class="kpi"><span class="kpi-dot" style="--kpi-dot:${statusColor(s.v)}"></span>${s.label}:&nbsp;<b>${byStatus[s.v]||0}</b></div>`;
+
+  });
+
+  box.innerHTML=h;
+
+}
+
+
+
+// Tri générique pour tableaux (master & projet)
+
+function sortTasks(list, cfg){
+
+  if(!cfg) return [...list];
+
+  const dir = cfg.dir==="desc" ? -1 : 1;
+
+  const get = (t)=>{
+
+    switch(cfg.key){
+
+      case "site": {
+
+        const p = state.projects.find(x=>x.id===t.projectId);
+
+        return (p?.site||"").toLowerCase();
+
+      }
+
+      case "project": {
+
+        const p = state.projects.find(x=>x.id===t.projectId);
+
+        return (p?.name||"").toLowerCase();
+
+      }
+
+      case "task": return (taskTitle(t)||"").toLowerCase();
+
+      case "status": return (parseStatuses(t.status)[0]||"").toLowerCase();
+
+      case "start": return Date.parse(t.start||"9999-12-31");
+
+      case "end": return Date.parse(t.end||"9999-12-31");
+
+      case "owner": return (t.owner||"").toLowerCase();
+
+      case "duration": return durationDays(t.start,t.end);
+      case "progress": return taskProgress(t);
+
+      case "num": return taskOrderMap[t.id]||9999;
+
+      default: return 0;
+
+    }
+
+  };
+
+  return [...list].sort((a,b)=>{
+
+    const va=get(a), vb=get(b);
+
+    if(va<vb) return -1*dir;
+
+    if(va>vb) return 1*dir;
+
+    return 0;
+
+  });
+
+}
+
+
+
+function updateSortIndicators(tableId, cfg){
+
+  const table = el(tableId);
+
+  if(!table) return;
+
+  table.querySelectorAll("th[data-sort]").forEach(th=>{
+
+    th.classList.remove("sorted-asc","sorted-desc");
+
+    if(th.dataset.sort === cfg.key){
+
+      th.classList.add(cfg.dir==="desc" ? "sorted-desc" : "sorted-asc");
+
+    }
+
+  });
+
+}
+
+
+
+function renderMasterMetrics(tasks){
+
+  const metrics = el("masterMetrics");
+
+  if(!metrics) return;
+
+  const dated = tasks.filter(t=>t.start && t.end);
+
+  if(dated.length===0){
+
+    metrics.innerHTML="";
+
+    return;
+
+  }
+
+  const allDays = new Set();
+
+  const internalDays = new Set();
+  const externalDays = new Set();
+  const rsgDays = new Set();
+  const riDays = new Set();
+
+  dated.forEach(t=>{
+
+    const s=new Date(t.start+"T00:00:00");
+
+    const e=new Date(t.end+"T00:00:00");
+
+    if(isNaN(s)||isNaN(e)||e<s) return;
+
+    const typ = ownerType(t.owner);
+    const ownsInternal = typ === "interne";
+    const ownsExternal = typ === "externe" || typ === "inconnu";
+    const ownsRsg = typ === "rsg";
+    const ownsRi = typ === "ri";
+
+    for(let d=new Date(s); d<=e; d.setDate(d.getDate()+1)){
+
+      const key=d.toISOString().slice(0,10);
+
+      allDays.add(key);
+
+      if(ownsInternal) internalDays.add(key);
+      if(ownsExternal) externalDays.add(key);
+      if(ownsRsg) rsgDays.add(key);
+      if(ownsRi) riDays.add(key);
+
+    }
+
+  });
+
+  const totalDays = allDays.size;
+
+  const real = getRealMinutesForTasks(dated);
+  let progSumMaster = 0;
+  let progWeightMaster = 0;
+  dated.forEach(t=>{
+    const w = Math.max(1, durationDays(t.start, t.end));
+    progSumMaster += taskProgress(t) * w;
+    progWeightMaster += w;
+  });
+  const avgProgressMaster = progWeightMaster ? Math.round(progSumMaster / progWeightMaster) : 0;
+
+  metrics.innerHTML = `
+
+    <span class="panel-chip">Durée totale : <span class="metric-val">${totalDays||0} j</span></span>
+    <span class="panel-chip">Avancement : <span class="metric-val">${avgProgressMaster}%</span></span>
+
+    <span class="panel-chip">Heures réelles : <span class="metric-val">${formatHoursMinutes(real.totalMinutes||0)}</span></span>
+
+    <span class="panel-chip" style="background:#e8eef8;color:#1f2937;border-color:#c7d2fe;">Interne : <span class="metric-val">${internalDays.size||0} j</span> <span class="metric-val">${formatHoursMinutes(real.internalMinutes||0)}</span></span>
+
+    <span class="panel-chip" style="background:#fff1e6;color:#1f2937;border-color:#fdba74;">Externe : <span class="metric-val">${externalDays.size||0} j</span> <span class="metric-val">${formatHoursMinutes(real.externalMinutes||0)}</span></span>
+    <span class="panel-chip" style="background:#e8f0ff;color:#1f2937;border-color:#93c5fd;">RSG : <span class="metric-val">${rsgDays.size||0} j</span> <span class="metric-val">${formatHoursMinutes(real.rsgMinutes||0)}</span></span>
+    <span class="panel-chip" style="background:#f2eaff;color:#1f2937;border-color:#c4b5fd;">RI : <span class="metric-val">${riDays.size||0} j</span> <span class="metric-val">${formatHoursMinutes(real.riMinutes||0)}</span></span>
+  `;
+  animateMetricCounters(metrics);
+
+}
+
+function canonSiteKey(raw){
+  return String(raw || "")
+    .trim()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g,"")
+    .toUpperCase();
+}
+function getAllSitesList(){
+  const baseSites = Object.keys(SITE_PHOTOS || {});
+  const projSites = (state.projects || []).map(p=>String(p?.site||"").trim()).filter(Boolean);
+  const all = [...baseSites, ...projSites];
+  const canonMap = new Map();
+  all.forEach(s=>{
+    const raw = String(s || "").trim();
+    if(!raw) return;
+    const key = canonSiteKey(raw);
+    if(!canonMap.has(key)) canonMap.set(key, raw);
+  });
+  return Array.from(canonMap.values())
+    .sort((a,b)=>a.localeCompare(b,"fr",{sensitivity:"base"}));
+}
+function getSelectedExportSites(){
+  const wrap = el("ganttExportSites");
+  if(!wrap) return [];
+  return Array.from(wrap.querySelectorAll("input[data-site]"))
+    .filter(cb=>cb.checked)
+    .map(cb=>cb.dataset.site);
+}
+function renderGanttExportSites(){
+  const wrap = el("ganttExportSites");
+  const label = el("ganttExportSitesLabel");
+  if(!wrap) return;
+  const isProject = ganttExportContext === "project";
+  if(label) label.style.display = isProject ? "none" : "";
+  wrap.style.display = isProject ? "none" : "flex";
+  if(isProject) return;
+
+  const sites = getAllSitesList();
+  const prev = new Set();
+  wrap.querySelectorAll("input[data-site]").forEach(cb=>{ if(cb.checked) prev.add(cb.dataset.site); });
+  const usePrev = prev.size > 0;
+  let h = `<label><input type="checkbox" id="ganttExportSitesAll" checked> Tous</label>`;
+  sites.forEach(s=>{
+    const checked = !usePrev || prev.has(s);
+    h += `<label><input type="checkbox" data-site="${attrEscape(s)}" ${checked ? "checked" : ""}> ${attrEscape(s)}</label>`;
+  });
+  wrap.innerHTML = h;
+
+  const allBox = el("ganttExportSitesAll");
+  const siteBoxes = ()=>Array.from(wrap.querySelectorAll("input[data-site]"));
+  const updateAll = ()=>{
+    const boxes = siteBoxes();
+    const checked = boxes.filter(b=>b.checked).length;
+    if(allBox){
+      allBox.checked = checked === boxes.length;
+      allBox.indeterminate = checked > 0 && checked < boxes.length;
+    }
+  };
+  updateAll();
+  if(allBox){
+    allBox.onchange = ()=>{
+      const checked = allBox.checked;
+      siteBoxes().forEach(b=>{ b.checked = checked; });
+      updateAll();
+    };
+  }
+  siteBoxes().forEach(b=>{
+    b.onchange = ()=> updateAll();
+  });
+}
+
+
+
+function filteredTasks(){
+
+  const fsite = el("filterSite")?.value || "";
+  const fp = el("filterProject")?.value || "";
+  const fs = el("filterStatus")?.value || "";
+  const q  = (el("filterSearch")?.value || "").toLowerCase().trim();
+  const startAfter = el("filterStartAfter")?.value || "";
+  const endBefore  = el("filterEndBefore")?.value || "";
+
+  const key = `${_stateVersion}|${fsite}|${fp}|${fs}|${q}|${startAfter}|${endBefore}`;
+  if(_filteredCache.key === key && _filteredCache.tasks){
+    return _filteredCache.tasks;
+  }
+
+  const result = state.tasks.filter(t=>{
+
+    if(fp && t.projectId!==fp) return false;
+
+    if(fs && !parseStatuses(t.status).includes(fs)) return false;
+
+    const p = state.projects.find(x=>x.id===t.projectId);
+    const pSite = String(p?.site || "");
+    if(fsite && pSite !== fsite) return false;
+
+    if(q){
+
+      const hay=(taskTitle(t)+" "+(p?.name||"")+" "+(p?.site||"")+" "+(t.owner||"")+" "+parseStatuses(t.status).join(" ")).toLowerCase();
+
+      if(!hay.includes(q)) return false;
+
+    }
+
+    if(startAfter && (!t.start || t.start < startAfter)) return false;
+
+    if(endBefore && (!t.end || t.end > endBefore)) return false;
+
+    return true;
+
+  });
+
+  // Filet de secours : si les filtres vident tout alors qu'on a des données, on retourne toutes les tâches
+
+  let out = result;
+  if(out.length===0 && state.tasks.length>0) out = state.tasks;
+  _filteredCache = { key, version:_stateVersion, tasks: out };
+  return out;
+
+}
+
+
+
+function updateBadge(node, active, textActive="Tri/filtre actif", textInactive="Tri par défaut"){
+
+  if(!node) return;
+
+  node.textContent = active ? textActive : textInactive;
+
+  node.classList.toggle("inactive", !active);
+
+}
+
+function updateResetSortButtonVisual(btn, active){
+  if(!btn) return;
+  btn.classList.toggle("btn-primary", !!active);
+  btn.classList.toggle("btn-ghost", !active);
+  btn.classList.remove("btn-danger");
+}
+
+
+
+function filtersActive(){
+
+  const fsite = el("filterSite")?.value || "";
+  const fp = el("filterProject")?.value || "";
+
+  const fs = el("filterStatus")?.value || "";
+
+  const q  = (el("filterSearch")?.value || "").trim();
+
+  const startAfter = el("filterStartAfter")?.value || "";
+
+  const endBefore  = el("filterEndBefore")?.value || "";
+  const onlyMissing = !!el("toggleMissingOnly")?.checked;
+
+  return !!(fsite || fp || fs || q || startAfter || endBefore || onlyMissing);
+
+}
+
+function updateSidebarFilterIndicator(){
+  const icon = el("filtersActiveIcon");
+  const resetBtn = document.querySelector(".filters-reset-row .btn");
+  if(!icon) return;
+  const active = filtersActive();
+  icon.classList.toggle("active", active);
+  if(resetBtn){
+    resetBtn.classList.toggle("btn-danger", active);
+  }
+}
+
+
+
+function renderMaster(){
+  computeTaskOrderMap();
+  renderTabs();
+  closeAllOverlays();
+  el("viewMaster")?.classList.remove("hidden");
+  el("viewProject")?.classList.add("hidden");
+
+  const tbody = el("masterTable")?.querySelector("tbody");
+
+  if(!tbody) return;
+
+  const tasks = filteredTasks();
+
+  renderKPIs(tasks);
+
+  renderMasterMetrics(tasks);
+
+  // Charge de travail
+
+  renderWorkloadChart(tasks);
+
+  // Bandeau live global (toutes tâches en cours aujourd'hui)
+
+  const masterLive = el("masterLive");
+
+  if(masterLive){
+
+    const todayKey = new Date().toISOString().slice(0,10);
+
+    const inProgress = tasks
+
+      .filter(t=>t.start && t.end && t.start<=todayKey && t.end>=todayKey)
+
+      .sort((a,b)=> (taskOrderMap[a.id]||999)-(taskOrderMap[b.id]||999));
+
+    if(inProgress.length===0){
+
+      masterLive.innerHTML = `<span class="live-title">Projet non démarré</span>`;
+
+    }else{
+
+      const badges = inProgress.map(t=>{
+
+        const num = taskOrderMap[t.id]||"";
+
+        const status = parseStatuses(t.status)[0] || "";
+
+        const color = ownerColor(t.owner);
+
+        const label = STATUSES.find(s=>s.v===status)?.label || status || "En cours";
+
+        const proj = state.projects.find(x=>x.id===t.projectId);
+
+        const projName = proj?.name || "Projet";
+
+        return `<span class="live-item"><span class="num-badge" style="--badge-color:${color};--badge-text:#fff;">${num}</span> ${projName}  ${label}</span>`;
+
+      }).join(" ");
+
+      masterLive.innerHTML = `<span class="live-title">Projet démarré  Tâches en cours :</span> ${badges}`;
+
+    }
+
+  }
+
+  const sorted = sortTasks(tasks, sortMaster);
+  const missingMap = buildMissingDaysMap(sorted);
+  const todayKey = new Date().toISOString().slice(0,10);
+  const allTasks = Array.isArray(state?.tasks) ? state.tasks : [];
+  const missingMapAll = buildMissingDaysMap(allTasks);
+  const missingHoursCount = allTasks.reduce((acc, t)=> acc + ((missingMapAll.get(t.id) || 0) > 0 ? 1 : 0), 0);
+  const onlyMissingEnabled = !!el("toggleMissingOnly")?.checked;
+  const visibleTasks = onlyMissingEnabled
+    ? sorted.filter(t=> (missingMap.get(t.id) || 0) > 0)
+    : sorted;
+  const missingOnlyToggleWrap = el("missingOnlyToggleWrap");
+  if(missingOnlyToggleWrap){
+    missingOnlyToggleWrap.classList.toggle("inactive", !onlyMissingEnabled);
+  }
+  const missingHoursBadge = el("missingHoursBadge");
+  if(missingHoursBadge){
+    updateBadge(
+      missingHoursBadge,
+      missingHoursCount > 0,
+      `${missingHoursCount} tâche(s) à compléter`,
+      "Heures réelles: OK"
     );
   }
-}
-
-function dataUrlToBlob(dataUrl) {
-  const raw = String(dataUrl || "").trim();
-  const match = raw.match(/^data:([^;,]+)?(?:;base64)?,(.*)$/i);
-  if (!match) {
-    return null;
-  }
-  const mimeType = match[1] || "application/octet-stream";
-  const payload = match[2] || "";
-  try {
-    const binary = atob(payload);
-    const bytes = new Uint8Array(binary.length);
-    for (let index = 0; index < binary.length; index += 1) {
-      bytes[index] = binary.charCodeAt(index);
+  const processMissingBtn = el("btnProcessMissingHours");
+  if(processMissingBtn){
+    processMissingBtn.classList.toggle("missing-hours-attention", missingHoursCount > 0);
+    processMissingBtn.disabled = missingHoursCount <= 0;
+    processMissingBtn.textContent = "Completer Heures Réelles";
+    processMissingBtn.setAttribute("aria-label", `Completer Heures Réelles (${missingHoursCount})`);
+    if(missingHoursCount > 0){
+      const ae = document.activeElement;
+      const typingTarget = !!(ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA" || ae.tagName === "SELECT" || ae.isContentEditable));
+      const modalOpen = isHoursTaskModalOpen();
+      if(!typingTarget && !modalOpen){
+        setTimeout(()=>{
+          try{ processMissingBtn.focus({preventScroll:true}); }catch(e){ softCatch(e); }
+        }, 0);
+      }
     }
-    return new Blob([bytes], { type: mimeType });
-  } catch (error) {
-    return null;
-  }
-}
-
-async function uploadPdfBlobToSupabaseStorage(docType, person, blob, archiveMode = "STANDARD") {
-  if (!isSupabaseConfigured() || !(blob instanceof Blob) || !person) {
-    return null;
   }
 
-  const bucket = getStoragePdfBucketName();
-  if (!bucket) {
-    return null;
+  if(visibleTasks.length===0){
+
+    tbody.innerHTML = onlyMissingEnabled
+      ? "<tr><td colspan='8' class='empty-row'>Aucune tâche à compléter.</td></tr>"
+      : "<tr><td colspan='8' class='empty-row'>Aucune tâche.</td></tr>";
+
+    return;
+
   }
 
-  const folder = normalizeText(docType) === "EXIT" ? "sortie" : "arrivee";
-  const objectPath = `${folder}/${sanitizeFilePart(String(person.id || "P0000"))}/COURANT.pdf`;
-  console.info("[SUPABASE][PDF] upload start", { bucket, objectPath });
-  await uploadBlobToSupabaseStorage(bucket, objectPath, blob, "application/pdf");
-  const storageRef = `storage://${bucket}/${objectPath}`;
-  console.info("[SUPABASE][PDF] upload success", { storageRef });
+  let h="";
 
-  return {
-    storageRef,
-    publicUrl: getSupabaseStoragePublicUrl(bucket, objectPath),
-  };
-}
+  visibleTasks.forEach(t=>{
 
-async function uploadSignatureImageToSupabaseStorage(docType, person, signer, signatureDataUrl) {
-  if (!isSupabaseConfigured() || !person || !signatureDataUrl) {
-    return null;
-  }
-  const bucket = getStorageSignaturesBucketName();
-  if (!bucket) {
-    return null;
-  }
-  const signatureBlob = dataUrlToBlob(signatureDataUrl);
-  if (!(signatureBlob instanceof Blob) || signatureBlob.size <= 0) {
-    throw new Error("SIGNATURE INVALIDE (BLOB VIDE)");
-  }
-  const folder = normalizeText(docType) === "EXIT" ? "sortie" : "arrivee";
-  const signerLabel = normalizeText(signer) === "REPRESENTANT" ? "representant" : "personnel";
-  const objectPath = `${folder}/${sanitizeFilePart(String(person.id || "P0000"))}/COURANT_${signerLabel}.png`;
-  console.info("[SUPABASE][SIGNATURE] upload start", { bucket, objectPath });
-  await uploadBlobToSupabaseStorage(bucket, objectPath, signatureBlob, "image/png");
-  const storageRef = `storage://${bucket}/${objectPath}`;
-  console.info("[SUPABASE][SIGNATURE] upload success", { storageRef });
-  return {
-    storageRef,
-    publicUrl: getSupabaseStoragePublicUrl(bucket, objectPath),
-  };
-}
+    const p = state.projects.find(x=>x.id===t.projectId);
 
-async function fetchSupabaseStateData() {
-  const endpoint = `${getSupabaseRestEndpoint()}?id=eq.${encodeURIComponent(
-    SUPABASE_APP_STATE_ID
-  )}&select=payload&limit=1`;
-  const response = await fetch(endpoint, {
-    headers: getSupabaseHeaders(),
-    cache: "no-store",
+    const statuses = parseStatuses(t.status).map(v=>v.toUpperCase());
+
+    const c = ownerColor(t.owner);
+
+    const rowBg = siteColor(p?.site);
+    const sub = (p?.subproject || "").trim();
+    const projLabel = sub ? `${p?.name||"Sans projet"} - ${sub}` : (p?.name||"Sans projet");
+    const taskLabel = (t.roomNumber||"").trim();
+
+    const isToday = !!(t.start && t.end && t.start<=todayKey && t.end>=todayKey);
+    const isLate = !!(t.end && t.end < todayKey);
+    const rowClass = `${isToday ? "today-row " : ""}${isLate ? "late-row" : ""}`.trim();
+    const miss = missingMap.get(t.id) || 0;
+    const missDot = miss>0 ? `<span class="missing-dot" title="Heures réelles manquantes (${miss} j)"></span>` : "";
+    h+=`<tr class="${rowClass}" data-project="${t.projectId}" data-task="${t.id}" style="--site-bg:${rowBg};background:var(--site-bg);">
+
+      <td>${p?.site||""}</td>
+
+      <td>${projLabel}</td>
+
+      <td>${missDot}<span class="num-badge" style="--badge-color:${c};--badge-text:#fff;">${taskOrderMap[t.id]||""}</span> <span class="icon-picto"></span> ${taskLabel}</td>
+
+      <td class="status-cell"><span class="status-left">${statusDot(statuses[0])}${statusLabels(t.status||"")}</span>${t.owner?ownerBadgeForTask(t):""}</td>
+
+      <td>${formatDate(t.start)||""}${isToday ? `<span class="today-dot" title="En cours aujourd'hui"></span>` : ""}</td>
+
+      <td>${formatDate(t.end)||""}</td>
+      <td>${taskProgress(t)}%</td>
+      <td>${durationLabelForTask(t)}</td>
+
+    </tr>`;
+
   });
-  if (!response.ok) {
-    throw new Error("SUPABASE LOAD FAILED");
-  }
-  const rows = await response.json();
-  if (!Array.isArray(rows) || !rows.length || !rows[0]?.payload) {
-    throw new Error("SUPABASE EMPTY PAYLOAD");
-  }
-  return rows[0].payload;
-}
 
-async function saveSupabaseStateData(payload) {
-  const response = await fetch(getSupabaseRestEndpoint(), {
-    method: "POST",
-    headers: getSupabaseHeaders({
-      "Content-Type": "application/json",
-      Prefer: "resolution=merge-duplicates,return=representation",
-    }),
-    body: JSON.stringify([
-      {
-        id: SUPABASE_APP_STATE_ID,
-        payload,
-      },
-    ]),
-  });
-  if (!response.ok) {
-    throw new Error("SUPABASE SAVE FAILED");
-  }
-}
+  tbody.innerHTML=h;
 
-async function fetchLatestDataSnapshot() {
-  const mode = getDataBackendMode();
-  if (mode === "SUPABASE") {
-    return fetchSupabaseStateData();
-  }
-  const response = await fetch(`/api/data?ts=${Date.now()}`, { cache: "no-store" });
-  if (!response.ok) {
-    throw new Error("LOCAL LOAD FAILED");
-  }
-  return response.json();
-}
 
-function isLikelyLocalUrl(value) {
-  const normalized = normalizeHttpUrl(value);
-  if (!normalized) {
-    return false;
+
+  // Gantt global sous le tableau maître
+
+  renderMasterGantt();
+
+  updateSortIndicators("masterTable", sortMaster);
+
+  const fb = el("filtersBadge");
+
+  if(fb){
+
+    const active = filtersActive() || sortMaster.key!=="start" || sortMaster.dir!=="asc";
+
+    updateBadge(fb, active, "Tri/filtre actif", "Tri par défaut");
+    updateResetSortButtonVisual(el("btnResetSortMaster"), active);
+
   }
-  try {
-    const host = String(new URL(normalized).hostname || "").toLowerCase();
-    if (host === "localhost" || host === "127.0.0.1") {
-      return true;
+  updateSidebarFilterIndicator();
+  const siteBadge = el("siteBadge");
+  if(siteBadge){
+    const fp = el("filterProject")?.value || "";
+    if(fp){
+      const proj = state.projects.find(p=>p.id===fp);
+      const site = (proj?.site || "").trim();
+      if(site){
+        siteBadge.textContent = `Site actif : ${site}`;
+        siteBadge.style.display = "inline-flex";
+      }else{
+        siteBadge.style.display = "none";
+      }
+    }else{
+      siteBadge.style.display = "none";
     }
-    if (host.startsWith("10.") || host.startsWith("192.168.") || host.startsWith("169.254.")) {
-      return true;
-    }
-    if (host.startsWith("172.")) {
-      const second = Number.parseInt(host.split(".")[1] || "", 10);
-      return Number.isFinite(second) && second >= 16 && second <= 31;
-    }
-    return false;
-  } catch (error) {
-    return false;
   }
-}
-
-function getConfiguredMobileSignatureBaseUrl() {
-  return normalizeHttpUrl(state.data?.meta?.signatureMobileBaseUrl || "");
-}
-
-function getMobileSignatureReachabilityHint(url) {
-  if (!url) {
-    return "";
-  }
-  if (isLikelyLocalUrl(url)) {
-    return "TELEPHONE ET ORDINATEUR DOIVENT ETRE SUR LE MEME RESEAU WIFI.";
-  }
-  return "LIEN OUVRABLE EN WIFI OU EN 4G/5G.";
-}
-
-function compareTextValues(left, right) {
-  return normalizeText(left).localeCompare(normalizeText(right), "fr");
-}
-
-function formatAmount(value) {
-  const amount = normalizeAmount(value);
-  return amount.toLocaleString("fr-FR", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-}
-
-function formatAmountWithEuro(value) {
-  return `${formatAmount(value)} €`;
-}
-
-function getCurrentSignatureTimestamp() {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
-  const hours = String(now.getHours()).padStart(2, "0");
-  const minutes = String(now.getMinutes()).padStart(2, "0");
-  const seconds = String(now.getSeconds()).padStart(2, "0");
-  return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}`;
-}
-
-function formatSignatureTimestamp(value) {
-  if (!value) {
-    return "";
-  }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return "";
-  }
-  return date.toLocaleString("fr-FR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function formatCurrentUiTimestamp() {
-  return formatSignatureTimestamp(getCurrentSignatureTimestamp());
-}
-
-function typeUsesReferenceCatalog(typeEffet) {
-  return ["CLE", "CLE CES"].includes(normalizeText(typeEffet));
-}
-
-function getReferenceCatalogType(typeEffet) {
-  return typeUsesReferenceCatalog(typeEffet) ? "CLE" : normalizeText(typeEffet);
-}
-
-function typeUsesSiteField(typeEffet) {
-  return Boolean(normalizeText(typeEffet));
-}
-
-function normalizeSites(values) {
-  const normalizedValues = Array.from(new Set((values || []).map(normalizeText).filter(Boolean)));
-  if (normalizedValues.includes(ALL_SITES_VALUE)) {
-    return [ALL_SITES_VALUE];
-  }
-  return normalizedValues;
-}
-
-function getPersonSites(person) {
-  const baseValues = Array.isArray(person?.sitesAffectation)
-    ? person.sitesAffectation
-    : Array.isArray(person?.sites)
-      ? person.sites
-      : person?.site
-        ? String(person.site).split("/").map((value) => value.trim())
-        : [];
-  return normalizeSites(baseValues);
-}
-
-function personUsesAllSites(person) {
-  return getPersonSites(person).includes(ALL_SITES_VALUE);
-}
-
-function getPersonSiteLabel(person) {
-  const sites = getPersonSites(person);
-  return sites.length ? sites.join(" / ") : "";
-}
-
-function getReferenceSites(reference) {
-  const baseValues = Array.isArray(reference?.sitesAffectation)
-    ? reference.sitesAffectation
-    : reference?.site
-      ? String(reference.site).split("/").map((value) => value.trim())
-      : [];
-  return normalizeSites(baseValues);
-}
-
-function getReferenceSiteLabel(reference) {
-  const sites = getReferenceSites(reference);
-  return sites.length ? sites.join(" / ") : "";
-}
-
-function referenceHasSite(reference, site) {
-  const normalizedSite = normalizeText(site);
-  if (!normalizedSite) {
-    return true;
-  }
-  const sites = getReferenceSites(reference);
-  return sites.includes(ALL_SITES_VALUE) || sites.includes(normalizedSite);
-}
-
-function getComparableSites(value) {
-  return normalizeSites(value).slice().sort((left, right) => left.localeCompare(right, "fr"));
-}
-
-function haveSameSites(leftSites, rightSites) {
-  const left = getComparableSites(leftSites);
-  const right = getComparableSites(rightSites);
-  if (left.length !== right.length) {
-    return false;
-  }
-  return left.every((value, index) => value === right[index]);
-}
-
-function getPersonSiteMarkup(person) {
-  const sites = getPersonSites(person);
-  if (!sites.length) {
-    return "";
+  const masterHoursReport = el("masterHoursReport");
+  if(masterHoursReport){
+    masterHoursReport.innerHTML = buildMasterRealHoursReportInnerHTML();
   }
 
-  return sites
-    .map((site) => {
-      const classes =
-        normalizeText(site) === ALL_SITES_VALUE ? "site-pill site-pill--all" : "site-pill";
-      return `<span class="${classes}">${escapeHtml(site)}</span>`;
-    })
-    .join(" ");
+  animateBadgeChanges(el("viewMaster"));
+  animateCardsInView("viewMaster");
+
 }
 
-function personHasSite(person, site) {
-  const normalizedSite = normalizeText(site);
-  if (!normalizedSite) {
-    return true;
-  }
-  const sites = getPersonSites(person);
-  return sites.includes(ALL_SITES_VALUE) || sites.includes(normalizedSite);
+function getTimeLogs(){
+  if(!state) return [];
+  if(!Array.isArray(state.timeLogs)) state.timeLogs = [];
+  return state.timeLogs;
 }
-
-function readSelectedSites(form, prefix) {
-  const values = Array.from(form.querySelectorAll(`input[name="${prefix}Sites"]:checked`)).map(
-    (input) => normalizeText(input.value)
-  );
-  return normalizeSites(values);
+function getCurrentUserKey(){
+  const email = getCurrentUserEmail();
+  const name = getCurrentUserName();
+  return (email || name || "").trim();
 }
-
-function redirectToLocalServerIfNeeded() {
-  if (window.location.protocol !== "file:") {
-    return;
-  }
-
-  const fileName = window.location.pathname.split("/").pop() || "index.html";
-  window.location.replace(`http://127.0.0.1:8123/${fileName}${window.location.search || ""}`);
+function resolveTimeLogRole(name, email){
+  const n = (name || "").toLowerCase();
+  const e = (email || "").toLowerCase();
+  if(n.includes("sébastien duc") || n.includes("sebastien duc")) return "rsg";
+  if(e === "sebastien_duc@outlook.fr" || e === "sebastien.duc@scse.fr") return "rsg";
+  return "interne";
 }
-
-function getStoredNavigationContext() {
-  try {
-    const raw = window.sessionStorage.getItem(NAVIGATION_CONTEXT_KEY);
-    if (!raw) {
-      return null;
-    }
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === "object" ? parsed : null;
-  } catch (error) {
-    return null;
-  }
+function normalizeTimeLogRole(log){
+  const raw = String(log?.role || log?.roleKey || "").toLowerCase();
+  if(raw.includes("rsg/ri")) return "rsg";
+  if(raw.includes("rsg")) return "rsg";
+  if(raw.includes("ri")) return "ri";
+  if(raw.includes("externe")) return "externe";
+  if(raw.includes("interne")) return "interne";
+  return resolveTimeLogRole(log?.userName || "", log?.userEmail || "");
 }
-
-function saveNavigationContext(partial = {}) {
-  const current = getStoredNavigationContext() || {};
-  const merged = {
-    personId: String(partial.personId ?? current.personId ?? ""),
-    urgentMode: Boolean(partial.urgentMode ?? current.urgentMode ?? false),
-    filters: {
-      ...DEFAULT_FILTERS,
-      ...(current.filters || {}),
-      ...(partial.filters || {}),
-    },
-  };
-  try {
-    window.sessionStorage.setItem(NAVIGATION_CONTEXT_KEY, JSON.stringify(merged));
-  } catch (error) {
-    // Ignore storage errors
-  }
+function getTaskRoleKey(t){
+  const hasVendor = (t?.vendor || "").trim();
+  if(hasVendor) return "externe";
+  const typ = ownerType(t?.owner);
+  if(typ === "rsg") return "rsg";
+  if(typ === "ri") return "ri";
+  if(typ === "externe" || typ === "inconnu") return "externe";
+  return "interne";
 }
-
-function restoreNavigationContext() {
-  const context = getStoredNavigationContext();
-  const params = new URLSearchParams(window.location.search);
-  const personIdInQuery = params.get("personId") || "";
-
-  state.urgentMode = Boolean(context?.urgentMode);
-  state.filters = {
-    ...DEFAULT_FILTERS,
-    ...((context && context.filters) || {}),
-  };
-
-  if (personIdInQuery) {
-    saveNavigationContext({ personId: personIdInQuery, filters: state.filters });
-    return;
-  }
-
-  const storedPersonId = String((context && context.personId) || "");
-  if (storedPersonId) {
-    setCurrentPersonId(storedPersonId, "replace");
-  }
+function roleLabel(roleKey){
+  if(roleKey==="rsg") return "RSG";
+  if(roleKey==="ri") return "RI";
+  if(roleKey==="externe") return "EXTERNE";
+  return "INTERNE";
 }
-
-function getCurrentPersonId() {
-  const params = new URLSearchParams(window.location.search);
-  const personIdInQuery = params.get("personId") || "";
-  if (personIdInQuery) {
-    return personIdInQuery;
-  }
-  const context = getStoredNavigationContext();
-  return String(context?.personId || "");
-}
-
-function setCurrentPersonId(personId, mode = "replace") {
-  const nextUrl = new URL(window.location.href);
-  if (personId) {
-    nextUrl.searchParams.set("personId", personId);
-  } else {
-    nextUrl.searchParams.delete("personId");
-  }
-  if (mode === "push") {
-    window.history.pushState({}, "", nextUrl);
-  } else {
-    window.history.replaceState({}, "", nextUrl);
-  }
-  saveNavigationContext({ personId: personId || "" });
-}
-
-function performPageNavigation(url, mode = "href") {
-  if (!url) {
-    return;
-  }
-  if (mode === "replace") {
-    window.location.replace(url);
-    return;
-  }
-  window.location.href = url;
-}
-
-function capturePersonSheetDraftToState() {
-  const form = document.getElementById("person-sheet-form");
-  const person = getCurrentPerson();
-  if (!(form instanceof HTMLFormElement) || !person) {
-    return false;
-  }
-
-  const formData = new FormData(form);
-  const draft = {
-    nom: normalizeText(formData.get("sheetNom")),
-    prenom: normalizeText(formData.get("sheetPrenom")),
-    fonction: normalizeText(formData.get("sheetFonction")),
-    sitesAffectation: readSelectedSites(form, "sheet"),
-    typePersonnel: normalizeText(formData.get("sheetTypePersonnel")),
-    typeContrat: normalizeText(formData.get("sheetTypeContrat")),
-    dateEntree: String(formData.get("sheetDateEntree") || ""),
-    dateSortiePrevue: String(formData.get("sheetDateSortiePrevue") || ""),
-    dateSortieReelle: String(formData.get("sheetDateSortieReelle") || ""),
-  };
-
-  const changed =
-    person.nom !== draft.nom ||
-    person.prenom !== draft.prenom ||
-    normalizeText(person.fonction) !== draft.fonction ||
-    !haveSameSites(getPersonSites(person), draft.sitesAffectation) ||
-    normalizeText(person.typePersonnel) !== draft.typePersonnel ||
-    normalizeText(person.typeContrat) !== draft.typeContrat ||
-    String(person.dateEntree || "") !== draft.dateEntree ||
-    String(person.dateSortiePrevue || "") !== draft.dateSortiePrevue ||
-    String(person.dateSortieReelle || "") !== draft.dateSortieReelle;
-
-  if (!changed) {
-    return false;
-  }
-
-  person.nom = draft.nom;
-  person.prenom = draft.prenom;
-  person.fonction = draft.fonction;
-  person.sitesAffectation = draft.sitesAffectation;
-  person.site = getPersonSiteLabel(person);
-  person.typePersonnel = draft.typePersonnel;
-  person.typeContrat = draft.typeContrat;
-  person.dateEntree = draft.dateEntree;
-  person.dateSortiePrevue = draft.dateSortiePrevue;
-  person.dateSortieReelle = draft.dateSortieReelle;
-  markDirty();
-  return true;
-}
-
-function captureMobileSignatureSettingsDraftToState() {
-  const form = document.getElementById("mobile-signature-settings-form");
-  if (!(form instanceof HTMLFormElement) || !state.data?.meta) {
-    return false;
-  }
-  const rawValue = String(form.elements.mobileSignatureBaseUrl?.value || "").trim();
-  const normalized = normalizeHttpUrl(rawValue);
-  if (rawValue && !normalized) {
-    return false;
-  }
-  const currentValue = String(state.data.meta.signatureMobileBaseUrl || "");
-  if (currentValue === normalized) {
-    return false;
-  }
-  state.data.meta.signatureMobileBaseUrl = normalized;
-  state.mobileSignatureNetworkInfo = null;
-  markDirty();
-  return true;
-}
-
-function capturePendingEditsBeforeNavigation() {
-  return capturePersonSheetDraftToState() || captureMobileSignatureSettingsDraftToState();
-}
-
-function runAutoSaveBeforeNavigation() {
-  if (!state.isDirty || !state.data) {
-    return Promise.resolve(false);
-  }
-  if (state.autoSaveInFlightPromise) {
-    return state.autoSaveInFlightPromise;
-  }
-  state.autoSaveInFlightPromise = saveDataToFile({
-    silent: true,
-    reloadAfter: false,
-    promptDownload: false,
-    successText: "DONNEES SAUVEGARDEES",
-  })
-    .catch(() => undefined)
-    .finally(() => {
-      state.autoSaveInFlightPromise = null;
-    });
-  return state.autoSaveInFlightPromise.then(() => !state.isDirty);
-}
-
-function scheduleBackgroundAutoSave() {
-  if (!state.isDirty || !state.data) {
-    return;
-  }
-  if (state.autoSaveTimerId) {
-    window.clearTimeout(state.autoSaveTimerId);
-    state.autoSaveTimerId = 0;
-  }
-  state.autoSaveTimerId = window.setTimeout(() => {
-    state.autoSaveTimerId = 0;
-    runAutoSaveBeforeNavigation();
-  }, 280);
-}
-
-function navigateWithAutoSave(url, mode = "href") {
-  if (!url) {
-    return;
-  }
-  capturePendingEditsBeforeNavigation();
-  if (!state.isDirty) {
-    performPageNavigation(url, mode);
-    return;
-  }
-  const maxWaitMs = 220;
-  let navigationDone = false;
-  const navigateNow = () => {
-    if (navigationDone) {
+function getCanonicalTimeLogs(){
+  const logs = getTimeLogs();
+  const map = new Map(); // taskId|date|roleKey -> log
+  logs.forEach(l=>{
+    if(!l || !l.taskId || !l.date) return;
+    const roleKey = normalizeTimeLogRole(l);
+    const key = `${l.taskId}|${l.date}|${roleKey}`;
+    const existing = map.get(key);
+    if(!existing){
+      map.set(key, l);
       return;
     }
-    navigationDone = true;
-    performPageNavigation(url, mode);
-  };
-  const fallbackTimer = window.setTimeout(() => {
-    navigateNow();
-  }, maxWaitMs);
-  runAutoSaveBeforeNavigation().finally(() => {
-    if (navigationDone) {
-      return;
-    }
-    window.clearTimeout(fallbackTimer);
-    navigateNow();
+    const prevTs = new Date(existing.updatedAt || existing.createdAt || 0).getTime();
+    const curTs = new Date(l.updatedAt || l.createdAt || 0).getTime();
+    if(curTs >= prevTs) map.set(key, l);
   });
+  return Array.from(map.values());
 }
-
-function openPersonSheet(personId) {
-  const normalizedId = String(personId || "");
-  if (!normalizedId) {
-    return;
-  }
-  setCurrentPersonId(normalizedId, "replace");
-  navigateWithAutoSave(`fiche-personne.html?personId=${normalizedId}`);
-}
-
-function openPersonSheetEffectEditor(personId, effectId) {
-  const normalizedPersonId = String(personId || "");
-  const normalizedEffectId = String(effectId || "");
-  if (!normalizedPersonId || !normalizedEffectId) {
-    return;
-  }
-  setCurrentPersonId(normalizedPersonId, "replace");
-  navigateWithAutoSave(
-    `fiche-personne.html?personId=${encodeURIComponent(normalizedPersonId)}&editEffectId=${encodeURIComponent(normalizedEffectId)}`
-  );
-}
-
-function consumeRequestedEditEffectId() {
-  const nextUrl = new URL(window.location.href);
-  const requestedId = String(nextUrl.searchParams.get("editEffectId") || "");
-  if (!requestedId) {
-    return "";
-  }
-  nextUrl.searchParams.delete("editEffectId");
-  window.history.replaceState({}, "", nextUrl);
-  return requestedId;
-}
-
-function getCurrentMobileSignatureToken() {
-  return new URLSearchParams(window.location.search).get("token") || "";
-}
-
-function getCurrentMobileSignatureDocType() {
-  return new URLSearchParams(window.location.search).get("docType") || "";
-}
-
-function normalizeMobileSignatureSigner(value) {
-  return normalizeText(value) === "REPRESENTANT" ? "representant" : "personnel";
-}
-
-function getCurrentMobileSignatureSigner() {
-  return normalizeMobileSignatureSigner(new URLSearchParams(window.location.search).get("signer") || "");
-}
-
-function generateMobileSignatureToken() {
-  return `SIG-${Date.now()}-${Math.random().toString(36).slice(2, 12).toUpperCase()}`;
-}
-
-function findMobileSignatureRequestByToken(token) {
-  return (state.data?.demandesSignatureMobile || []).find((entry) => entry.token === token) || null;
-}
-
-function getActiveMobileSignatureRequest(personId, docType, signer = "personnel") {
-  cleanupExpiredMobileSignatureRequests();
-  const normalizedSigner = normalizeMobileSignatureSigner(signer);
-  return (state.data?.demandesSignatureMobile || []).find(
-    (entry) =>
-      entry.personId === personId &&
-      entry.docType === normalizeText(docType) &&
-      normalizeMobileSignatureSigner(entry.signer) === normalizedSigner &&
-      entry.status === "EN ATTENTE" &&
-      Date.parse(entry.expiresAt || "") > Date.now()
+function findTimeLog(taskId, dateKey, userKey, userEmail="", userName=""){
+  return getTimeLogs().find(l=>
+    l.taskId===taskId &&
+    l.date===dateKey &&
+    (
+      (userKey && l.userKey===userKey) ||
+      (userEmail && l.userEmail===userEmail) ||
+      (userName && l.userName===userName)
+    )
   ) || null;
 }
-
-function createMobileSignatureRequest(personId, docType, signer = "personnel") {
-  const createdAt = new Date();
-  const expiresAt = new Date(createdAt.getTime() + MOBILE_SIGNATURE_REQUEST_TTL_MS);
-  const normalizedSigner = normalizeMobileSignatureSigner(signer);
-  const request = {
-    id: getNextId("DSM", state.data?.demandesSignatureMobile || []),
-    token: generateMobileSignatureToken(),
-    personId: String(personId || ""),
-    docType: normalizeText(docType),
-    signer: normalizedSigner.toUpperCase(),
-    createdAt: createdAt.toISOString(),
-    expiresAt: expiresAt.toISOString(),
-    status: "EN ATTENTE",
-    validatedAt: "",
-  };
-  state.data.demandesSignatureMobile.push(request);
-  return request;
+function findTimeLogByRole(taskId, dateKey, roleKey){
+  const logs = getCanonicalTimeLogs();
+  return logs.find(l=>l.taskId===taskId && l.date===dateKey && normalizeTimeLogRole(l)===roleKey) || null;
 }
-
-function getMobileSignaturePageUrl(request) {
-  const docType = normalizeText(request?.docType) === "EXIT" ? "exit" : "arrival";
-  const signer = normalizeMobileSignatureSigner(request?.signer || "");
-  return `signature-mobile.html?personId=${encodeURIComponent(request?.personId || "")}&docType=${encodeURIComponent(docType)}&token=${encodeURIComponent(request?.token || "")}&signer=${encodeURIComponent(signer)}`;
-}
-
-async function getMobileSignatureBaseUrl() {
-  const configuredBaseUrl = getConfiguredMobileSignatureBaseUrl();
-  if (configuredBaseUrl) {
-    return configuredBaseUrl;
-  }
-
-  const currentOrigin = normalizeHttpUrl(window.location.origin || "");
-  if (currentOrigin && !isLikelyLocalUrl(currentOrigin)) {
-    return currentOrigin;
-  }
-
-  if (state.mobileSignatureNetworkInfo?.preferredUrl) {
-    return state.mobileSignatureNetworkInfo.preferredUrl;
-  }
-
-  try {
-    const response = await fetch(`/api/network-info?ts=${Date.now()}`, { cache: "no-store" });
-    if (!response.ok) {
-      throw new Error("NETWORK INFO UNAVAILABLE");
+function upsertTimeLog(taskId, projectId, minutes, note="", dateKeyOverride=null, roleKeyOverride=""){
+  const userKey = getCurrentUserKey();
+  const userName = getCurrentUserName();
+  const userEmail = getCurrentUserEmail();
+  const role = roleKeyOverride || resolveTimeLogRole(userName, userEmail);
+  const dateKey = dateKeyOverride || getSelectedLogDate();
+  if(!userKey) return null;
+  const logs = getTimeLogs();
+  const duplicates = logs.filter(l=>l.taskId===taskId && l.date===dateKey && normalizeTimeLogRole(l)===role);
+  const existing = duplicates[0] || null;
+  const now = new Date().toISOString();
+  if(existing){
+    existing.minutes = minutes;
+    existing.note = note || existing.note || "";
+    existing.updatedAt = now;
+    existing.role = String(role || "").toUpperCase();
+    existing.roleKey = role;
+    for(let i=duplicates.length-1;i>=1;i--){
+      const idx = logs.indexOf(duplicates[i]);
+      if(idx>=0) logs.splice(idx,1);
     }
-    const info = await response.json();
-    state.mobileSignatureNetworkInfo = info;
-    return String(info?.preferredUrl || window.location.origin);
-  } catch (error) {
-    state.mobileSignatureNetworkInfo = {
-      preferredUrl: window.location.origin,
-      lanUrls: [],
-    };
-    return window.location.origin;
+    return existing;
+  }
+  const entry = {
+    id: uid(),
+    taskId,
+    projectId,
+    userKey,
+    userName,
+    userEmail,
+    role: String(role || "").toUpperCase(),
+    roleKey: role,
+    date: dateKey,
+    minutes,
+    note: note || "",
+    createdAt: now,
+    updatedAt: now
+  };
+  logs.push(entry);
+  return entry;
+}
+function purgeTaskLogsByAssignedRole(task){
+  if(!task || !task.id) return 0;
+  const roleKey = getTaskRoleKey(task);
+  const logs = getTimeLogs();
+  const before = logs.length;
+  state.timeLogs = logs.filter(l=>{
+    if(!l || l.taskId !== task.id) return true;
+    return normalizeTimeLogRole(l) === roleKey;
+  });
+  return before - state.timeLogs.length;
+}
+function formatHoursMinutes(totalMinutes){
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  if(m === 0) return `${h} h`;
+  return `${h} h ${m} min`;
+}
+function roleHoursMultiplier(roleKey){
+  return roleKey === "interne" ? 2 : 1;
+}
+function getTaskTimeTotals(taskRef){
+  const taskId = (typeof taskRef === "string") ? taskRef : taskRef?.id;
+  const roleKey = (typeof taskRef === "object" && taskRef) ? getTaskRoleKey(taskRef) : "";
+  const rangeStart = (typeof taskRef === "object" && taskRef && taskRef.start) ? taskRef.start : "";
+  const rangeEnd = (typeof taskRef === "object" && taskRef && taskRef.end) ? taskRef.end : "";
+  const totals = new Map();
+  getCanonicalTimeLogs().filter(l=>{
+    if(l.taskId!==taskId) return false;
+    if(!roleKey) return true;
+    return normalizeTimeLogRole(l)===roleKey;
+  }).forEach(l=>{
+    if(rangeStart && l.date < rangeStart) return;
+    if(rangeEnd && l.date > rangeEnd) return;
+    const normalizedRole = normalizeTimeLogRole(l);
+    const key = roleLabel(normalizedRole);
+    const weightedMinutes = Math.round((Number(l.minutes || 0)) * roleHoursMultiplier(normalizedRole));
+    totals.set(key, (totals.get(key)||0) + weightedMinutes);
+  });
+  const items = Array.from(totals.entries()).map(([name, minutes])=>({name, minutes}));
+  items.sort((a,b)=>b.minutes - a.minutes);
+  const totalMinutes = items.reduce((acc,it)=>acc+it.minutes,0);
+  return {items, totalMinutes};
+}
+function getRealMinutesForTasks(tasks){
+  const ids = new Set((tasks || []).map(t=>t.id));
+  const roleByTask = new Map((tasks || []).map(t=>[t.id, getTaskRoleKey(t)]));
+  const rangeByTask = new Map((tasks || []).map(t=>[t.id, {start:t.start||"", end:t.end||""}]));
+  let totalMinutes = 0;
+  let internalMinutes = 0;
+  let externalMinutes = 0;
+  let rsgMinutes = 0;
+  let riMinutes = 0;
+  getCanonicalTimeLogs().forEach(l=>{
+    if(!ids.has(l.taskId)) return;
+    const range = rangeByTask.get(l.taskId);
+    if(range?.start && l.date < range.start) return;
+    if(range?.end && l.date > range.end) return;
+    const roleExpected = roleByTask.get(l.taskId);
+    const m = Number(l.minutes || 0);
+    if(!m) return;
+    const role = normalizeTimeLogRole(l);
+    if(roleExpected && role !== roleExpected) return;
+    const weightedMinutes = Math.round(m * roleHoursMultiplier(role));
+    totalMinutes += weightedMinutes;
+    if(role === "externe") externalMinutes += weightedMinutes;
+    else if(role === "rsg") rsgMinutes += weightedMinutes;
+    else if(role === "ri") riMinutes += weightedMinutes;
+    else internalMinutes += weightedMinutes;
+  });
+  return { totalMinutes, internalMinutes, externalMinutes, rsgMinutes, riMinutes };
+}
+function countMissingDaysForUser(t, userKey){
+  if(!t || !t.start || !t.end || !userKey) return 0;
+  const roleKey = getTaskRoleKey(t);
+  const start = new Date(t.start+"T00:00:00");
+  const end = new Date(t.end+"T00:00:00");
+  if(isNaN(start) || isNaN(end) || end < start) return 0;
+  const yKey = getYesterdayKey();
+  const limit = new Date(yKey+"T00:00:00");
+  let missing = 0;
+  for(let d=new Date(start); d<=end && d<=limit; d.setDate(d.getDate()+1)){
+    if(!isWeekday(d)) continue;
+    const key = toLocalDateKey(d);
+    if(!findTimeLogByRole(t.id, key, roleKey)) missing++;
+  }
+  return missing;
+}
+function countMissingDaysForTask(t){
+  return getMissingDaysList(t).length;
+}
+function getMissingDaysList(t){
+  if(!t || !t.start || !t.end) return [];
+  const roleKey = getTaskRoleKey(t);
+  const start = new Date(t.start+"T00:00:00");
+  const end = new Date(t.end+"T00:00:00");
+  if(isNaN(start) || isNaN(end) || end < start) return [];
+  const todayKey = toLocalDateKey(new Date());
+  const out = [];
+  for(let d=new Date(start); d<=end; d.setDate(d.getDate()+1)){
+    if(!isWeekday(d)) continue;
+    const key = toLocalDateKey(d);
+    if(key >= todayKey) continue;
+    if(!findTimeLogByRole(t.id, key, roleKey)) out.push(key);
+  }
+  return out;
+}
+function buildMissingDaysMap(tasks){
+  const map = new Map();
+  (tasks || []).forEach(t=>{
+    map.set(t.id, countMissingDaysForTask(t));
+  });
+  return map;
+}
+function getMissingTasksForMasterFlow(){
+  const sorted = sortTasks((state?.tasks || []), sortMaster);
+  const missingMap = buildMissingDaysMap(sorted);
+  return sorted
+    .filter(t=> (missingMap.get(t.id) || 0) > 0)
+    .map(t=>({ projectId: t.projectId, taskId: t.id }));
+}
+function finishMissingHoursFlow(){
+  _missingHoursFlow = null;
+  selectedProjectId = null;
+  selectedTaskId = null;
+  const toggleMissingOnly = el("toggleMissingOnly");
+  if(toggleMissingOnly) toggleMissingOnly.checked = false;
+  renderMaster();
+}
+function openMissingHoursFlowStep(){
+  if(!_missingHoursFlow || !_missingHoursFlow.tasks.length) return;
+  while(_missingHoursFlow.index < _missingHoursFlow.tasks.length){
+    const step = _missingHoursFlow.tasks[_missingHoursFlow.index];
+    const t = state?.tasks?.find(x=>x.id===step.taskId && x.projectId===step.projectId);
+    if(!t){
+      _missingHoursFlow.index += 1;
+      continue;
+    }
+    selectedProjectId = step.projectId;
+    selectedTaskId = step.taskId;
+    renderProject();
+    setTimeout(()=>{
+      if(!_missingHoursFlow) return;
+      const selected = getSelectedTaskForHoursModal();
+      if(!selected){
+        _missingHoursFlow.index += 1;
+        openMissingHoursFlowStep();
+        return;
+      }
+      openHoursTaskModal();
+    }, 0);
+    return;
+  }
+  showSaveToast("ok", "Parcours terminé", "Toutes les tâches à compléter ont été traitées.");
+  finishMissingHoursFlow();
+}
+function startMissingHoursFlow(){
+  const tasks = getMissingTasksForMasterFlow();
+  if(!tasks.length){
+    showSaveToast("ok", "A compléter", "Aucune tâche à compléter.");
+    return;
+  }
+  _missingHoursFlow = { tasks, index: 0 };
+  showSaveToast("ok", "Parcours lancé", `${tasks.length} tâche(s) à compléter`);
+  openMissingHoursFlowStep();
+}
+function advanceMissingHoursFlow(){
+  if(!_missingHoursFlow) return;
+  _missingHoursFlow.index += 1;
+  openMissingHoursFlowStep();
+}
+function updateTimeLogUI(t, forceAlert=false){
+  const dateInput = el("t_time_date_input");
+  const input = el("t_time_hours");
+  const statusEl = el("t_time_status");
+  const btn = el("btnSaveTimeLog");
+  const summaryEl = el("t_time_summary");
+  const yKey = getYesterdayKey();
+  if(dateInput && !dateInput.value) dateInput.value = yKey;
+  if(!t || !input || !statusEl || !btn){
+    if(input) input.value = "";
+    if(statusEl) statusEl.textContent = "";
+    if(summaryEl) summaryEl.textContent = "";
+    if(btn) btn.disabled = true;
+    return;
+  }
+  const active = isTaskActiveOn(t, yKey);
+  const userKey = getCurrentUserKey();
+  const userEmail = getCurrentUserEmail();
+  const userName = getCurrentUserName();
+  if(!userKey){
+    input.value = "";
+    input.disabled = true;
+    btn.disabled = true;
+    statusEl.textContent = "Utilisateur non défini";
+    if(summaryEl) summaryEl.textContent = "";
+    return;
+  }
+  if(dateInput){
+    const lastTask = dateInput.dataset.taskId || "";
+    if(!dateInput.value || lastTask !== t.id){
+      dateInput.value = t.start || yKey;
+      dateInput.dataset.taskId = t.id;
+    }
+  }
+  const selectedDate = dateInput?.value || yKey;
+  if(dateInput){
+    dateInput.min = t.start || "";
+    dateInput.max = t.end || "";
+  }
+  input.disabled = false;
+  const selectedDateObj = new Date(selectedDate+"T00:00:00");
+  const inRange = isTaskActiveOn(t, selectedDate);
+  const isWeek = isWeekday(selectedDateObj);
+  btn.disabled = !(inRange && isWeek);
+  const roleKey = getTaskRoleKey(t);
+  const log = findTimeLogByRole(t.id, selectedDate, roleKey);
+  statusEl.classList.remove("missing");
+  if(log){
+    const hours = (log.minutes/60);
+    input.value = (Math.round(hours*100)/100).toString();
+    statusEl.textContent = "Déjà renseigné";
+  }else{
+    input.value = "";
+    if(inRange && isWeek){
+      statusEl.classList.add("missing");
+      statusEl.innerHTML = `<span class="time-icon missing"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"></circle><path d="M12 7v5l3 2"></path></svg></span>Heures réelles manquantes`;
+    }else{
+      statusEl.textContent = "Hors période";
+    }
+  }
+  if(inRange && !isWeek){
+    statusEl.textContent = "Week-end";
+  }
+  const missing = countMissingDaysForUser(t, userKey);
+  if(summaryEl){
+    const dayLogs = getCanonicalTimeLogs().filter(l=>l.taskId===t.id && l.date===selectedDate && normalizeTimeLogRole(l)===roleKey);
+    const totalsDay = new Map();
+    dayLogs.forEach(l=>{
+      const role = normalizeTimeLogRole(l);
+      const label = roleLabel(role);
+      totalsDay.set(label, (totalsDay.get(label)||0) + (l.minutes||0));
+    });
+    const partsDay = Array.from(totalsDay.entries()).map(([name, minutes])=>`${name}: ${formatHoursMinutes(minutes)}`);
+    const totalDayMinutes = Array.from(totalsDay.values()).reduce((a,b)=>a+b,0);
+    const totalTask = getTaskTimeTotals(t);
+    const missingList = getMissingDaysList(t).map(d=>{
+      const dt = new Date(d+"T00:00:00");
+      return formatShortDate(dt);
+    });
+    const missLabel = missingList.length ? ` | Jours manquants : ${missingList.join(", ")} (${missingList.length})` : "";
+    if(partsDay.length){
+      summaryEl.textContent = `${partsDay.join(" | ")} | Total jour: ${formatHoursMinutes(totalDayMinutes)} | Total tâche: ${formatHoursMinutes(totalTask.totalMinutes)}${missLabel}`;
+    }else{
+      summaryEl.textContent = `Total tâche: ${formatHoursMinutes(totalTask.totalMinutes)}${missLabel}`;
+    }
   }
 }
 
-function getQrProviderUrls(absoluteUrl) {
-  const encoded = encodeURIComponent(absoluteUrl);
+function getSelectedTaskForHoursModal(){
+  if(!selectedProjectId || !selectedTaskId) return null;
+  return state?.tasks?.find(x=>x.id===selectedTaskId && x.projectId===selectedProjectId) || null;
+}
+function isHoursTaskModalOpen(){
+  const modal = el("hoursTaskModal");
+  return !!(modal && !modal.classList.contains("hidden"));
+}
+
+function formatHoursDecimal(minutes){
+  const v = Math.round(((minutes || 0) / 60) * 100) / 100;
+  return String(v).replace(".", ",") + "h";
+}
+function ensureHoursModalCalendarDom(){
+  const modalCard = document.querySelector("#hoursTaskModal .modal-card");
+  if(!modalCard) return null;
+  let wrap = el("hm_calendarWrap");
+  if(!wrap){
+    wrap = document.createElement("div");
+    wrap.id = "hm_calendarWrap";
+    wrap.style.marginTop = "10px";
+    wrap.style.border = "1px solid var(--line)";
+    wrap.style.borderRadius = "10px";
+    wrap.style.padding = "10px";
+    wrap.style.background = "#f8fafc";
+
+    const legend = document.createElement("div");
+    legend.id = "hm_calendarLegend";
+    legend.style.display = "flex";
+    legend.style.gap = "10px";
+    legend.style.flexWrap = "wrap";
+    legend.style.marginBottom = "8px";
+    legend.style.fontSize = "12px";
+    legend.innerHTML = [
+      '<span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#22c55e;margin-right:6px"></span>Renseigné</span>',
+      '<span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#f59e0b;margin-right:6px"></span>Manquant</span>',
+      '<span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#64748b;margin-right:6px"></span>À venir</span>'
+    ].join("");
+
+    const grid = document.createElement("div");
+    grid.id = "hm_calendar";
+    grid.style.display = "block";
+    grid.style.gap = "8px";
+
+    wrap.appendChild(legend);
+    wrap.appendChild(grid);
+
+    const summary = el("hm_summary");
+    if(summary && summary.parentElement){
+      summary.parentElement.insertBefore(wrap, summary.nextSibling);
+    }else{
+      modalCard.appendChild(wrap);
+    }
+  }
+  return wrap;
+}
+function renderHoursTaskCalendar(t){
+  const wrap = ensureHoursModalCalendarDom();
+  const grid = el("hm_calendar");
+  if(!wrap || !grid) return;
+  if(!t || !t.start || !t.end){
+    grid.innerHTML = "";
+    return;
+  }
+
+  const roleKey = getTaskRoleKey(t);
+  const todayKey = toLocalDateKey(new Date());
+  const logs = getCanonicalTimeLogs().filter(l=>l.taskId===t.id && normalizeTimeLogRole(l)===roleKey);
+  const byDate = new Map();
+  logs.forEach(l=>byDate.set(l.date, l));
+
+  const start = new Date(t.start + "T00:00:00");
+  const end = new Date(t.end + "T00:00:00");
+  if(isNaN(start) || isNaN(end) || end < start){
+    grid.innerHTML = "";
+    return;
+  }
+
+  const startDayIdx = (start.getDay() + 6) % 7; // lundi=0
+  const endDayIdx = (end.getDay() + 6) % 7;
+  const firstMonday = new Date(start);
+  firstMonday.setDate(start.getDate() - startDayIdx);
+  const lastFriday = new Date(end);
+  lastFriday.setDate(end.getDate() + (4 - endDayIdx));
+
+  const selectedDate = (el("hm_date")?.value || "").trim();
+  const rows = [];
+  const dayNames = ["Lun", "Mar", "Mer", "Jeu", "Ven"];
+
+  for(let ws = new Date(firstMonday); ws <= lastFriday; ws.setDate(ws.getDate()+7)){
+    const weekNo = String(isoWeekInfo(ws).week).padStart(2, "0");
+    const weekLabel = "S" + weekNo;
+    const cards = [];
+
+    for(let i=0; i<5; i++){
+      const d = new Date(ws);
+      d.setDate(ws.getDate() + i);
+      const key = toLocalDateKey(d);
+      const log = byDate.get(key) || null;
+      const inTaskRange = key >= t.start && key <= t.end;
+      const stateType = inTaskRange ? (log ? "filled" : (key < todayKey ? "missing" : "future")) : "outside";
+      const dateLabel = d.toLocaleDateString("fr-FR", { day:"2-digit", month:"2-digit" });
+      const hoursValue = log ? String(Math.round(((log.minutes || 0) / 60) * 100) / 100).replace(".", ",") : "";
+
+      let bg = "#ffffff";
+      let border = "#d0d7e2";
+      let text = "#0f172a";
+      if(stateType === "filled"){
+        bg = "#ecfdf3";
+        border = "#7dd3a3";
+      }else if(stateType === "missing"){
+        bg = "#fff7ed";
+        border = "#fdba74";
+      }else if(stateType === "outside"){
+        bg = "#e5e7eb";
+        border = "#cbd5e1";
+        text = "#64748b";
+      }
+
+      const isEditable = inTaskRange && key <= todayKey;
+      const selectedBorder = (selectedDate === key && isEditable) ? "2px solid #2563eb" : ("1px solid " + border);
+      const sub = hoursValue ? (hoursValue + "h") : (stateType === "missing" ? "manquant" : (stateType === "outside" ? "hors tâche" : "—"));
+      const activeAttr = isEditable ? "1" : "0";
+      const disabledAttr = isEditable ? "" : "disabled";
+
+      cards.push(
+        '<div class="hm-day" data-date="' + key + '" data-active="' + activeAttr + '" data-state-base="' + stateType + '" style="text-align:left;border:' + selectedBorder + ';background:' + bg + ';color:' + text + ';border-radius:8px;padding:3px 5px;min-height:52px;cursor:' + (inTaskRange ? 'pointer' : 'default') + ';display:flex;flex-direction:column;gap:1px">' +
+        '<div style="font-size:11px;line-height:1.1;opacity:.85">' + dayNames[i] + ' • ' + weekLabel + '</div>' +
+        '<div style="font-size:12px;font-weight:700;line-height:1.2">' + dateLabel + '</div>' +
+        '<input type="text" inputmode="decimal" class="hm-day-input" data-date="' + key + '" data-active="' + activeAttr + '" value="' + hoursValue + '" placeholder="h" ' + disabledAttr + ' style="margin-top:1px;height:18px;border:1px solid #cbd5e1;border-radius:6px;padding:1px 6px;background:#fff;color:#111827;font-size:11px" />' +
+        '<div class="hm-day-sub" style="font-size:11px;opacity:.92">' + sub + '</div>' +
+        '</div>'
+      );
+    }
+
+    let weekDays = 0;
+    const weekTotalMinutes = cards.reduce((acc, _c, idx)=>{
+      const d2 = new Date(ws);
+      d2.setDate(ws.getDate() + idx);
+      const k2 = toLocalDateKey(d2);
+      const inTask2 = k2 >= t.start && k2 <= t.end;
+      if(!inTask2) return acc;
+      weekDays += 1;
+      const l2 = byDate.get(k2) || null;
+      return acc + ((l2 && l2.minutes) ? l2.minutes : 0);
+    }, 0);
+    const weekAvgMinutes = weekDays > 0 ? Math.round(weekTotalMinutes / weekDays) : 0;
+
+    rows.push(
+      '<div class="hm-week-row" style="display:grid;grid-template-columns:64px repeat(5, minmax(82px,1fr)) 156px;gap:5px;align-items:stretch;margin-bottom:4px">' +
+      '<div style="border:1px solid #cbd5e1;border-radius:8px;background:#eef2ff;color:#1e293b;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px">' + weekLabel + '</div>' +
+      cards.join("") +
+      '<div style="border:1px solid #cbd5e1;border-radius:8px;background:#f8fafc;color:#0f172a;padding:5px 7px;display:flex;flex-direction:column;justify-content:center;gap:2px">' +
+      '<div style="font-size:11px;color:#475569">Total semaine</div>' +
+      '<div style="font-size:12px;font-weight:700">' + formatHoursMinutes(weekTotalMinutes) + '</div>' +
+      '<div style="font-size:11px;color:#475569">Moyenne semaine</div>' +
+      '<div style="font-size:12px;font-weight:700">' + formatHoursMinutes(weekAvgMinutes) + '</div>' +
+      '</div>' +
+      '</div>'
+    );
+  }
+
+  grid.innerHTML = rows.join("");
+}
+
+function collectHoursTaskCalendarEntries(t){
+  const grid = el("hm_calendar");
+  if(!t || !grid) return [];
+  const todayKey = toLocalDateKey(new Date());
+  const entries = [];
+  grid.querySelectorAll(".hm-day-input[data-date][data-active='1']").forEach((input)=>{
+    const date = (input.getAttribute("data-date") || "").trim();
+    const raw = (input.value || "").toString().replace(",", ".").trim();
+    if(!date || raw === "") return;
+    if(date > todayKey) return;
+    const hours = parseFloat(raw);
+    if(!isFinite(hours) || hours < 0) return;
+    entries.push({ date, hours, minutes: Math.round(hours * 60) });
+  });
+  return entries;
+}
+function getHoursDraftForDate(dateKey){
+  if(!dateKey) return "";
+  const grid = el("hm_calendar");
+  if(!grid) return "";
+  const input = grid.querySelector(`.hm-day-input[data-date="${dateKey}"]`);
+  return (input?.value || "").toString();
+}
+
+function refreshHoursDayCardVisual(input){
+  const dayInput = input?.closest?.(".hm-day-input[data-date]");
+  if(!dayInput) return;
+  const card = dayInput.closest(".hm-day[data-date]");
+  if(!card) return;
+  const day = (dayInput.getAttribute("data-date") || "").trim();
+  const active = (dayInput.getAttribute("data-active") || card.getAttribute("data-active") || "0") === "1";
+  const baseState = (card.getAttribute("data-state-base") || "future").toLowerCase();
+  const hmDate = el("hm_date");
+  const selectedDay = (hmDate?.value || "").trim();
+  const isSelected = !!day && day === selectedDay && active;
+
+  const raw = (dayInput.value || "").toString().replace(",", ".").trim();
+  const parsed = parseFloat(raw);
+  const hasValidHours = raw !== "" && isFinite(parsed) && parsed >= 0;
+  const state = hasValidHours ? "filled" : baseState;
+
+  let bg = "#ffffff";
+  let border = "#d0d7e2";
+  let text = "#0f172a";
+  if(state === "filled"){
+    bg = "#ecfdf3";
+    border = "#7dd3a3";
+  }else if(state === "missing"){
+    bg = "#fff7ed";
+    border = "#fdba74";
+  }else if(state === "outside"){
+    bg = "#e5e7eb";
+    border = "#cbd5e1";
+    text = "#64748b";
+  }
+
+  card.style.background = bg;
+  card.style.color = text;
+  card.style.border = isSelected ? "2px solid #2563eb" : ("1px solid " + border);
+
+  const sub = card.querySelector(".hm-day-sub");
+  if(sub){
+    if(hasValidHours){
+      const shown = String(Math.round(parsed * 100) / 100).replace(".", ",");
+      sub.textContent = shown + "h";
+    }else if(state === "missing"){
+      sub.textContent = "manquant";
+    }else if(state === "outside"){
+      sub.textContent = "hors tâche";
+    }else{
+      sub.textContent = "—";
+    }
+  }
+}
+
+
+function computeTaskWeeklySummary(t){
+  if(!t || !t.start || !t.end) return { rows: [], totalMinutes: 0 };
+  const roleKey = getTaskRoleKey(t);
+  const roleMultiplier = roleHoursMultiplier(roleKey);
+  const logs = getCanonicalTimeLogs().filter(l=>l.taskId===t.id && normalizeTimeLogRole(l)===roleKey);
+  const byDate = new Map();
+  logs.forEach((l)=> byDate.set(l.date, l.minutes || 0));
+
+  const start = new Date(t.start + "T00:00:00");
+  const end = new Date(t.end + "T00:00:00");
+  if(isNaN(start) || isNaN(end) || end < start) return { rows: [], totalMinutes: 0 };
+
+  const rowsMap = new Map();
+  let totalMinutes = 0;
+  for(let d=new Date(start); d<=end; d.setDate(d.getDate()+1)){
+    if(!isWeekday(d)) continue;
+    const key = toLocalDateKey(d);
+    const info = isoWeekInfo(d);
+    const wk = `${info.year}-S${String(info.week).padStart(2, "0")}`;
+    const label = `S${String(info.week).padStart(2, "0")} (${info.year})`;
+    if(!rowsMap.has(wk)) rowsMap.set(wk, { key:wk, label, days:0, total:0 });
+    const row = rowsMap.get(wk);
+    row.days += 1;
+    const dayMinutes = Math.round((byDate.get(key) || 0) * roleMultiplier);
+    row.total += dayMinutes;
+    totalMinutes += dayMinutes;
+  }
+  return { rows: Array.from(rowsMap.values()), totalMinutes };
+}
+
+function renderHoursTaskWeeklySummary(t, draftEntries=null){
+  const box = el("hm_summary");
+  if(!box) return;
+  if(!t){ box.innerHTML = ""; return; }
+  let totalMinutes = 0;
+  if(Array.isArray(draftEntries)){
+    const roleMultiplier = roleHoursMultiplier(getTaskRoleKey(t));
+    const byDate = new Map();
+    draftEntries.forEach((e)=>{
+      const date = (e?.date || "").toString().trim();
+      if(!date) return;
+      if(!isTaskActiveOn(t, date)) return;
+      const d = new Date(date + "T00:00:00");
+      if(!isWeekday(d)) return;
+      byDate.set(date, Math.round(Math.max(0, Number(e?.minutes || 0)) * roleMultiplier));
+    });
+    totalMinutes = Array.from(byDate.values()).reduce((a,b)=>a+b,0);
+  }else{
+    const data = computeTaskWeeklySummary(t);
+    totalMinutes = data.totalMinutes || 0;
+  }
+  box.innerHTML = `<div style="margin-top:8px;border:1px solid #cbd5e1;border-radius:10px;background:#fff;padding:10px;color:#0f172a;font-weight:700;font-size:13px">Total tâche : ${formatHoursMinutes(totalMinutes)}</div>`;
+}
+
+function syncHoursTaskStatusFromMain(){
+  const statusInput = el("t_time_status");
+  const hmStatus = el("hm_status");
+  if(!hmStatus) return;
+  hmStatus.className = (statusInput?.className || "time-log-status");
+  hmStatus.innerHTML = statusInput?.innerHTML || "";
+  if((hmStatus.textContent || "").toLowerCase().includes("non renseign")){
+    hmStatus.textContent = "";
+  }
+}
+
+function syncHoursTaskStatusFromCalendarDraft(t, dayKey, rawValue){
+  const hmStatus = el("hm_status");
+  if(!hmStatus) return;
+  hmStatus.className = "time-log-status";
+  if(!t || !dayKey){
+    hmStatus.textContent = "";
+    return;
+  }
+  const inRange = isTaskActiveOn(t, dayKey);
+  if(!inRange){
+    hmStatus.textContent = "Hors période";
+    return;
+  }
+  const dateObj = new Date(dayKey + "T00:00:00");
+  if(!isWeekday(dateObj)){
+    hmStatus.textContent = "Week-end";
+    return;
+  }
+  const todayKey = toLocalDateKey(new Date());
+  if(dayKey > todayKey){
+    hmStatus.textContent = "À venir";
+    return;
+  }
+  const raw = (rawValue == null ? "" : String(rawValue)).replace(",", ".").trim();
+  if(raw === ""){
+    hmStatus.classList.add("missing");
+    hmStatus.innerHTML = `<span class="time-icon missing"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"></circle><path d="M12 7v5l3 2"></path></svg></span>Heures réelles manquantes`;
+    return;
+  }
+  const hours = parseFloat(raw);
+  if(!isFinite(hours) || hours < 0){
+    hmStatus.classList.add("missing");
+    hmStatus.textContent = "Temps invalide";
+    return;
+  }
+  hmStatus.textContent = "Déjà renseigné";
+  if((hmStatus.textContent || "").toLowerCase().includes("non renseign")){
+    hmStatus.textContent = "";
+  }
+}
+
+function applyHoursSaveButtonVisualState(btn){
+  if(!btn) return;
+  // Palette harmonisée UI: bouton Valider bleu-gris (plus de vert forcé).
+  btn.style.setProperty("background", "#3f6170", "important");
+  btn.style.setProperty("border-color", "#365563", "important");
+  btn.style.setProperty("color", "#ffffff", "important");
+  btn.style.setProperty("-webkit-text-fill-color", "#ffffff", "important");
+  btn.style.setProperty("text-shadow", "none", "important");
+  if(btn.disabled || btn.classList.contains("is-disabled")){
+    btn.style.setProperty("background", "#8ea2ad", "important");
+    btn.style.setProperty("border-color", "#7f939e", "important");
+    btn.style.setProperty("color", "#f5f8fa", "important");
+    btn.style.setProperty("-webkit-text-fill-color", "#f5f8fa", "important");
+    btn.style.setProperty("opacity", "1", "important");
+    btn.style.setProperty("filter", "none", "important");
+    btn.style.setProperty("box-shadow", "none", "important");
+  }else{
+    btn.style.removeProperty("opacity");
+    btn.style.removeProperty("filter");
+    btn.style.removeProperty("box-shadow");
+  }
+}
+
+function syncHoursTaskModal(taskOverride=null){
+  const modal = el("hoursTaskModal");
+  if(!modal) return;
+  const t = taskOverride || getSelectedTaskForHoursModal();
+  const p = t ? (state?.projects || []).find(x=>x.id===t.projectId) : null;
+
+  const hmProject = el("hm_project");
+  const hmTask = el("hm_task");
+  const hmOwnerBadge = el("hm_owner_badge");
+  const hmPeriod = el("hm_period");
+  const hmDate = el("hm_date");
+  const hmHours = el("hm_hours");
+  const hmStatus = el("hm_status");
+  const hmSummary = el("hm_summary");
+  const btnSave = el("btnSaveHoursModal");
+
+  if(!t){
+    if(hmProject) hmProject.value = "";
+    if(hmTask) hmTask.value = "";
+    if(hmOwnerBadge) hmOwnerBadge.innerHTML = "";
+    if(hmPeriod) hmPeriod.value = "";
+    if(hmDate) hmDate.value = "";
+    if(hmHours) hmHours.value = "";
+    if(hmStatus) hmStatus.textContent = "";
+    if(hmSummary) hmSummary.textContent = "";
+    if(btnSave){
+      btnSave.disabled = true;
+      applyHoursSaveButtonVisualState(btnSave);
+    }
+    return;
+  }
+
+  const dateInput = el("t_time_date_input");
+  const hoursInput = el("t_time_hours");
+  const statusInput = el("t_time_status");
+  const desc = (t.roomNumber || "").trim();
+  const owner = roleLabel(getTaskRoleKey(t));
+  const vendor = (t.vendor || "").trim();
+
+  if(hmProject) hmProject.value = (p?.name || "").trim();
+  if(hmTask) hmTask.value = desc ? (((t.status || "").trim()) + " - " + desc) : ((t.status || "").trim() || "Tâche");
+  if(hmOwnerBadge){
+    const badgeHtml = ownerBadgeForTask(t) || ownerBadge(owner, vendor ? `${owner} - ${vendor}` : owner);
+    hmOwnerBadge.innerHTML = badgeHtml || `<span>${attrEscape(vendor ? `${owner} - ${vendor}` : owner)}</span>`;
+  }
+  if(hmPeriod) hmPeriod.value = (formatDate(t.start || "") + " -> " + formatDate(t.end || ""));
+  if(hmDate){
+    const todayKey = toLocalDateKey(new Date());
+    const maxAllowed = (!t.end || t.end > todayKey) ? todayKey : t.end;
+    hmDate.min = t.start || "";
+    hmDate.max = maxAllowed || "";
+    hmDate.value = (dateInput?.value || t.start || "");
+    if(hmDate.value && maxAllowed && hmDate.value > maxAllowed) hmDate.value = maxAllowed;
+  }
+  if(hmHours) hmHours.value = (hoursInput?.value || "").toString();
+  syncHoursTaskStatusFromMain();
+  renderHoursTaskWeeklySummary(t);
+  if(btnSave){
+    btnSave.disabled = false;
+    applyHoursSaveButtonVisualState(btnSave);
+  }
+  renderHoursTaskCalendar(t);
+}
+function openHoursTaskModal(){
+  const modal = el("hoursTaskModal");
+  if(!modal) return;
+  const t = getSelectedTaskForHoursModal();
+  if(!t){
+    alert("Sélectionne une tâche.");
+    return;
+  }
+  updateTimeLogUI(t, true);
+  syncHoursTaskModal(t);
+  showModalSafely(modal);
+}
+function closeHoursTaskModal(stopFlow=true){
+  const modal = el("hoursTaskModal");
+  hideModalSafely(modal, "#btnOpenHoursModal");
+  if(stopFlow && _missingHoursFlow){
+    _missingHoursFlow = null;
+    showSaveToast("ok", "Parcours arrêté", "Traitement des tâches à compléter interrompu.");
+  }
+}
+function saveHoursTaskModal(){
+  const t = getSelectedTaskForHoursModal();
+  if(!t){
+    alert("Sélectionne une tâche.");
+    return;
+  }
+  const hmDate = el("hm_date");
+  const hmHours = el("hm_hours");
+  const dateInput = el("t_time_date_input");
+  const hoursInput = el("t_time_hours");
+  if(!dateInput || !hoursInput || !hmDate || !hmHours){
+    alert("Saisie des heures indisponible.");
+    return;
+  }
+
+  const selectedDate = (hmDate.value || "").trim();
+  if(!selectedDate || !isTaskActiveOn(t, selectedDate)){
+    alert("La date est hors période de la tâche.");
+    return;
+  }
+  const dateObj = new Date(selectedDate + "T00:00:00");
+  if(!isWeekday(dateObj)){
+    alert("La date tombe un week-end.");
+    return;
+  }
+  const todayKey = toLocalDateKey(new Date());
+  if(selectedDate > todayKey){
+    alert("La date est dans le futur.");
+    return;
+  }
+
+  const entries = collectHoursTaskCalendarEntries(t);
+  const grid = el("hm_calendar");
+  const emptyDates = [];
+  (grid ? Array.from(grid.querySelectorAll(".hm-day-input[data-date][data-active='1']")) : []).forEach((input)=>{
+    const date = (input.getAttribute("data-date") || "").trim();
+    if(!date) return;
+    const raw = (input.value || "").toString().replace(",", ".").trim();
+    if(raw === "") emptyDates.push(date);
+  });
+
+  const rawHours = (hmHours.value || "").toString().replace(",", ".").trim();
+  if(rawHours){
+    const hours = parseFloat(rawHours);
+    if(!isFinite(hours) || hours < 0){
+      alert("Temps invalide.");
+      return;
+    }
+    if(!entries.some((x)=>x.date === selectedDate)){
+      entries.push({ date: selectedDate, hours, minutes: Math.round(hours * 60) });
+    }
+  }
+  if(!entries.length && !emptyDates.length){
+    alert("Saisis le temps passé (heures).");
+    return;
+  }
+
+  saveUndoSnapshot();
+  const roleKey = getTaskRoleKey(t);
+  entries.forEach((entry)=>{
+    if(!isTaskActiveOn(t, entry.date)) return;
+    const dObj = new Date(entry.date + "T00:00:00");
+    if(!isWeekday(dObj)) return;
+    upsertTimeLog(t.id, t.projectId, entry.minutes, "", entry.date, roleKey);
+  });
+  if(emptyDates.length){
+    const logs = getTimeLogs();
+    for(let i = logs.length - 1; i >= 0; i--){
+      const l = logs[i];
+      if(!l || l.taskId !== t.id) continue;
+      if(!emptyDates.includes(l.date)) continue;
+      if(normalizeTimeLogRole(l) !== roleKey) continue;
+      logs.splice(i, 1);
+    }
+  }
+  closeHoursTaskModal(false);
+  markDirty();
+  dateInput.value = selectedDate;
+  hoursInput.value = rawHours;
+  updateTimeLogUI(t, true);
+  renderMaster();
+  renderProject();
+  saveState();
+  if(_missingHoursFlow){
+    advanceMissingHoursFlow();
+  }
+}
+function checkTimeLogReminders(){
+  const userKey = getCurrentUserKey();
+  if(!userKey) return;
+  const yKey = getYesterdayKey();
+  const flag = `timeLogReminder_${yKey}_${userKey}`;
+  if(sessionStorage.getItem(flag)) return;
+  const tasks = (state?.tasks || []).filter(t=>t.start && t.end && isTaskActiveOn(t, yKey));
+  if(!tasks.length) return;
+  let missing = 0;
+  tasks.forEach(t=>{
+    if(!findTimeLog(t.id, yKey, userKey)) missing++;
+  });
+  if(missing > 0){
+    showSaveToast("ok", "Rappel temps (veille)", `${missing} tâche(s) à compléter`);
+  }
+  sessionStorage.setItem(flag, "1");
+}
+
+
+
+function renderProject(){
+  computeTaskOrderMap();
+  renderTabs();
+  closeAllOverlays();
+  ensureProjectHeaderNodes();
+  const p=state.projects.find(x=>x.id===selectedProjectId);
+  if(!p){ selectedProjectId=null; renderMaster(); return; }
+
+  el("viewMaster")?.classList.add("hidden");
+
+  el("viewProject")?.classList.remove("hidden");
+
+  const projectTitleNode = el("projectTitle");
+  if(projectTitleNode) projectTitleNode.textContent = `Projet : ${p.name||"Sans nom"}`;
+
+  const projectSubNode = el("projectSub");
+  if(projectSubNode) projectSubNode.textContent = p.site || "Détails • Gantt";
+  updateSitePhoto(p.site || "");
+
+  const projectSummary = el("projectSummary");
+  let projectProgress = 0;
+  if(projectSummary){
+    const tasksAll = state.tasks.filter(t=>t.projectId===p.id);
+    const tasksDated = tasksAll.filter(t=>t.start && t.end);
+    const todayKey = new Date().toISOString().slice(0,10);
+    const inProgress = tasksDated.filter(t=>t.start<=todayKey && t.end>=todayKey).length;
+    const minStart = tasksDated.length ? tasksDated.map(t=>t.start).sort()[0] : "";
+    const maxEnd = tasksDated.length ? tasksDated.map(t=>t.end).sort().slice(-1)[0] : "";
+    const endLabel = maxEnd ? formatDate(maxEnd) : "—";
+    const isFinished = !!(maxEnd && maxEnd < todayKey);
+    const finishedLabel = isFinished ? " • Projet terminé" : "";
+    if(minStart && maxEnd){
+      projectProgress = taskProgress({start:minStart, end:maxEnd});
+    }
+    projectSummary.textContent = `Résumé : ${tasksAll.length} tâches • ${inProgress} en cours • Fin prévue : ${endLabel}${finishedLabel}`;
+  }
+  setProjectProgressUI(projectProgress);
+
+  // métriques projet : durée totale + équivalent heures (6h/j)
+
+  const projTasks = state.tasks.filter(t=>t.projectId===p.id && t.start && t.end);
+
+  const allDays = new Set();
+
+  const internalDays = new Set();
+  const externalDays = new Set();
+  const rsgDays = new Set();
+  const riDays = new Set();
+
+  projTasks.forEach(t=>{
+
+    const s=new Date(t.start+"T00:00:00");
+
+    const e=new Date(t.end+"T00:00:00");
+
+    if(isNaN(s)||isNaN(e) || e<s) return;
+
+    const typ = ownerType(t.owner);
+    const ownsInternal = typ === "interne";
+    const ownsExternal = typ === "externe" || typ === "inconnu";
+    const ownsRsg = typ === "rsg";
+    const ownsRi = typ === "ri";
+
+    for(let d=new Date(s); d<=e; d.setDate(d.getDate()+1)){
+
+      const key=d.toISOString().slice(0,10);
+
+      allDays.add(key);
+
+      if(ownsInternal) internalDays.add(key);
+      if(ownsExternal) externalDays.add(key);
+      if(ownsRsg) rsgDays.add(key);
+      if(ownsRi) riDays.add(key);
+
+    }
+
+  });
+
+  const totalDays = allDays.size;
+
+  const real = getRealMinutesForTasks(projTasks);
+  let progSumProj = 0;
+  let progWeightProj = 0;
+  projTasks.forEach(t=>{
+    const w = Math.max(1, durationDays(t.start, t.end));
+    progSumProj += taskProgress(t) * w;
+    progWeightProj += w;
+  });
+  const avgProgressProj = progWeightProj ? Math.round(progSumProj / progWeightProj) : 0;
+
+  const metrics = el("projectMetrics");
+
+  if(metrics){
+
+    metrics.innerHTML = `
+
+      <span class="panel-chip">Durée totale : <span class="metric-val">${totalDays || 0} j</span></span>
+
+      <span class="panel-chip">Avancement : <span class="metric-val">${avgProgressProj}%</span></span>
+
+      <span class="panel-chip">Heures réelles : <span class="metric-val">${formatHoursMinutes(real.totalMinutes||0)}</span></span>
+
+      <span class="panel-chip" style="background:#e8eef8;color:#1f2937;border-color:#c7d2fe;">Interne : <span class="metric-val">${internalDays.size||0} j</span> <span class="metric-val">${formatHoursMinutes(real.internalMinutes||0)}</span></span>
+
+      <span class="panel-chip" style="background:#fff1e6;color:#1f2937;border-color:#fdba74;">Externe : <span class="metric-val">${externalDays.size||0} j</span> <span class="metric-val">${formatHoursMinutes(real.externalMinutes||0)}</span></span>
+      <span class="panel-chip" style="background:#e8f0ff;color:#1f2937;border-color:#93c5fd;">RSG : <span class="metric-val">${rsgDays.size||0} j</span> <span class="metric-val">${formatHoursMinutes(real.rsgMinutes||0)}</span></span>
+      <span class="panel-chip" style="background:#f2eaff;color:#1f2937;border-color:#c4b5fd;">RI : <span class="metric-val">${riDays.size||0} j</span> <span class="metric-val">${formatHoursMinutes(real.riMinutes||0)}</span></span>
+
+    `;
+
+  }
+
+
+
+  // Bandeau live : tâches en cours  la date du jour
+
+  const live = el("projectLive");
+
+  if(live){
+
+    const todayKey = new Date().toISOString().slice(0,10);
+    const datedProjectTasks = state.tasks.filter(t=>t.projectId===p.id && t.start && t.end);
+    const hasStarted = datedProjectTasks.some(t=>t.start<=todayKey);
+    const allFinished = datedProjectTasks.length>0 && datedProjectTasks.every(t=>t.end<todayKey || taskProgress(t)>=100);
+
+    const inProgress = state.tasks
+
+      .filter(t=>t.projectId===p.id && t.start && t.end && t.start<=todayKey && t.end>=todayKey)
+
+      .sort((a,b)=> (taskOrderMap[a.id]||999)-(taskOrderMap[b.id]||999));
+
+    if(inProgress.length===0){
+      if(allFinished){
+        live.innerHTML = `<span class="live-title">Projet terminé</span>`;
+      }else if(!hasStarted){
+        live.innerHTML = `<span class="live-title">Projet non démarré</span>`;
+      }else{
+        live.innerHTML = `<span class="live-title">Projet en attente</span>`;
+      }
+
+    }else{
+
+      const badges = inProgress.map(t=>{
+
+        const num = taskOrderMap[t.id]||"";
+
+        const status = parseStatuses(t.status)[0] || "";
+
+        const color = ownerColor(t.owner);
+
+        const label = STATUSES.find(s=>s.v===status)?.label || status || "En cours";
+
+        const projName = p.name || "Projet";
+
+        return `<span class="live-item"><span class="num-badge" style="--badge-color:${color};--badge-text:#fff;">${num}</span> ${projName}  ${label}</span>`;
+
+      }).join(" ");
+
+      live.innerHTML = `<span class="live-title">Projet démarré  Tâches en cours :</span> ${badges}`;
+
+    }
+
+  }
+
+  setInputValue("p_name", p.name||"");
+
+  setInputValue("p_subproject", p.subproject||"");
+
+  const siteSelect = el("p_site");
+  if(siteSelect){
+    const sites = ["CDM","Collège","École","LGT","NDC"].sort((a,b)=>a.localeCompare(b, "fr"));
+    siteSelect.innerHTML = sites.map(s=>`<option value="${s}">${s}</option>`).join("");
+    siteSelect.value = p.site || "";
+    if(!siteSelect.value && p.site){ siteSelect.value = p.site; }
+    const syncPhoto = () => updateSitePhoto(siteSelect.value);
+    siteSelect.onchange = syncPhoto;
+    siteSelect.oninput = syncPhoto;
+    updateSitePhoto(siteSelect.value || p.site || "");
+  }
+  const constraintsInput = el("p_constraints");
+  if(constraintsInput){
+    constraintsInput.value = p.constraints||"";
+  }
+
+
+
+  let t=null;
+
+  if(selectedTaskId){
+
+    t = state.tasks.find(x=>x.id===selectedTaskId && x.projectId===p.id) || null;
+
+  }
+
+  if(!t){
+
+    t = state.tasks.find(x=>x.projectId===p.id) || null;
+
+  }
+
+  selectedTaskId = t?.id || null;
+
+  const badge = el("t_num_badge");
+
+  if(badge){
+
+    const num = selectedTaskId ? (taskOrderMap[selectedTaskId] || "") : "";
+
+    badge.textContent = num;
+
+    badge.style.display = num ? "inline-flex" : "none";
+
+  }
+
+  if(!selectedTaskId){
+
+    el("btnNewTask")?.classList.add("btn-armed");
+
+  }else{
+
+    el("btnNewTask")?.classList.remove("btn-armed");
+
+  }
+
+
+
+  if(t){
+
+    const desc = (t.roomNumber && t.roomNumber.trim()) || p.subproject || "";
+
+    setInputValue("t_room", desc);
+
+    const ownerVal = (t.owner || "");
+    setInputValue("t_owner", ownerVal.toUpperCase()==="RSG/RI" ? "RSG" : ownerVal);
+
+    setInputValue("t_vendor", t.vendor||"");
+
+    const startVal = toInputDate(t.start);
+    const endVal = toInputDate(t.end);
+    setInputValue("t_start", startVal);
+
+    setInputValue("t_end", endVal);
+    setTaskProgressUI(taskProgress(t));
+    updateTimeLogUI(t, true);
+    if(window.__fpStart){ try{ window.__fpStart.setDate(startVal || null, true, "Y-m-d"); }catch(e){ softCatch(e); } }
+    if(window.__fpEnd){ try{ window.__fpEnd.setDate(endVal || null, true, "Y-m-d"); }catch(e){ softCatch(e); } }
+
+    setStatusSelection(t.status||"");
+
+  }else{
+
+    setInputValue("t_room", ""); setInputValue("t_owner", ""); setInputValue("t_vendor", ""); setInputValue("t_start", ""); setInputValue("t_end", "");
+    setTaskProgressUI(0);
+    updateTimeLogUI(null);
+    if(window.__fpStart){ try{ window.__fpStart.setDate(null); }catch(e){ softCatch(e); } }
+    if(window.__fpEnd){ try{ window.__fpEnd.setDate(null); }catch(e){ softCatch(e); } }
+
+    setStatusSelection("");
+
+  }
+
+
+
+  renderGantt(p.id);
+
+  renderProjectTasks(p.id);
+
+  const projectTasks = state.tasks.filter(t=>t.projectId===p.id);
+
+  const projRange = {type:workloadRangeTypeProject, year:workloadRangeYearProject, start:workloadRangeStartProject, end:workloadRangeEndProject};
+
+  renderWorkloadChartFor(
+
+    projectTasks,
+
+    "workloadChartProject",
+
+    "workloadPieProject",
+
+    {type:"workloadRangeTypeProject", year:"workloadRangeYearProject", start:"workloadRangeStartProject", end:"workloadRangeEndProject"},
+
+    projRange,
+
+    projectTasks,
+
+    true
+
+  );
+
+  workloadRangeTypeProject = projRange.type;
+
+  workloadRangeYearProject = projRange.year;
+
+  workloadRangeStartProject = projRange.start;
+
+  workloadRangeEndProject = projRange.end;
+
+  refreshVendorsList();
+
+  refreshDescriptionsList();
+  const projectHoursReport = el("projectHoursReport");
+  if(projectHoursReport){
+    projectHoursReport.innerHTML = buildProjectRealHoursReportInnerHTML(p.id);
+  }
+  animateBadgeChanges(el("viewProject"));
+  animateCardsInView("viewProject");
+
+}
+
+
+
+function renderAll(){
+  // filet de sécurité : si localStorage est vide (ex : fichier ouvert en navigation privée), on recharge l'état par défaut
+  if(!state || !Array.isArray(state.projects) || state.projects.length===0){
+    state = defaultState();
+  }
+  closeAllOverlays();
+  refreshVendorsList();
+  refreshDescriptionsList();
+  resetProjectWorkloadFilters();
+  // rinitialiser les filtres visibles pour éviter un filtrage bloquant
+
+  ["filterSite","filterProject","filterStatus","filterSearch","filterStartAfter","filterEndBefore"].forEach(id=>{
+
+    const n=el(id);
+
+    if(n) n.value="";
+
+  });
+  const toggleMissingOnly = el("toggleMissingOnly");
+  if(toggleMissingOnly) toggleMissingOnly.checked = false;
+  _filteredCache = { key:"", version:-1, tasks:null };
+
+  renderFilters();
+
+  renderTabs();
+
+  if(selectedProjectId) renderProject();
+
+  else renderMaster();
+
+  updateSidebarTop();
+  updateSidebarScrollState();
+
+  applySidebarTopLock();
+  checkTimeLogReminders();
+  updateDataQualityBanner(false);
+  applyUiUpperNoAccent();
+  ensureUiUpperNoAccentObserver();
+
+}
+
+
+
+
+function getExportFiltersPayload(){
+  const site = el("filterSite")?.value || "";
+  const project = el("filterProject")?.value || "";
+  const status = el("filterStatus")?.value || "";
+  const search = (el("filterSearch")?.value || "").trim();
+  const startAfter = el("filterStartAfter")?.value || "";
+  const endBefore = el("filterEndBefore")?.value || "";
+  const projectName = selectedProjectId ? (state.projects.find(p=>p.id===selectedProjectId)?.name || "") : "";
+  return { site, project, projectName, status, search, startAfter, endBefore };
+}
+
+function getProjectsSortedForExport(){
+  return [...(state?.projects || [])].sort((a,b)=>
+    (a?.name || "").localeCompare((b?.name || ""), "fr", { sensitivity:"base" })
+  );
+}
+
+function getUnifiedDefaultExportProjectIds(){
+  const projects = getProjectsSortedForExport();
+  if(!projects.length) return [];
+  if(selectedProjectId && projects.some(p=>p.id===selectedProjectId)) return [selectedProjectId];
+  return [projects[0].id];
+}
+
+function normalizeUnifiedExportProjectIds(ids, opts={}){
+  const allowEmpty = !!opts.allowEmpty;
+  const allowed = new Set(getProjectsSortedForExport().map(p=>p.id));
+  const uniq = Array.from(new Set((ids || []).map(normId).filter(Boolean)));
+  const out = uniq.filter(id=>allowed.has(id));
+  if(out.length) return out;
+  return allowEmpty ? [] : getUnifiedDefaultExportProjectIds();
+}
+
+function getUnifiedExportSelectedProjectIdsFromUi(root){
+  const scope = root || document;
+  const nodes = Array.from(scope.querySelectorAll("#exportPdfModulesList input[data-export-project-id]:checked"));
+  const ids = nodes.map(n=>normId(n.getAttribute("data-export-project-id")));
+  return normalizeUnifiedExportProjectIds(ids, { allowEmpty:true });
+}
+
+function getActiveProjectIdsForToday(){
+  const todayKey = new Date().toISOString().slice(0,10);
+  const activeSet = new Set(
+    (state.tasks || [])
+      .filter((t)=>t?.projectId && t.start && t.end && t.start <= todayKey && t.end >= todayKey)
+      .map((t)=>t.projectId)
+  );
+  return normalizeUnifiedExportProjectIds(Array.from(activeSet), { allowEmpty:true });
+}
+
+function getUnifiedExportModuleDefinitions(){
+  const isProject = !el("viewProject")?.classList.contains("hidden");
+  if(isProject){
+    return [
+      { key:"project_header", label:"En-tête projet", selector:"#viewProject .panel-head", wide:false },
+      { key:"project_tasks", label:"Tableau des tâches", selector:"#viewProject .tablewrap.project-tasks", wide:true },
+      { key:"project_gantt", label:"Gantt hebdo", selector:"#viewProject #gantt", wide:true },
+      { key:"project_workload", label:"Charge de travail (projet)", selector:"#workloadChartProjectWrap", wide:true },
+      { key:"project_pie", label:"Répartition Interne / Externe / RSG / RI (projet)", selector:"#workloadPieProjectWrap", wide:false },
+      { key:"project_hours", label:"Analyse heures réelles (projet)", selector:"#projectHoursReportCard", wide:true },
+      { key:"project_hours_internal_only", label:"Analyse heures réelles (projet) - sans prestataires externes", selector:"#projectHoursReportCard", wide:true }
+    ];
+  }
   return [
-    `https://api.qrserver.com/v1/create-qr-code/?size=180x180&margin=0&data=${encoded}`,
-    `https://quickchart.io/qr?size=180&margin=0&text=${encoded}`,
-    `https://chart.googleapis.com/chart?chs=180x180&cht=qr&chl=${encoded}`,
+    { key:"master_table", label:"Tableau maître", selector:"#viewMaster .tablewrap", wide:true },
+    { key:"master_gantt", label:"Gantt global", selector:"#viewMaster #masterGantt", wide:true },
+    { key:"master_pie", label:"Répartition Interne / Externe / RSG / RI (tableau maître)", selector:"#workloadPieWrap", wide:false },
+    { key:"master_hours", label:"Analyse heures réelles", selector:"#masterHoursReportCard", wide:true },
+    { key:"master_hours_internal_only", label:"Analyse heures réelles - sans prestataires externes", selector:"#masterHoursReportCard", wide:true }
   ];
 }
 
-async function getAbsoluteMobileSignatureUrl(request) {
-  if (!request) {
-    return "";
-  }
-  const relativeUrl = getMobileSignaturePageUrl(request);
-  const baseUrl = await getMobileSignatureBaseUrl();
-  let resolvedBaseUrl = String(baseUrl || window.location.origin || "").trim();
-  try {
-    const parsed = new URL(resolvedBaseUrl, window.location.origin);
-    if (/\.[a-z0-9]+$/i.test(parsed.pathname)) {
-      parsed.pathname = parsed.pathname.replace(/[^/]+$/, "");
-    }
-    if (!parsed.pathname.endsWith("/")) {
-      parsed.pathname = `${parsed.pathname}/`;
-    }
-    parsed.search = "";
-    parsed.hash = "";
-    resolvedBaseUrl = parsed.href;
-  } catch (error) {
-    resolvedBaseUrl = `${resolvedBaseUrl.replace(/\/$/, "").replace(/\/[^/]+\.[a-z0-9]+$/i, "")}/`;
-  }
-  return new URL(relativeUrl, resolvedBaseUrl).href;
+function cloneNodeForUnifiedExport(sourceNode){
+  if(!sourceNode) return null;
+  const clone = sourceNode.cloneNode(true);
+  clone.querySelectorAll("button,.btn,.theme-picker,.icon-btn,[data-no-export]").forEach(n=>n.remove());
+  clone.querySelectorAll("input,select,textarea").forEach(n=>{
+    const span = document.createElement("span");
+    const value = n.value || n.getAttribute("value") || "";
+    span.textContent = value;
+    span.className = "pdf-input-value";
+    n.replaceWith(span);
+  });
+  const sourceCanvas = sourceNode.querySelectorAll("canvas");
+  const cloneCanvas = clone.querySelectorAll("canvas");
+  cloneCanvas.forEach((c, idx)=>{
+    const src = sourceCanvas[idx];
+    if(!src) return;
+    try{
+      const img = document.createElement("img");
+      img.src = src.toDataURL("image/png", 1.0);
+      img.style.width = src.width ? `${src.width}px` : "100%";
+      img.style.maxWidth = "100%";
+      img.style.height = "auto";
+      c.replaceWith(img);
+    }catch(_e){/* noop */}
+  });
+  return clone;
 }
 
-async function fillMobileSignatureShareLink(request) {
-  const wrapper = document.getElementById("mobile-signature-share");
-  const input = document.getElementById("mobile-signature-share-url");
-  const copyButton = document.getElementById("mobile-signature-copy-link");
-  const qrWrapper = document.getElementById("mobile-signature-share-qr");
-  const qrImage = document.getElementById("mobile-signature-share-qr-image");
-  const reachabilityHintNode = document.getElementById("mobile-signature-share-network-hint");
-
-  if (!wrapper || !input || !copyButton) {
-    return;
+function buildProjectTasksExportHTML(projectId){
+  const tasks = sortTasks(state.tasks.filter(t=>t.projectId===projectId), sortProject);
+  if(!tasks.length){
+    return "<div class='tablewrap project-tasks-export'><table class='table'><tbody><tr><td class='empty-row'>Aucune tâche</td></tr></tbody></table></div>";
   }
 
-  if (!request) {
-    wrapper.hidden = true;
-    input.value = "";
-    copyButton.disabled = true;
-    if (qrWrapper) {
-      qrWrapper.hidden = true;
-    }
-    if (qrImage) {
-      qrImage.removeAttribute("src");
-    }
-    if (reachabilityHintNode) {
-      reachabilityHintNode.textContent = "";
-    }
-    return;
-  }
+  const missingMap = buildMissingDaysMap(tasks);
+  let rows = "";
+  tasks.forEach(t=>{
+    const statuses = parseStatuses(t.status).map(v=>v.toUpperCase());
+    const c = ownerColor(t.owner);
+    const ownerBadgeHtml = t.owner ? ownerBadgeForTask(t) : "";
+    const durLabel = durationLabelForTask(t);
+    const todayKey = new Date().toISOString().slice(0,10);
+    const isToday = !!(t.start && t.end && t.start<=todayKey && t.end>=todayKey);
+    const isLate = !!(t.end && t.end < todayKey);
+    const isSelected = t.id===selectedTaskId;
+    const rowClass = `${isSelected ? "row-selected " : ""}${isToday ? "today-row " : ""}${isLate ? "late-row" : ""}`.trim();
+    const miss = missingMap.get(t.id) || 0;
+    const missDot = miss>0 ? `<span class="missing-dot" title="Heures réelles manquantes (${miss} j)"></span>` : "";
+    rows += `<tr class="${rowClass}">
+      <td>${missDot}<span class="num-badge" style="--badge-color:${c};--badge-text:#fff;">${taskOrderMap[t.id]||""}</span></td>
+      <td><span class="icon-picto"></span> ${taskTitleProjectView(t)}</td>
+      <td class="status-cell"><span class="status-left">${statusDot(statuses[0])}${statusLabels(t.status||"")}</span>${ownerBadgeHtml||""}</td>
+      <td>${formatDate(t.start)||""}</td>
+      <td>${formatDate(t.end)||""}</td>
+      <td>${taskProgress(t)}%</td>
+      <td>${durLabel}</td>
+    </tr>`;
+  });
 
-  const absoluteUrl = await getAbsoluteMobileSignatureUrl(request);
-
-  wrapper.hidden = false;
-  input.value = absoluteUrl;
-  copyButton.disabled = false;
-  if (reachabilityHintNode) {
-    reachabilityHintNode.textContent = getMobileSignatureReachabilityHint(absoluteUrl);
-  }
-  if (qrWrapper && qrImage) {
-    const providerUrls = getQrProviderUrls(absoluteUrl);
-    let providerIndex = 0;
-    qrImage.referrerPolicy = "no-referrer";
-    qrImage.decoding = "async";
-    qrImage.alt = "QR CODE DE SIGNATURE MOBILE";
-    qrWrapper.hidden = false;
-    qrImage.src = providerUrls[providerIndex];
-    qrImage.onerror = () => {
-      providerIndex += 1;
-      if (providerIndex < providerUrls.length) {
-        qrImage.src = providerUrls[providerIndex];
-        return;
-      }
-      qrWrapper.hidden = true;
-      if (reachabilityHintNode) {
-        const hint = getMobileSignatureReachabilityHint(absoluteUrl);
-        reachabilityHintNode.textContent = `${hint} QR INDISPONIBLE: UTILISER LE LIEN DIRECT.`;
-      }
-    };
-    qrImage.onload = () => {
-      qrWrapper.hidden = false;
-    };
-  }
-  copyButton.onclick = async () => {
-    try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(absoluteUrl);
-      } else {
-        input.focus();
-        input.select();
-        document.execCommand("copy");
-      }
-      showDataStatus("LIEN DE SIGNATURE COPIE");
-    } catch (error) {
-      input.focus();
-      input.select();
-      showDataStatus("COPIE MANUELLE DU LIEN");
-    }
-  };
+  return `<div class="tablewrap project-tasks-export"><table class="table" id="projectTasksExportTable">
+    <thead>
+      <tr>
+        <th style="width:70px">N</th>
+        <th>Description</th>
+        <th style="width:320px">Statuts</th>
+        <th style="width:120px">Début</th>
+        <th style="width:120px">Fin</th>
+        <th style="width:100px">Avancement</th>
+        <th style="width:130px">Durée (jours)</th>
+      </tr>
+    </thead>
+    <tbody>${rows}</tbody>
+  </table></div>`;
 }
 
-function getMobileSignatureLinkNodeId(docType, signer = "personnel") {
-  return `${docType}-mobile-signature-link-${normalizeMobileSignatureSigner(signer)}`;
+
+function buildMasterTableExportHTML(){
+  const sorted = sortTasks(filteredTasks(), sortMaster);
+  if(!sorted.length){
+    return "<div class='tablewrap master-table-export'><table class='table'><tbody><tr><td class='empty-row'>Aucune tâche.</td></tr></tbody></table></div>";
+  }
+
+  const missingMap = buildMissingDaysMap(sorted);
+  const todayKey = new Date().toISOString().slice(0,10);
+  let rows = "";
+
+  sorted.forEach(t=>{
+    const p = state.projects.find(x=>x.id===t.projectId);
+    const statuses = parseStatuses(t.status).map(v=>v.toUpperCase());
+    const c = ownerColor(t.owner);
+    const rowBg = siteColor(p?.site);
+    const sub = (p?.subproject || "").trim();
+    const projLabel = sub ? `${p?.name||"Sans projet"} - ${sub}` : (p?.name||"Sans projet");
+    const taskLabel = (t.roomNumber||"").trim();
+    const isToday = !!(t.start && t.end && t.start<=todayKey && t.end>=todayKey);
+    const isLate = !!(t.end && t.end < todayKey);
+    const rowClass = `${isToday ? "today-row " : ""}${isLate ? "late-row" : ""}`.trim();
+    const miss = missingMap.get(t.id) || 0;
+    const missDot = miss>0 ? `<span class="missing-dot" title="Heures réelles manquantes (${miss} j)"></span>` : "";
+
+    rows += `<tr class="${rowClass}" style="--site-bg:${rowBg};background:var(--site-bg);">
+      <td>${p?.site||""}</td>
+      <td>${projLabel}</td>
+      <td>${missDot}<span class="num-badge" style="--badge-color:${c};--badge-text:#fff;">${taskOrderMap[t.id]||""}</span> <span class="icon-picto"></span> ${taskLabel}</td>
+      <td class="status-cell"><span class="status-left">${statusDot(statuses[0])}${statusLabels(t.status||"")}</span>${t.owner?ownerBadgeForTask(t):""}</td>
+      <td>${formatDate(t.start)||""}${isToday ? `<span class="today-dot" title="En cours aujourd'hui"></span>` : ""}</td>
+      <td>${formatDate(t.end)||""}</td>
+      <td>${taskProgress(t)}%</td>
+      <td>${durationLabelForTask(t)}</td>
+    </tr>`;
+  });
+
+  return `<div class="tablewrap master-table-export"><table class="table" id="masterTableExportTable">
+    <thead>
+      <tr>
+        <th style="width:80px">Site</th>
+        <th>Projet</th>
+        <th>Tâche</th>
+        <th style="width:300px">Statut</th>
+        <th style="width:120px">Début</th>
+        <th style="width:120px">Fin</th>
+        <th style="width:100px">Avancement</th>
+        <th style="width:130px">Durée (jours)</th>
+      </tr>
+    </thead>
+    <tbody>${rows}</tbody>
+  </table></div>`;
 }
 
-function renderMobileSignatureLink(docType, signer, absoluteUrl) {
-  const normalizedSigner = normalizeMobileSignatureSigner(signer);
-  const legacyNodeId = `${docType}-mobile-signature-link`;
-  const linkNode =
-    document.getElementById(getMobileSignatureLinkNodeId(docType, normalizedSigner)) ||
-    (normalizedSigner === "personnel" ? document.getElementById(legacyNodeId) : null);
-  if (!linkNode) {
-    return;
-  }
-  if (!absoluteUrl) {
-    linkNode.hidden = true;
-    linkNode.innerHTML = "";
-    return;
-  }
-  const hint = getMobileSignatureReachabilityHint(absoluteUrl);
-  linkNode.hidden = false;
-  linkNode.innerHTML = `
-    <span>LIEN TELEPHONE :</span>
-    <a href="${escapeHtml(absoluteUrl)}" target="_blank" rel="noopener">${escapeHtml(absoluteUrl)}</a>${hint ? `<small>${escapeHtml(hint)}</small>` : ""}
+
+
+function buildMasterExportHeaderHTML(pdfTheme){
+  const tasks = filteredTasks();
+  const dated = tasks.filter(t=>t.start && t.end);
+  const start = dated.length ? dated.reduce((min, t)=> (!min || t.start < min ? t.start : min), "") : "";
+  const end = dated.length ? dated.reduce((max, t)=> (!max || t.end > max ? t.end : max), "") : "";
+  const sites = Array.from(new Set(tasks.map(t=>{
+    const p = state.projects.find(x=>x.id===t.projectId);
+    return (p?.site || "").trim();
+  }).filter(Boolean))).sort((a,b)=>a.localeCompare(b,"fr",{sensitivity:"base"}));
+  const siteLabel = sites.length ? sites.join(", ") : "Tous";
+
+  return `
+    <div class="project-export-header-card" style="border:1px solid ${attrEscape(pdfTheme.line)};border-radius:8px;padding:6px 8px;background:${attrEscape(pdfTheme.panel)};background-image:linear-gradient(180deg, ${attrEscape(pdfTheme.panel)} 0%, ${attrEscape(pdfTheme.accentSoft)} 100%);margin-bottom:6px;box-shadow:0 3px 10px rgba(15,23,42,0.18);">
+      <div class="project-export-header-grid" style="display:grid;grid-template-columns:1.6fr 1fr .9fr 1fr 1fr 1fr;gap:8px;align-items:start;border-left:4px solid ${attrEscape(pdfTheme.accent)};padding-left:7px;">
+        <div><div style="font-size:12px;color:${attrEscape(pdfTheme.muted)};letter-spacing:.15px;margin-bottom:2px;font-weight:700;">Contexte</div><div style="font-weight:800;font-size:16px;line-height:1.2;color:${attrEscape(pdfTheme.text)};">Tableau maître</div></div>
+        <div><div style="font-size:12px;color:${attrEscape(pdfTheme.muted)};letter-spacing:.15px;margin-bottom:2px;font-weight:700;">Site / Zone</div><div style="font-weight:800;font-size:16px;line-height:1.2;color:${attrEscape(pdfTheme.text)};">${attrEscape(siteLabel)}</div></div>
+        <div><div style="font-size:12px;color:${attrEscape(pdfTheme.muted)};letter-spacing:.15px;margin-bottom:2px;font-weight:700;">Tâches</div><div style="font-weight:800;font-size:16px;line-height:1.2;color:${attrEscape(pdfTheme.text)};">${tasks.length}</div></div>
+        <div><div style="font-size:12px;color:${attrEscape(pdfTheme.muted)};letter-spacing:.15px;margin-bottom:2px;font-weight:700;">Début période</div><div style="font-weight:800;font-size:15px;line-height:1.2;color:${attrEscape(pdfTheme.text)};">${attrEscape(start ? formatDate(start) : "-")}</div></div>
+        <div><div style="font-size:12px;color:${attrEscape(pdfTheme.muted)};letter-spacing:.15px;margin-bottom:2px;font-weight:700;">Fin période</div><div style="font-weight:800;font-size:15px;line-height:1.2;color:${attrEscape(pdfTheme.text)};">${attrEscape(end ? formatDate(end) : "-")}</div></div>
+        <div><div style="font-size:12px;color:${attrEscape(pdfTheme.muted)};letter-spacing:.15px;margin-bottom:2px;font-weight:700;">Date export</div><div style="font-weight:800;font-size:15px;line-height:1.2;color:${attrEscape(pdfTheme.text)};">${attrEscape(new Date().toLocaleDateString("fr-FR", { day:"2-digit", month:"2-digit", year:"numeric" }))}</div></div>
+      </div>
+    </div>
   `;
 }
 
-async function syncDocumentMobileSignatureLink(docType, personId, signer = "personnel") {
-  const normalizedSigner = normalizeMobileSignatureSigner(signer);
-  if (!personId || !state.data) {
-    renderMobileSignatureLink(docType, normalizedSigner, "");
-    return;
+function buildGroupedProjectTasksExportHTML(projectIds){
+  const idSet = new Set((projectIds || []).map(normId).filter(Boolean));
+  const tasksRaw = (state.tasks || []).filter(t=> idSet.has(t.projectId));
+  if(!tasksRaw.length){
+    return "<div class='tablewrap project-tasks-export'><table class='table'><tbody><tr><td class='empty-row'>Aucune tâche</td></tr></tbody></table></div>";
   }
-  const request = getActiveMobileSignatureRequest(personId, docType, normalizedSigner);
-  if (!request) {
-    renderMobileSignatureLink(docType, normalizedSigner, "");
-    return;
-  }
-  const absoluteUrl = await getAbsoluteMobileSignatureUrl(request);
-  renderMobileSignatureLink(docType, normalizedSigner, absoluteUrl);
-}
-
-async function openMobileSignatureRequest(docType, personId, signer = "personnel") {
-  if (!state.data) {
-    showDataStatus("DONNEES NON CHARGEES");
-    return;
-  }
-  const normalizedSigner = normalizeMobileSignatureSigner(signer);
-  if (normalizedSigner === "representant" && !hasRepresentativeIdentityForDocument(docType)) {
-    showDataStatus("IDENTITE DU REPRESENTANT OBLIGATOIRE AVANT VALIDATION");
-    window.alert("VOUS DEVEZ IDENTIFIER L'IDENTITE DU REPRESENTANT DE L'ETABLISSEMENT POUR VALIDATION.");
-    updateRepresentativeSignatureActionState(docType);
-    return;
-  }
-
-  let request = getActiveMobileSignatureRequest(personId, docType, normalizedSigner);
-  if (!request) {
-    request = createMobileSignatureRequest(personId, docType, normalizedSigner);
-    markDirty();
-    await saveDataToFile({ silent: true });
-  }
-
-  const absoluteUrl = await getAbsoluteMobileSignatureUrl(request);
-  window.open(absoluteUrl, "_blank", "noopener");
-  renderMobileSignatureLink(docType, normalizedSigner, absoluteUrl);
-
-  showDataStatus("PAGE DE SIGNATURE MOBILE OUVERTE");
-  syncMobileSignaturePolling();
-}
-
-async function loadData() {
-  bindPdfModalCleanup();
-  reorderOverviewSearchBlock();
-  restoreNavigationContext();
-  applyActiveNav();
-  bindHistoryNavigation();
-  bindAutoSaveOnNavigation();
-  bindGlobalShortcuts();
-  bindLoadButton();
-  bindSaveButtons();
-  bindPdfButtons();
-  bindMobileSignatureButtons();
-  bindOverviewUrgencyActions();
-  bindOverviewControlExport();
-  bindDeletePersonButtons();
-  bindFilterForms();
-  bindAddPersonForm();
-  bindPersonSheetForm();
-  bindEffectForm();
-  bindReferenceListForms();
-  bindReferenceEffectForm();
-  bindReplacementCostForm();
-  bindRepresentativeSignatoryForm();
-  bindMobileSignatureSettingsForm();
-  bindReferenceFilters();
-  bindArchiveFilterForm();
-  bindSignatureCanvases();
-  bindRepresentativeFields();
-
-  const workingData = loadWorkingData();
-  if (workingData) {
-    state.data = workingData;
-    migrateDataModel();
-    state.isDirty = true;
-    clearUndoStack();
-    applyMeta();
-    hydrateStaticLists();
-    renderPage();
-    showDataStatus("DONNEES EN COURS REPRISES - SAUVEGARDER POUR LES RENDRE DEFINITIVES");
-    scheduleBackgroundAutoSave();
-    return;
-  }
-
-  await reloadData("OUVERTURE DES DONNEES...");
-}
-
-function reorderOverviewSearchBlock() {
-  if (document.body?.dataset?.page !== "overview") {
-    return;
-  }
-  const container = document.querySelector(".overview-top-fixed");
-  if (!(container instanceof HTMLElement)) {
-    return;
-  }
-  const sections = Array.from(container.querySelectorAll(":scope > section.section"));
-  const getHeading = (section) =>
-    normalizeText(section.querySelector(".section__heading h3")?.textContent || "");
-  const searchSection = sections.find((section) => getHeading(section) === "RECHERCHE ET FILTRES");
-  const overviewSection = sections.find((section) => getHeading(section) === "VUE D'ENSEMBLE");
-  if (!(searchSection instanceof HTMLElement) || !(overviewSection instanceof HTMLElement)) {
-    return;
-  }
-  if (searchSection.compareDocumentPosition(overviewSection) & Node.DOCUMENT_POSITION_PRECEDING) {
-    container.insertBefore(searchSection, overviewSection);
-  }
-}
-
-function applyPdfModeFromQuery() {
-  const params = new URLSearchParams(window.location.search);
-  if (params.get("pdf") === "1") {
-    document.body.dataset.pdfMode = "true";
-    document.body.dataset.pdfLayoutLock = PDF_FORMAT_LOCK;
-  }
-}
-
-function isPdfRenderMode() {
-  if (document.body?.dataset?.pdfMode === "true") {
-    return true;
-  }
-  return new URLSearchParams(window.location.search).get("pdf") === "1";
-}
-
-async function reloadData(statusText = "RECHARGEMENT DES DONNEES...") {
-  showDataStatus(statusText);
-
-  try {
-    const json = await fetchLatestDataSnapshot();
-    state.data = json;
-    migrateDataModel();
-    clearWorkingData();
-    state.isDirty = false;
-    clearUndoStack();
-    applyMeta();
-    hydrateStaticLists();
-    renderPage();
-    showDataStatus(
-      getDataBackendMode() === "SUPABASE" ? "DONNEES SUPABASE CHARGEES" : "DONNEES LOCALES CHARGEES"
-    );
-  } catch (error) {
-    console.error(error);
-    state.data = null;
-    resetUiWithoutData();
-    if (getDataBackendMode() === "HOSTED_NO_BACKEND") {
-      showDataStatus("CONFIGURATION SUPABASE INCOMPLETE");
-    } else {
-      showDataStatus("OUVRIR L'APPLICATION VIA LE SERVEUR LOCAL");
-    }
-  }
-}
-
-function applyMeta() {
-  if (!state.data?.meta) {
-    return;
-  }
-
-  document.title = state.data.meta.appTitle || document.title;
-
-  document.querySelectorAll(".sidebar__title").forEach((node) => {
-    node.textContent = state.data.meta.appTitle || node.textContent;
-  });
-
-  document.querySelectorAll(".sidebar__subtitle").forEach((node) => {
-    node.textContent = state.data.meta.appSubtitle || node.textContent;
-  });
-}
-
-function migrateDataModel() {
-  if (!state.data) {
-    return;
-  }
-
-  if (!state.data.listes) {
-    state.data.listes = {};
-  }
-  if (!state.data.meta || typeof state.data.meta !== "object") {
-    state.data.meta = {};
-  }
-  state.data.meta.signatureMobileBaseUrl = normalizeHttpUrl(state.data.meta.signatureMobileBaseUrl || "");
-  state.data.meta.storagePdfBucket = normalizeBucketName(
-    state.data.meta.storagePdfBucket,
-    DEFAULT_SUPABASE_PDF_BUCKET
-  );
-  state.data.meta.storageSignaturesBucket = normalizeBucketName(
-    state.data.meta.storageSignaturesBucket,
-    DEFAULT_SUPABASE_SIGNATURES_BUCKET
-  );
-
-  delete state.data.listes.services;
-
-  if (!Array.isArray(state.data.listes.typesPersonnel)) {
-    state.data.listes.typesPersonnel = [];
-  }
-  if (!Array.isArray(state.data.listes.sites)) {
-    state.data.listes.sites = [];
-  }
-  if (!Array.isArray(state.data.listes.typesEffets)) {
-    state.data.listes.typesEffets = [];
-  }
-  if (!Array.isArray(state.data.listes.typesContrats)) {
-    state.data.listes.typesContrats = [];
-  }
-  if (!Array.isArray(state.data.listes.fonctions)) {
-    state.data.listes.fonctions = [];
-  }
-  if (!Array.isArray(state.data.listes.causesRemplacement)) {
-    state.data.listes.causesRemplacement = [];
-  }
-  if (!Array.isArray(state.data.listes.statutsObjetManuels)) {
-    state.data.listes.statutsObjetManuels = [];
-  }
-  if (!Array.isArray(state.data.listes.coutsRemplacement)) {
-    state.data.listes.coutsRemplacement = [];
-  }
-  if (!Array.isArray(state.data.listes.representantsSignataires)) {
-    state.data.listes.representantsSignataires = [];
-  }
-  if (!Array.isArray(state.data.documentsArchives)) {
-    state.data.documentsArchives = [];
-  }
-  if (!Array.isArray(state.data.demandesSignatureMobile)) {
-    state.data.demandesSignatureMobile = [];
-  }
-
-  state.data.listes.typesContrats = Array.from(
-    new Set([...state.data.listes.typesContrats.map(normalizeText), ...LEGACY_CONTRACT_TYPES])
-  ).filter(Boolean);
-  state.data.listes.fonctions = state.data.listes.fonctions.map(normalizeFunctionLabel).filter(Boolean);
-
-  state.data.listes.typesPersonnel = state.data.listes.typesPersonnel
-    .map(normalizeText)
-    .filter((value) => value && !LEGACY_CONTRACT_TYPES.includes(value));
-  state.data.listes.sites = Array.from(
-    new Set([ALL_SITES_VALUE, ...state.data.listes.sites.map(normalizeText)])
-  ).filter(Boolean);
-  state.data.listes.typesEffets = Array.from(
-    new Set([
-      ...state.data.listes.typesEffets.map(normalizeText),
-      "CLE",
-      "CLE CES",
-      "BADGE INTRUSION",
-      "TELECOMMANDE URMET",
-      "CARTE TURBOSELF",
-    ])
-  ).filter(Boolean);
-  state.data.listes.statutsObjetManuels = Array.from(
-    new Set(
-      state.data.listes.statutsObjetManuels
-        .map(normalizeText)
-        .map((value) => (value === "CASSE" || value === "DETRUIT" ? "HS" : value))
-        .filter((value) => !["REMPLACE", "NON RENDU", "RESTITUE", "CASSE", "DETRUIT"].includes(value))
-        .concat(["ACTIF", "PERDU", "HS", "VOL"])
-    )
-  ).filter(Boolean);
-  state.data.listes.causesRemplacement = [...EFFECT_STATUS_CAUSES];
-  state.data.listes.coutsRemplacement = state.data.listes.coutsRemplacement
-    .map((entry) => ({
-      typeEffet: normalizeText(entry.typeEffet),
-      cause: ["CASSE", "DETRUIT"].includes(normalizeText(entry.cause)) ? "HS" : normalizeText(entry.cause),
-      montant: normalizeAmount(entry.montant),
-    }))
-    .filter((entry) => entry.typeEffet && entry.cause);
-  state.data.listes.representantsSignataires = state.data.listes.representantsSignataires
-    .map((entry, index) => ({
-      id: String(entry.id || `REP${String(index + 1).padStart(4, "0")}`),
-      nom: normalizeText(entry.nom),
-      fonction: normalizeText(entry.fonction),
-    }))
-    .filter((entry) => entry.nom || entry.fonction);
-
-  state.data.documentsArchives = state.data.documentsArchives
-    .map((entry, index) => ({
-      id: String(entry.id || `DOCARCH${String(index + 1).padStart(4, "0")}`),
-      personId: String(entry.personId || ""),
-      nom: normalizeText(entry.nom),
-      prenom: normalizeText(entry.prenom),
-      typeDocument: normalizeText(entry.typeDocument),
-      dateDocument: String(entry.dateDocument || ""),
-      sites: normalizeText(entry.sites),
-      typePersonnel: normalizeText(entry.typePersonnel),
-      typeContrat: normalizeText(entry.typeContrat),
-      statutSignature: normalizeText(entry.statutSignature) || "EN ATTENTE",
-      totalEffets: Number(entry.totalEffets || 0),
-      totalFacturable: normalizeAmount(entry.totalFacturable),
-      pdfPath: String(entry.pdfPath || ""),
-      metadataPath: String(entry.metadataPath || ""),
-      dateArchivage: String(entry.dateArchivage || ""),
-      fingerprint: isLegacyArrivalArchiveFingerprint(entry.fingerprint) ? "" : String(entry.fingerprint || ""),
-    }))
-    .filter((entry) => entry.personId && entry.typeDocument && entry.pdfPath);
-
-  state.data.demandesSignatureMobile = state.data.demandesSignatureMobile
-    .map((entry, index) => ({
-      id: String(entry.id || `DSM${String(index + 1).padStart(4, "0")}`),
-      token: String(entry.token || ""),
-      personId: String(entry.personId || ""),
-      docType: normalizeText(entry.docType),
-      signer: normalizeText(entry.signer) === "REPRESENTANT" ? "REPRESENTANT" : "PERSONNEL",
-      createdAt: String(entry.createdAt || ""),
-      expiresAt: String(entry.expiresAt || ""),
-      status: normalizeText(entry.status) || "EN ATTENTE",
-      validatedAt: String(entry.validatedAt || ""),
-    }))
-    .filter(
-      (entry) =>
-        entry.token &&
-        entry.personId &&
-        ["ARRIVAL", "EXIT"].includes(entry.docType) &&
-        ["PERSONNEL", "REPRESENTANT"].includes(entry.signer)
-    );
-
-  cleanupExpiredMobileSignatureRequests();
-
-  (state.data.personnes || []).forEach((person) => {
-    if (!person.representants || typeof person.representants !== "object") {
-      person.representants = {};
-    }
-    if (!person.representants.arrival || typeof person.representants.arrival !== "object") {
-      person.representants.arrival = {};
-    }
-    if (!person.representants.exit || typeof person.representants.exit !== "object") {
-      person.representants.exit = {};
-    }
-    person.representants.arrival.nom = normalizeText(person.representants.arrival.nom);
-    person.representants.arrival.fonction = normalizeText(person.representants.arrival.fonction);
-    person.representants.arrival.id = String(person.representants.arrival.id || "");
-    person.representants.exit.nom = normalizeText(person.representants.exit.nom);
-    person.representants.exit.fonction = normalizeText(person.representants.exit.fonction);
-    person.representants.exit.id = String(person.representants.exit.id || "");
-
-    ["arrival", "exit"].forEach((docType) => {
-      const rep = person.representants[docType];
-      if (!rep.id && (rep.nom || rep.fonction)) {
-        const existing = findRepresentativeByValues(rep.nom, rep.fonction);
-        if (existing) {
-          rep.id = existing.id;
-        } else {
-          const created = {
-            id: getNextId("REP", state.data.listes.representantsSignataires),
-            nom: rep.nom || "",
-            fonction: rep.fonction || "",
-          };
-          state.data.listes.representantsSignataires.push(created);
-          rep.id = created.id;
-        }
-      }
-      if (rep.id) {
-        const linked = state.data.listes.representantsSignataires.find((entry) => entry.id === rep.id);
-        if (linked) {
-          rep.nom = linked.nom;
-          rep.fonction = linked.fonction;
-        } else {
-          rep.id = "";
-        }
-      }
-    });
-
-    if (!person.signatures || typeof person.signatures !== "object") {
-      person.signatures = {};
-    }
-    if (!person.signatures.arrival || typeof person.signatures.arrival !== "object") {
-      person.signatures.arrival = {};
-    }
-    if (!person.signatures.exit || typeof person.signatures.exit !== "object") {
-      person.signatures.exit = {};
-    }
-    ["arrival", "exit"].forEach((docType) => {
-      ["personnel", "representant"].forEach((signer) => {
-        const currentEntry = person.signatures[docType][signer];
-        if (currentEntry && typeof currentEntry === "object") {
-          person.signatures[docType][signer] = {
-            image: String(currentEntry.image || ""),
-            validatedAt: String(currentEntry.validatedAt || ""),
-          };
-          return;
-        }
-        person.signatures[docType][signer] = {
-          image: String(currentEntry || ""),
-          validatedAt: "",
-        };
-      });
-    });
-
-    delete person.service;
-    delete person.historiqueEffets;
-    person.typePersonnel = normalizeText(person.typePersonnel);
-    person.typeContrat = normalizeText(person.typeContrat);
-    person.fonction = normalizeFunctionLabel(person.fonction);
-    person.sitesAffectation = getPersonSites(person);
-    person.site = getPersonSiteLabel(person);
-
-    if (!person.typeContrat && LEGACY_CONTRACT_TYPES.includes(person.typePersonnel)) {
-      person.typeContrat = person.typePersonnel;
-      person.typePersonnel = "";
-    }
-
-    if (!Array.isArray(person.effetsConfies)) {
-      person.effetsConfies = [];
-    }
-
-    person.effetsConfies.forEach((effect) => {
-      effect.typeEffet = normalizeText(effect.typeEffet);
-      effect.siteReference = normalizeText(effect.siteReference);
-      effect.referenceEffetId = String(effect.referenceEffetId || "");
-      effect.designation = normalizeText(effect.designation);
-      effect.numeroIdentification = normalizeText(effect.numeroIdentification);
-      effect.vehiculeImmatriculation = normalizeText(effect.vehiculeImmatriculation);
-      effect.statutManuel = normalizeText(effect.statutManuel);
-      if (effect.statutManuel === "CASSE" || effect.statutManuel === "DETRUIT") {
-        effect.statutManuel = "HS";
-      }
-      const legacyCause = normalizeText(effect.causeRemplacement);
-      if (legacyCause === "CASSE" || legacyCause === "DETRUIT") {
-        effect.statutManuel = "HS";
-      }
-      if (legacyCause === "VOL" && effect.statutManuel === "ACTIF") {
-        effect.statutManuel = "VOL";
-      }
-      if (legacyCause === "PERTE" && effect.statutManuel === "ACTIF") {
-        effect.statutManuel = "PERDU";
-      }
-      delete effect.causeRemplacement;
-      effect.dateRemplacement = String(effect.dateRemplacement || "");
-      effect.coutRemplacement = normalizeAmount(effect.coutRemplacement);
-      effect.commentaire = normalizeText(effect.commentaire);
-      delete effect.prixPaye;
-
-      if (!typeUsesReferenceCatalog(effect.typeEffet)) {
-        effect.referenceEffetId = "";
-        effect.designation = "";
-      }
-
-      if (!typeUsesSiteField(effect.typeEffet)) {
-        effect.siteReference = "";
-      } else if (!effect.siteReference) {
-        effect.siteReference = getDefaultEffectSiteReference(person, effect);
-      } else {
-        effect.siteReference = normalizeText(effect.siteReference);
-      }
-
-      if (effect.dateRemplacement && !effect.statutManuel) {
-        effect.statutManuel = "ACTIF";
-      }
-
-      if (["NON RENDU", "RESTITUE", "REMPLACE"].includes(effect.statutManuel)) {
-        effect.statutManuel = "ACTIF";
-      }
-
-      effect.coutRemplacement = getEffectReplacementCost(person, effect);
-    });
-  });
-
-  if (!Array.isArray(state.data.listes.referencesEffets)) {
-    state.data.listes.referencesEffets = [];
-  }
-
-  state.data.listes.referencesEffets = state.data.listes.referencesEffets
-    .map((reference) => ({
-      ...reference,
-      site: normalizeText(reference.site),
-      sitesAffectation: getReferenceSites(reference),
-      typeEffet: normalizeText(reference.typeEffet),
-      designation: normalizeText(reference.designation),
-    }))
-    .filter((reference) => typeUsesReferenceCatalog(reference.typeEffet))
-    .map((reference) => {
-      const nextSites =
-        normalizeText(reference.designation) === "CES-PG"
-          ? [ALL_SITES_VALUE]
-          : getReferenceSites(reference);
-      return {
-        ...reference,
-        sitesAffectation: nextSites,
-        site: nextSites.join(" / "),
-      };
-    });
-
-  sortListValues(state.data.listes.typesPersonnel);
-  sortListValues(state.data.listes.sites);
-  sortListValues(state.data.listes.typesEffets);
-  sortListValues(state.data.listes.typesContrats);
-  sortListValues(state.data.listes.fonctions);
-  sortListValues(state.data.listes.statutsObjetManuels);
-  sortRepresentatives();
-  sortReferenceEffects();
-  sortDocumentsArchives();
-}
-
-function cleanupExpiredMobileSignatureRequests() {
-  if (!Array.isArray(state.data?.demandesSignatureMobile)) {
-    return;
-  }
-  const now = Date.now();
-  state.data.demandesSignatureMobile = state.data.demandesSignatureMobile.filter((entry) => {
-    if (normalizeText(entry?.status) === "SIGNEE") {
-      return true;
-    }
-    const expiresAt = Date.parse(entry?.expiresAt || "");
-    return !Number.isFinite(expiresAt) || expiresAt >= now;
-  });
-}
-
-function isLegacyArrivalArchiveFingerprint(fingerprint) {
-  if (!fingerprint) {
-    return false;
-  }
-
-  try {
-    const payload = JSON.parse(fingerprint);
-    if (normalizeText(payload?.docType) !== "ARRIVAL") {
-      return false;
-    }
-    if (String(payload?.dateSortieReelle || "")) {
-      return true;
-    }
-    return Array.isArray(payload?.effects) && payload.effects.some((effect) =>
-      String(effect?.dateRetour || "") ||
-      normalizeText(effect?.statut) ||
-      normalizeText(effect?.cause) ||
-      String(effect?.dateRemplacement || "")
-    );
-  } catch (error) {
-    return false;
-  }
-}
-
-function stopMobileSignaturePolling() {
-  if (state.mobileSignaturePollTimerId) {
-    window.clearInterval(state.mobileSignaturePollTimerId);
-    state.mobileSignaturePollTimerId = 0;
-  }
-}
-
-function getActiveDocumentMobileSignatureRequest() {
-  const page = document.body.dataset.page || "";
-  if (page !== "arrival-document" && page !== "exit-document") {
-    return null;
-  }
-  const personId = getCurrentPersonId();
-  if (!personId || !state.data) {
-    return null;
-  }
-  const docType = page === "exit-document" ? "exit" : "arrival";
-  return (
-    getActiveMobileSignatureRequest(personId, docType, "personnel") ||
-    getActiveMobileSignatureRequest(personId, docType, "representant")
-  );
-}
-
-async function pollMobileSignatureRequest() {
-  const activeRequest = getActiveDocumentMobileSignatureRequest();
-  if (!activeRequest) {
-    stopMobileSignaturePolling();
-    return;
-  }
-
-  try {
-    const json = await fetchLatestDataSnapshot();
-    const requests = Array.isArray(json?.demandesSignatureMobile) ? json.demandesSignatureMobile : [];
-    const nextRequest = requests.find((entry) => entry.token === activeRequest.token) || null;
-    const person = Array.isArray(json?.personnes)
-      ? json.personnes.find((entry) => String(entry.id || "") === String(activeRequest.personId || "")) || null
-      : null;
-
-    if (!nextRequest || !person) {
-      stopMobileSignaturePolling();
-      return;
-    }
-
-    const currentPage = document.body.dataset.page || "";
-    const docType = currentPage === "exit-document" ? "exit" : "arrival";
-    const signer = normalizeMobileSignatureSigner(activeRequest.signer || "");
-    const previousPerson = getCurrentPerson();
-    const previousSignature = getSignatureValue(previousPerson, docType, signer);
-    const previousValidatedAt = getSignatureValidationDate(previousPerson, docType, signer);
-
-    state.data = json;
-    migrateDataModel();
-
-    if (nextRequest.status !== "EN ATTENTE") {
-      renderMobileSignatureLink(docType, signer, "");
-      stopMobileSignaturePolling();
-    }
-
-    const updatedPerson = getCurrentPerson();
-    const nextSignature = getSignatureValue(updatedPerson, docType, signer);
-    const nextValidatedAt = getSignatureValidationDate(updatedPerson, docType, signer);
-
-    if (previousSignature !== nextSignature || previousValidatedAt !== nextValidatedAt || nextRequest.status !== "EN ATTENTE") {
-      renderPage();
-      if (nextRequest.status === "SIGNEE") {
-        showDataStatus(
-          signer === "representant"
-            ? "SIGNATURE MOBILE DU REPRESENTANT ENREGISTREE"
-            : "SIGNATURE MOBILE DU PERSONNEL ENREGISTREE"
-        );
-      }
-    }
-  } catch (error) {
-    // ignore polling errors
-  }
-}
-
-function syncMobileSignaturePolling() {
-  stopMobileSignaturePolling();
-  const request = getActiveDocumentMobileSignatureRequest();
-  if (!request) {
-    return;
-  }
-  state.mobileSignaturePollTimerId = window.setInterval(() => {
-    pollMobileSignatureRequest();
-  }, 2500);
-}
-
-function applyActiveNav() {
-  const page = document.body.dataset.page;
-  document.querySelectorAll("[data-nav]").forEach((link) => {
-    link.classList.toggle("is-active", link.dataset.nav === page);
-  });
-}
-
-function bindLoadButton() {
-  document.querySelectorAll(".js-load-data").forEach((button) => {
-    button.onclick = () => reloadData("RECHARGEMENT DES DONNEES...");
-  });
-}
-
-function bindSaveButtons() {
-  document.querySelectorAll(".js-save-data").forEach((button) => {
-    button.onclick = saveDataToFile;
-  });
-}
-
-function hydratePdfAttentionDismissed() {
-  if (state.pdfAttentionHydrated) {
-    return;
-  }
-  state.pdfAttentionHydrated = true;
-  try {
-    const raw = window.sessionStorage.getItem(PDF_ATTENTION_DISMISSED_STORAGE_KEY);
-    if (!raw) {
-      return;
-    }
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      state.pdfAttentionDismissed = { ...state.pdfAttentionDismissed, ...parsed };
-    }
-  } catch (_) {
-    state.pdfAttentionDismissed = {};
-  }
-}
-
-function persistPdfAttentionDismissed() {
-  try {
-    const keys = Object.keys(state.pdfAttentionDismissed || {});
-    if (!keys.length) {
-      window.sessionStorage.removeItem(PDF_ATTENTION_DISMISSED_STORAGE_KEY);
-      return;
-    }
-    window.sessionStorage.setItem(
-      PDF_ATTENTION_DISMISSED_STORAGE_KEY,
-      JSON.stringify(state.pdfAttentionDismissed)
-    );
-  } catch (_) {
-    // storage unavailable
-  }
-}
-
-function getPdfAttentionDismissKey(personId, docType) {
-  const normalizedPersonId = String(personId || "").trim();
-  const normalizedDocType = normalizeText(docType);
-  return `${normalizedPersonId}::${normalizedDocType}`;
-}
-
-function markPdfAttentionDismissed(personId, docType) {
-  hydratePdfAttentionDismissed();
-  const key = getPdfAttentionDismissKey(personId, docType);
-  if (!key || key === "::") {
-    return;
-  }
-  state.pdfAttentionDismissed[key] = true;
-  persistPdfAttentionDismissed();
-}
-
-function clearPdfAttentionDismissed(personId, docType) {
-  hydratePdfAttentionDismissed();
-  const key = getPdfAttentionDismissKey(personId, docType);
-  if (!key || !state.pdfAttentionDismissed[key]) {
-    return;
-  }
-  delete state.pdfAttentionDismissed[key];
-  persistPdfAttentionDismissed();
-}
-
-function isPdfAttentionDismissed(personId, docType) {
-  hydratePdfAttentionDismissed();
-  const key = getPdfAttentionDismissKey(personId, docType);
-  return Boolean(key && state.pdfAttentionDismissed[key]);
-}
-
-function bindPdfButtons() {
-  document.querySelectorAll(".js-open-pdf").forEach((button) => {
-    button.onclick = () => {
-      const docType = String(button.getAttribute("data-doc-type") || "");
-      const person = getCurrentPerson();
-      if (!person) {
-        showDataStatus("AUCUNE PERSONNE SELECTIONNEE");
-        return;
-      }
-      if (!isDocumentFullySigned(person, docType)) {
-        window.alert("OUVRIR EN PDF IMPOSSIBLE : LE DOCUMENT DOIT ETRE SIGNE PAR LE PERSONNEL ET LE REPRESENTANT.");
-        return;
-      }
-      const personId = getCurrentPersonId();
-      markPdfAttentionDismissed(personId, docType);
-      updateDocumentPdfButtonsState();
-      openPdfDocument(docType, personId);
-    };
-  });
-}
-
-function updateDocumentPdfButtonsState() {
-  const person = getCurrentPerson();
-  document.querySelectorAll(".js-open-pdf").forEach((button) => {
-    const docType = String(button.getAttribute("data-doc-type") || "");
-    const canOpen = Boolean(person && isDocumentFullySigned(person, docType));
-    const personId = person?.id || "";
-    if (!canOpen) {
-      clearPdfAttentionDismissed(personId, docType);
-    }
-    const showAttention = canOpen && !isPdfAttentionDismissed(personId, docType);
-    button.classList.toggle("is-disabled", !canOpen);
-    button.classList.toggle("button--pdf-attention", showAttention);
-    button.setAttribute("aria-disabled", canOpen ? "false" : "true");
-    button.setAttribute("data-pdf-ready", showAttention ? "true" : "false");
-    button.setAttribute(
-      "title",
-      canOpen
-        ? "OUVRIR EN PDF"
-        : "INDISPONIBLE : SIGNATURES PERSONNEL ET REPRESENTANT OBLIGATOIRES"
-    );
-  });
-}
-
-function bindMobileSignatureButtons() {
-  document.querySelectorAll(".js-open-mobile-signature").forEach((button) => {
-    button.onclick = async () => {
-      const docType = String(button.getAttribute("data-doc-type") || "");
-      const signer = normalizeMobileSignatureSigner(button.getAttribute("data-signer") || "");
-      const personId = getCurrentPersonId();
-      if (!docType || !personId) {
-        showDataStatus("AUCUNE PERSONNE SELECTIONNEE");
-        return;
-      }
-      await openMobileSignatureRequest(docType, personId, signer);
-    };
-  });
-}
-
-function updateUrgencyModeUi() {
-  document.querySelectorAll(".js-toggle-urgency").forEach((button) => {
-    if (!(button instanceof HTMLButtonElement)) {
-      return;
-    }
-    button.classList.toggle("is-active", state.urgentMode);
-    button.textContent = state.urgentMode ? "URGENCES ACTIVES" : "MODE URGENCES";
-  });
-}
-
-function bindOverviewUrgencyActions() {
-  document.querySelectorAll(".js-toggle-urgency").forEach((button) => {
-    if (!(button instanceof HTMLButtonElement)) {
-      return;
-    }
-    button.onclick = () => {
-      state.urgentMode = !state.urgentMode;
-      saveNavigationContext({ filters: state.filters, urgentMode: state.urgentMode });
-      updateUrgencyModeUi();
-      renderPage();
-      showActionStatus(
-        state.urgentMode ? "warning" : "update",
-        state.urgentMode ? "MODE URGENCES ACTIVE" : "MODE URGENCES DESACTIVE"
-      );
-    };
-  });
-  updateUrgencyModeUi();
-}
-
-function buildControlReportHtml(persons) {
-  const alerts = persons.filter((person) => hasOverdueExit(person));
-  const critical = persons.filter((person) => hasUrgencyCondition(person));
-  let nonRendus = 0;
-  let totalFacturable = 0;
-
-  persons.forEach((person) => {
-    (person.effetsConfies || []).forEach((effect) => {
-      if (normalizeText(getEffectStatus(person, effect)) === "NON RENDU") {
-        nonRendus += 1;
-      }
-      if (isEffectChargeable(person, effect)) {
-        totalFacturable += getEffectReplacementCost(person, effect);
-      }
-    });
-  });
-
-  const buildAlertEffectDetails = (person) => {
-    const effects = (person.effetsConfies || []).filter(
-      (effect) => normalizeText(getEffectStatus(person, effect)) === "NON RENDU"
-    );
-    if (!effects.length) {
-      return {
-        count: 0,
-        total: 0,
-        detailsHtml: `<div class="details-empty">AUCUN EFFET NON RENDU SUR CETTE ALERTE.</div>`,
-      };
-    }
-
-    let total = 0;
-    const rows = effects
-      .map((effect) => {
-        const unitAmount = isEffectChargeable(person, effect) ? getEffectReplacementCost(person, effect) : 0;
-        total += unitAmount;
-        const designation = effect.designation || effect.numeroIdentification || effect.id || "-";
-        return `<tr>
-          <td>${escapeHtml(effect.typeEffet || "-")}</td>
-          <td>${escapeHtml(designation)}</td>
-          <td>${escapeHtml(effect.numeroIdentification || "-")}</td>
-          <td class="amount-cell">${escapeHtml(formatAmountWithEuro(unitAmount))}</td>
-        </tr>`;
-      })
-      .join("");
-
-    return {
-      count: effects.length,
-      total,
-      detailsHtml: `<table class="details-table">
-        <thead><tr><th class="col-type">TYPE</th><th class="col-designation">DESIGNATION</th><th class="col-id">N° IDENTIFICATION</th><th class="col-montant">MONTANT</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>`,
-    };
-  };
-
-  const getAlertVisualMeta = (person, details) => {
-    const alertMeta = getOverdueExitAlertMeta(person);
-    const isCritical = alertMeta.type === "dateSortieReelle" || details.total > 0 || details.count >= 2;
-    if (isCritical) {
-      return {
-        levelClass: "alert-badge--critical",
-        icon: "⛔",
-        label: "CRITIQUE",
-      };
-    }
-    return {
-      levelClass: "alert-badge--warning",
-      icon: "⚠",
-      label: "SURVEILLANCE",
-    };
-  };
-
-  const criticalRows = critical.length
-    ? critical
-        .map((person) => {
-          const details = buildAlertEffectDetails(person);
-          const visual = getAlertVisualMeta(person, details);
-          return `<tr>
-      <td>${escapeHtml(person.nom || "")}</td>
-      <td>${escapeHtml(person.prenom || "")}</td>
-      <td>${escapeHtml(getPersonSiteLabel(person) || "-")}</td>
-      <td class="alert-cell">
-        <span class="alert-badge ${visual.levelClass}"><span class="alert-badge__icon">${visual.icon}</span>${visual.label}</span>
-        <span class="alert-message">${escapeHtml(getOverdueExitMessage(person) || "-")}</span>
-      </td>
-      <td>${details.count}</td>
-      <td class="amount-cell">${escapeHtml(formatAmountWithEuro(details.total))}</td>
-      <td>
-        <details class="alert-details"${details.count ? "" : " open"}>
-          <summary><span class="summary-label">CLIQUER POUR VOIR LE DETAIL DES EFFETS NON RENDUS</span><span class="summary-arrow" aria-hidden="true">▾</span></summary>
-          <div class="alert-details__content">${details.detailsHtml}</div>
-        </details>
-      </td>
+  const tasks = sortTasks(tasksRaw, sortMaster);
+  const missingMap = buildMissingDaysMap(tasks);
+  const todayKey = new Date().toISOString().slice(0,10);
+  let rows = "";
+  tasks.forEach((t)=>{
+    const p = state.projects.find(x=>x.id===t.projectId);
+    const statuses = parseStatuses(t.status).map(v=>v.toUpperCase());
+    const c = ownerColor(t.owner);
+    const ownerBadgeHtml = t.owner ? ownerBadgeForTask(t) : "";
+    const durLabel = durationLabelForTask(t);
+    const isToday = !!(t.start && t.end && t.start<=todayKey && t.end>=todayKey);
+    const isLate = !!(t.end && t.end < todayKey);
+    const rowClass = `${isToday ? "today-row " : ""}${isLate ? "late-row" : ""}`.trim();
+    const miss = missingMap.get(t.id) || 0;
+    const missDot = miss>0 ? `<span class="missing-dot" title="Heures réelles manquantes (${miss} j)"></span>` : "";
+    rows += `<tr class="${rowClass}">
+      <td>${attrEscape(p?.name || "Projet")}</td>
+      <td>${missDot}<span class="num-badge" style="--badge-color:${c};--badge-text:#fff;">${taskOrderMap[t.id]||""}</span></td>
+      <td><span class="icon-picto"></span> ${taskTitleProjectView(t)}</td>
+      <td class="status-cell"><span class="status-left">${statusDot(statuses[0])}${statusLabels(t.status||"")}</span>${ownerBadgeHtml||""}</td>
+      <td>${formatDate(t.start)||""}</td>
+      <td>${formatDate(t.end)||""}</td>
+      <td>${taskProgress(t)}%</td>
+      <td>${durLabel}</td>
     </tr>`;
-        })
-        .join("")
-    : `<tr><td colspan="7">AUCUN DOSSIER CRITIQUE</td></tr>`;
-
-  return `<!doctype html>
-<html lang="fr">
-<head>
-  <meta charset="utf-8" />
-  <title>ETAT DE CONTROLE</title>
-  <style>
-    :root{
-      --bg:#eaf1f6;
-      --card:#ffffff;
-      --line:#cfdce6;
-      --line-strong:#aec3d1;
-      --title:#193243;
-      --text:#294757;
-      --muted:#5a7585;
-      --accent:#3f6170;
-      --accent-soft:#edf4f8;
-      --warn:#8d4d2f;
-      --warn-bg:#f8eee8;
-    }
-    *{box-sizing:border-box}
-    body{
-      margin:0;
-      padding:18px;
-      font-family:"Segoe UI",Arial,sans-serif;
-      background:linear-gradient(180deg,#edf3f7 0%, #e6eef4 100%);
-      color:var(--text);
-    }
-    .wrap{
-      max-width:1200px;
-      margin:0 auto;
-      background:var(--card);
-      border:1px solid var(--line);
-      border-radius:16px;
-      padding:18px;
-      box-shadow:0 10px 30px rgba(30,58,73,.1);
-      position:relative;
-      overflow:hidden;
-    }
-    .wrap::before{
-      content:"";
-      position:absolute;
-      top:0;
-      left:0;
-      right:0;
-      height:4px;
-      background:linear-gradient(90deg,#2f5668 0%, #4d7587 100%);
-    }
-    .head{
-      display:flex;
-      justify-content:space-between;
-      align-items:flex-end;
-      gap:16px;
-      padding-bottom:12px;
-      border-bottom:1px solid var(--line);
-      margin-bottom:16px;
-      position:relative;
-      z-index:1;
-    }
-    h1{
-      margin:0;
-      font-size:33px;
-      line-height:1.1;
-      color:var(--title);
-      letter-spacing:.015em;
-      text-transform:uppercase;
-    }
-    .meta{
-      font-size:11px;
-      color:var(--muted);
-      text-transform:uppercase;
-      letter-spacing:.06em;
-      white-space:nowrap;
-      border:1px solid #c4d2dc;
-      border-radius:999px;
-      padding:6px 10px;
-      background:#f3f8fb;
-    }
-    .head-right{
-      display:flex;
-      align-items:center;
-      gap:10px;
-      margin-left:auto;
-    }
-    .print-button{
-      border:1px solid rgba(63,97,112,.55);
-      background:linear-gradient(180deg,#456b7e 0%, #355765 100%);
-      color:#fff;
-      border-radius:9px;
-      padding:8px 14px;
-      font-size:11px;
-      letter-spacing:.06em;
-      text-transform:uppercase;
-      cursor:pointer;
-      box-shadow:0 6px 16px rgba(42,70,84,.24);
-      font-weight:700;
-    }
-    .print-button:hover{background:linear-gradient(180deg,#3e6273 0%, #2f4f5d 100%)}
-    .kpis{
-      display:grid;
-      grid-template-columns:repeat(4,minmax(150px,1fr));
-      gap:11px;
-      margin-bottom:16px;
-    }
-    .kpi{
-      border:1px solid var(--line);
-      border-radius:12px;
-      padding:10px 12px;
-      background:var(--accent-soft);
-      font-size:11px;
-      color:var(--muted);
-      letter-spacing:.05em;
-      text-transform:uppercase;
-      position:relative;
-      overflow:hidden;
-    }
-    .kpi::before{
-      content:"";
-      position:absolute;
-      inset:0 auto 0 0;
-      width:4px;
-      background:#8ea9b7;
-    }
-    .kpi__label{
-      display:flex;
-      align-items:center;
-      gap:6px;
-    }
-    .kpi__icon{
-      display:inline-flex;
-      align-items:center;
-      justify-content:center;
-      min-width:24px;
-      height:18px;
-      padding:0 5px;
-      border-radius:50%;
-      border:1px solid #aac0ce;
-      background:#f6fbff;
-      font-size:10px;
-      font-weight:700;
-      line-height:1;
-      letter-spacing:0;
-      text-transform:uppercase;
-    }
-    .kpi b{
-      display:block;
-      margin-top:5px;
-      font-size:34px;
-      color:var(--title);
-      letter-spacing:0;
-      text-transform:none;
-      line-height:1;
-      font-weight:700;
-    }
-    .kpi--warn{
-      background:var(--warn-bg);
-      border-color:#ecc2ae;
-      color:#8a5539;
-    }
-    .kpi--warn::before{background:#d49e85}
-    .kpi--warn b{color:var(--warn)}
-    .table-wrap{
-      border:1px solid var(--line);
-      border-radius:10px;
-      overflow:hidden;
-      background:#fff;
-    }
-    table{
-      width:100%;
-      border-collapse:collapse;
-      font-size:13px;
-    }
-    th,td{
-      border-bottom:1px solid var(--line);
-      padding:8px 9px;
-      text-align:left;
-      vertical-align:top;
-    }
-    th{
-      background:#e8f0f5;
-      color:#2f5668;
-      font-size:11px;
-      letter-spacing:.06em;
-      text-transform:uppercase;
-      border-bottom:1px solid var(--line-strong);
-      font-weight:700;
-    }
-    tbody tr:nth-child(even) td{background:#f9fcfe}
-    tbody tr:hover td{background:#f3f8fb}
-    tbody tr:last-child td{border-bottom:none}
-    .alert-cell{
-      color:#8a4e30;
-      font-weight:600;
-    }
-    .alert-message{
-      display:block;
-      margin-top:5px;
-    }
-    .alert-badge{
-      display:inline-flex;
-      align-items:center;
-      gap:5px;
-      border-radius:999px;
-      padding:3px 8px;
-      font-size:10px;
-      letter-spacing:.05em;
-      text-transform:uppercase;
-      border:1px solid transparent;
-      line-height:1.1;
-    }
-    .alert-badge__icon{
-      font-size:12px;
-      line-height:1;
-    }
-    .alert-badge--critical{
-      background:#f5dede;
-      color:#7c2f2f;
-      border-color:#d89a9a;
-    }
-    .alert-badge--warning{
-      background:#f8eee2;
-      color:#8a542f;
-      border-color:#e2c19f;
-    }
-    .amount-cell{
-      white-space:nowrap;
-      font-weight:700;
-      color:#1e3b4b;
-    }
-    .alert-details{
-      border:1px solid var(--line);
-      border-radius:8px;
-      background:#f8fbfd;
-      overflow:hidden;
-    }
-    .alert-details > summary{
-      cursor:pointer;
-      list-style:none;
-      padding:8px 10px;
-      font-size:11px;
-      color:#20495d;
-      font-weight:700;
-      letter-spacing:.03em;
-      background:#e4edf3;
-      border:1px solid #97adbc;
-      border-bottom-color:#8ca4b4;
-      border-radius:8px;
-      box-shadow:0 3px 10px rgba(63,97,112,.14);
-      user-select:none;
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:8px;
-    }
-    .alert-details > summary::-webkit-details-marker{display:none}
-    .summary-label{
-      display:block;
-    }
-    .summary-arrow{
-      flex:0 0 auto;
-      font-size:14px;
-      color:#2e566a;
-      transition:transform .16s ease;
-    }
-    .alert-details[open] .summary-arrow{
-      transform:rotate(180deg);
-    }
-    .alert-details > summary:hover{
-      background:#dbe7ee;
-      border-color:#7e99aa;
-    }
-    .alert-details__content{
-      padding:10px;
-      background:#fbfdff;
-    }
-    .details-empty{
-      font-size:12px;
-      color:#5d7787;
-      padding:2px 0;
-    }
-    .details-table{
-      width:100%;
-      border-collapse:collapse;
-      font-size:12px;
-    }
-    .details-table th{
-      white-space:nowrap;
-    }
-    .details-table .col-type{width:24%}
-    .details-table .col-designation{width:30%}
-    .details-table .col-id{width:26%}
-    .details-table .col-montant{width:20%}
-    .details-table th,
-    .details-table td{
-      padding:6px 7px;
-      border-bottom:1px solid #d7e2ea;
-    }
-    .details-table th{
-      background:#edf4f9;
-      color:#3b6173;
-      font-size:10px;
-      letter-spacing:.05em;
-      text-transform:uppercase;
-    }
-    .details-table tr:last-child td{border-bottom:none}
-    @media print{
-      @page{
-        size:A4 landscape;
-        margin:9mm;
-      }
-      body{
-        background:#fff;
-        padding:0;
-        -webkit-print-color-adjust: exact;
-        print-color-adjust: exact;
-      }
-      .wrap{
-        max-width:none;
-        border:0;
-        box-shadow:none;
-        border-radius:0;
-        padding:0;
-      }
-      .meta{
-        background:#fff;
-      }
-      .kpi b{
-        font-size:28px;
-      }
-      .print-button{
-        display:none !important;
-      }
-      table{
-        font-size:11px;
-      }
-      th,td{
-        padding:6px 6px;
-      }
-      .alert-details{
-        break-inside:avoid;
-      }
-      tr{
-        break-inside:avoid;
-      }
-      tbody tr:hover td{
-        background:inherit;
-      }
-    }
-  </style>
-</head>
-<body>
-  <div class="wrap">
-  <div class="head">
-    <h1>ETAT DE CONTROLE</h1>
-    <div class="head-right">
-      <button type="button" class="print-button" onclick="printControlReportLandscape()">EXPORTER / IMPRIMER</button>
-      <div class="meta">EDITE LE ${escapeHtml(formatCurrentUiTimestamp())}</div>
-    </div>
-  </div>
-  <div class="kpis">
-    <div class="kpi"><span class="kpi__label"><span class="kpi__icon">P</span>DOSSIERS FILTRES</span><b>${persons.length}</b></div>
-    <div class="kpi kpi--warn"><span class="kpi__label"><span class="kpi__icon">!</span>ALERTES SORTIE</span><b>${alerts.length}</b></div>
-    <div class="kpi"><span class="kpi__label"><span class="kpi__icon">NR</span>EFFETS NON RENDUS</span><b>${nonRendus}</b></div>
-    <div class="kpi kpi--warn"><span class="kpi__label"><span class="kpi__icon">EUR</span>TOTAL FACTURABLE</span><b>${escapeHtml(formatAmountWithEuro(totalFacturable))}</b></div>
-  </div>
-  <div class="table-wrap">
-  <table>
+  });
+  return `<div class="tablewrap project-tasks-export"><table class="table" id="projectTasksExportTable">
     <thead>
-      <tr><th>NOM</th><th>PRENOM</th><th>SITE(S)</th><th>ALERTE</th><th>NON RENDUS</th><th>TOTAL</th><th>DETAILS</th></tr>
+      <tr>
+        <th style="width:220px">Chantier</th>
+        <th style="width:70px">N</th>
+        <th>Description</th>
+        <th style="width:320px">Statuts</th>
+        <th style="width:120px">Début</th>
+        <th style="width:120px">Fin</th>
+        <th style="width:100px">Avancement</th>
+        <th style="width:130px">Durée (jours)</th>
+      </tr>
     </thead>
-    <tbody>${criticalRows}</tbody>
-  </table>
-  </div>
-  </div>
-  <script>
-    function printControlReportLandscape() {
-      window.print();
-    }
-    (function () {
-      var detailsNodes = Array.prototype.slice.call(document.querySelectorAll('details.alert-details'));
-      function openAllForPrint() {
-        detailsNodes.forEach(function (node) {
-          node.dataset.wasOpen = node.open ? '1' : '0';
-          node.open = true;
-        });
-      }
-      function restoreAfterPrint() {
-        detailsNodes.forEach(function (node) {
-          node.open = node.dataset.wasOpen === '1';
-        });
-      }
-      window.addEventListener('beforeprint', openAllForPrint);
-      window.addEventListener('afterprint', restoreAfterPrint);
-    })();
-  </script>
-</body>
-</html>`;
+    <tbody>${rows}</tbody>
+  </table></div>`;
 }
 
-function bindOverviewControlExport() {
-  document.querySelectorAll(".js-export-control").forEach((button) => {
-    if (!(button instanceof HTMLButtonElement)) {
+function buildProjectExportHeaderHTML(project, pdfTheme){
+  if(!project) return "";
+  const projectTasks = state.tasks.filter(t=>t.projectId===project.id);
+  const projectTasksDated = projectTasks.filter(t=>t.start && t.end);
+  const firstTaskStart = projectTasksDated.length
+    ? projectTasksDated.reduce((min, t)=> (!min || t.start < min ? t.start : min), "")
+    : "";
+  const lastTaskEnd = projectTasksDated.length
+    ? projectTasksDated.reduce((max, t)=> (!max || t.end > max ? t.end : max), "")
+    : "";
+  return `
+    <div class="project-export-header-card" style="border:1px solid ${attrEscape(pdfTheme.line)};border-radius:8px;padding:6px 8px;background:${attrEscape(pdfTheme.panel)};background-image:linear-gradient(180deg, ${attrEscape(pdfTheme.panel)} 0%, ${attrEscape(pdfTheme.accentSoft)} 100%);margin-bottom:6px;box-shadow:0 3px 10px rgba(15,23,42,0.18);">
+      <div class="project-export-header-grid" style="display:grid;grid-template-columns:1.6fr 1fr 1fr .75fr 1fr 1fr;gap:8px;align-items:start;border-left:4px solid ${attrEscape(pdfTheme.accent)};padding-left:7px;">
+        <div><div style="font-size:12px;color:${attrEscape(pdfTheme.muted)};letter-spacing:.15px;margin-bottom:2px;font-weight:700;">Chantier</div><div style="font-weight:800;font-size:16px;line-height:1.2;color:${attrEscape(pdfTheme.text)};">${attrEscape(project?.name || "-")}</div></div>
+        <div><div style="font-size:12px;color:${attrEscape(pdfTheme.muted)};letter-spacing:.15px;margin-bottom:2px;font-weight:700;">Site / Zone</div><div style="font-weight:800;font-size:16px;line-height:1.2;color:${attrEscape(pdfTheme.text)};">${attrEscape(project?.site || "-")}</div></div>
+        <div><div style="font-size:12px;color:${attrEscape(pdfTheme.muted)};letter-spacing:.15px;margin-bottom:2px;font-weight:700;">Sous-projet</div><div style="font-weight:800;font-size:16px;line-height:1.2;color:${attrEscape(pdfTheme.text)};">${attrEscape(project?.subproject || "-")}</div></div>
+        <div><div style="font-size:12px;color:${attrEscape(pdfTheme.muted)};letter-spacing:.15px;margin-bottom:2px;font-weight:700;">Tâches</div><div style="font-weight:800;font-size:16px;line-height:1.2;color:${attrEscape(pdfTheme.text)};">${projectTasks.length}</div></div>
+        <div><div style="font-size:12px;color:${attrEscape(pdfTheme.muted)};letter-spacing:.15px;margin-bottom:2px;font-weight:700;">Début projet</div><div style="font-weight:800;font-size:15px;line-height:1.2;color:${attrEscape(pdfTheme.text)};">${attrEscape(firstTaskStart ? formatDate(firstTaskStart) : "-")}</div></div>
+        <div><div style="font-size:12px;color:${attrEscape(pdfTheme.muted)};letter-spacing:.15px;margin-bottom:2px;font-weight:700;">Fin projet</div><div style="font-weight:800;font-size:15px;line-height:1.2;color:${attrEscape(pdfTheme.text)};">${attrEscape(lastTaskEnd ? formatDate(lastTaskEnd) : "-")}</div></div>
+      </div>
+    </div>
+  `;
+}
+
+function buildGroupedProjectsExportHeaderHTML(projects, pdfTheme){
+  const list = (projects || []).filter(Boolean);
+  if(!list.length) return "";
+  const ids = new Set(list.map(p=>p.id));
+  const tasks = (state.tasks || []).filter(t=>ids.has(t.projectId));
+  const dated = tasks.filter(t=>t.start && t.end);
+  const start = dated.length ? dated.reduce((min, t)=> (!min || t.start < min ? t.start : min), "") : "";
+  const end = dated.length ? dated.reduce((max, t)=> (!max || t.end > max ? t.end : max), "") : "";
+  const sites = Array.from(new Set(list.map(p=>(p?.site || "").trim()).filter(Boolean))).sort((a,b)=>a.localeCompare(b, "fr", { sensitivity:"base" }));
+  const names = list.map(p=>p?.name || "Chantier").join(", ");
+  return `
+    <div class="project-export-header-card" style="border:1px solid ${attrEscape(pdfTheme.line)};border-radius:8px;padding:6px 8px;background:${attrEscape(pdfTheme.panel)};background-image:linear-gradient(180deg, ${attrEscape(pdfTheme.panel)} 0%, ${attrEscape(pdfTheme.accentSoft)} 100%);margin-bottom:6px;box-shadow:0 3px 10px rgba(15,23,42,0.18);">
+      <div class="project-export-header-grid" style="display:grid;grid-template-columns:1.5fr 1fr .9fr 1fr 1fr 1fr;gap:8px;align-items:start;border-left:4px solid ${attrEscape(pdfTheme.accent)};padding-left:7px;">
+        <div><div style="font-size:12px;color:${attrEscape(pdfTheme.muted)};letter-spacing:.15px;margin-bottom:2px;font-weight:700;">Chantiers regroupés</div><div style="font-weight:800;font-size:15px;line-height:1.2;color:${attrEscape(pdfTheme.text)};">${attrEscape(names)}</div></div>
+        <div><div style="font-size:12px;color:${attrEscape(pdfTheme.muted)};letter-spacing:.15px;margin-bottom:2px;font-weight:700;">Sites / Zones</div><div style="font-weight:800;font-size:15px;line-height:1.2;color:${attrEscape(pdfTheme.text)};">${attrEscape(sites.join(", ") || "-")}</div></div>
+        <div><div style="font-size:12px;color:${attrEscape(pdfTheme.muted)};letter-spacing:.15px;margin-bottom:2px;font-weight:700;">Chantiers</div><div style="font-weight:800;font-size:16px;line-height:1.2;color:${attrEscape(pdfTheme.text)};">${list.length}</div></div>
+        <div><div style="font-size:12px;color:${attrEscape(pdfTheme.muted)};letter-spacing:.15px;margin-bottom:2px;font-weight:700;">Tâches</div><div style="font-weight:800;font-size:16px;line-height:1.2;color:${attrEscape(pdfTheme.text)};">${tasks.length}</div></div>
+        <div><div style="font-size:12px;color:${attrEscape(pdfTheme.muted)};letter-spacing:.15px;margin-bottom:2px;font-weight:700;">Début période</div><div style="font-weight:800;font-size:15px;line-height:1.2;color:${attrEscape(pdfTheme.text)};">${attrEscape(start ? formatDate(start) : "-")}</div></div>
+        <div><div style="font-size:12px;color:${attrEscape(pdfTheme.muted)};letter-spacing:.15px;margin-bottom:2px;font-weight:700;">Fin période</div><div style="font-weight:800;font-size:15px;line-height:1.2;color:${attrEscape(pdfTheme.text)};">${attrEscape(end ? formatDate(end) : "-")}</div></div>
+      </div>
+    </div>
+  `;
+}
+
+function renderUnifiedExportModulesList(){
+  const list = el("exportPdfModulesList");
+  if(!list) return;
+  let defs = getUnifiedExportModuleDefinitions().filter(d=>document.querySelector(d.selector));
+  const isProject = !el("viewProject")?.classList.contains("hidden");
+  if(isProject){
+    // L'en-tête projet est toujours injecté automatiquement sur chaque partie exportée.
+    // "project_pie" embarque déjà les 2 graphiques, donc on masque l'entrée redondante.
+    defs = defs.filter(d=>d.key !== "project_header" && d.key !== "project_workload");
+  }
+
+  const isProjectHoursVariant = (k)=>k === "project_hours" || k === "project_hours_internal_only";
+  const isMasterHoursVariant = (k)=>k === "master_hours" || k === "master_hours_internal_only";
+  const isHoursVariant = (k)=>isProjectHoursVariant(k) || isMasterHoursVariant(k);
+  const hintHtml = defs.some(d=>isHoursVariant(d.key))
+    ? `<div class="export-module-sub" style="margin:0 0 6px 2px;display:block;">Pour l'analyse des heures, choisissez une seule version.</div>`
+    : "";
+
+  const projectPickerHtml = (()=> {
+    const projects = getProjectsSortedForExport();
+    unifiedExportSelectedProjectIds = normalizeUnifiedExportProjectIds(unifiedExportSelectedProjectIds);
+    const selected = new Set(unifiedExportSelectedProjectIds);
+    const rows = projects.map((p)=>`
+      <label class="export-module-row export-project-row">
+        <input type="checkbox" data-export-project-id="${attrEscape(p.id)}" ${selected.has(p.id) ? "checked" : ""}>
+        <span>
+          <span class="export-module-label">${attrEscape(p.name || "Chantier")}</span>
+          <span class="export-module-sub">${attrEscape((p.site || "-") + (p.subproject ? ` • ${p.subproject}` : ""))}</span>
+        </span>
+      </label>
+    `).join("");
+    return `
+      <div class="export-projects-head">
+        <span class="export-module-label">Chantiers à regrouper</span>
+        <span class="export-projects-actions">
+          <button type="button" class="btn btn-ghost btn-xs" id="btnExportProjectsActiveOnly">Actif uniquement</button>
+          <button type="button" class="btn btn-ghost btn-xs" id="btnExportProjectsAll">Tous</button>
+          <button type="button" class="btn btn-ghost btn-xs" id="btnExportProjectsNone">Aucun</button>
+        </span>
+      </div>
+      ${rows}
+    `;
+  })();
+
+  list.innerHTML = projectPickerHtml + hintHtml + defs.map((d)=>{
+    const exclusive = isHoursVariant(d.key);
+    const inputType = exclusive ? "radio" : "checkbox";
+    const inputName = isProjectHoursVariant(d.key) ? "project_hours_variant" : (isMasterHoursVariant(d.key) ? "master_hours_variant" : "");
+    const sub = exclusive
+      ? ((d.key === "project_hours" || d.key === "master_hours") ? "Version complète" : "Version interne uniquement")
+      : (d.wide ? "Format large" : "Format standard");
+    return `
+      <label class="export-module-row${exclusive ? " export-module-row-exclusive" : ""}">
+        <input type="${inputType}" ${inputName ? `name="${inputName}"` : ""} data-export-module-key="${attrEscape(d.key)}">
+        <span>
+          <span class="export-module-label">${attrEscape(d.label)}</span>
+          <span class="export-module-sub">${attrEscape(sub)}</span>
+        </span>
+      </label>
+    `;
+  }).join("");
+
+  list.querySelectorAll("input[name=\"project_hours_variant\"],input[name=\"master_hours_variant\"]").forEach((n)=>{
+    n.addEventListener("change", updateUnifiedHoursExclusiveUI);
+  });
+
+  const projectChecks = Array.from(list.querySelectorAll("input[data-export-project-id]"));
+  const applyProjectSelectionToUi = ()=>{
+    unifiedExportSelectedProjectIds = normalizeUnifiedExportProjectIds(unifiedExportSelectedProjectIds, { allowEmpty:true });
+    const selected = new Set(unifiedExportSelectedProjectIds);
+    projectChecks.forEach((n)=>{ n.checked = selected.has(normId(n.getAttribute("data-export-project-id"))); });
+  };
+  const syncProjectSelectionFromUi = ()=>{
+    const ids = projectChecks.filter(n=>n.checked).map(n=>normId(n.getAttribute("data-export-project-id")));
+    unifiedExportSelectedProjectIds = normalizeUnifiedExportProjectIds(ids, { allowEmpty:true });
+    applyProjectSelectionToUi();
+  };
+  projectChecks.forEach((n)=> n.addEventListener("change", syncProjectSelectionFromUi));
+  list.querySelector("#btnExportProjectsActiveOnly")?.addEventListener("click", ()=>{
+    unifiedExportSelectedProjectIds = getActiveProjectIdsForToday();
+    applyProjectSelectionToUi();
+  });
+  list.querySelector("#btnExportProjectsAll")?.addEventListener("click", ()=>{
+    unifiedExportSelectedProjectIds = normalizeUnifiedExportProjectIds(getProjectsSortedForExport().map(p=>p.id));
+    applyProjectSelectionToUi();
+  });
+  list.querySelector("#btnExportProjectsNone")?.addEventListener("click", ()=>{
+    unifiedExportSelectedProjectIds = [];
+    applyProjectSelectionToUi();
+  });
+  applyProjectSelectionToUi();
+  updateUnifiedHoursExclusiveUI();
+}
+function updateUnifiedHoursExclusiveUI(){
+  const list = el("exportPdfModulesList");
+  if(!list) return;
+  const groups = [
+    [
+      list.querySelector('input[data-export-module-key="project_hours"]'),
+      list.querySelector('input[data-export-module-key="project_hours_internal_only"]')
+    ],
+    [
+      list.querySelector('input[data-export-module-key="master_hours"]'),
+      list.querySelector('input[data-export-module-key="master_hours_internal_only"]')
+    ]
+  ];
+
+  groups.forEach(([rFull, rInternal])=>{
+    if(!rFull || !rInternal) return;
+    const rowFull = rFull.closest('.export-module-row');
+    const rowInternal = rInternal.closest('.export-module-row');
+    if(rowFull){
+      rowFull.classList.toggle('export-module-row-locked', !!rInternal.checked);
+      rowFull.setAttribute('title', '');
+    }
+    if(rowInternal){
+      rowInternal.classList.toggle('export-module-row-locked', !!rFull.checked);
+      rowInternal.setAttribute('title', '');
+    }
+  });
+}
+function openUnifiedPdfModal(){
+  const modal = el("exportPdfModal");
+  if(!modal) return;
+  unifiedExportSelectedProjectIds = getUnifiedDefaultExportProjectIds();
+  renderUnifiedExportModulesList();
+  showModalSafely(modal);
+}
+
+function closeUnifiedPdfModal(){
+  const modal = el("exportPdfModal");
+  hideModalSafely(modal, "#btnExportPdfUnified");
+}
+
+const HOURS_VARIANT_KEYS = new Set([
+  "project_hours",
+  "project_hours_internal_only",
+  "master_hours",
+  "master_hours_internal_only"
+]);
+
+function getCheckedExportModuleKeys(listRoot){
+  return Array.from(listRoot.querySelectorAll("input[data-export-module-key]:checked"))
+    .map((n)=>n.getAttribute("data-export-module-key") || "");
+}
+
+function resolveHoursVariantsFromModalState(listRoot, selectedKeys){
+  const projectHoursFullChecked = !!listRoot.querySelector('input[data-export-module-key="project_hours"]')?.checked;
+  const projectHoursInternalChecked = !!listRoot.querySelector('input[data-export-module-key="project_hours_internal_only"]')?.checked;
+  const masterHoursFullChecked = !!listRoot.querySelector('input[data-export-module-key="master_hours"]')?.checked;
+  const masterHoursInternalChecked = !!listRoot.querySelector('input[data-export-module-key="master_hours_internal_only"]')?.checked;
+
+  if(projectHoursFullChecked && projectHoursInternalChecked){
+    throw new Error("Sélection incohérente: choisissez une seule variante pour l'analyse heures projet.");
+  }
+  if(masterHoursFullChecked && masterHoursInternalChecked){
+    throw new Error("Sélection incohérente: choisissez une seule variante pour l'analyse heures tableau maître.");
+  }
+
+  const selectedProjectHoursVariant = projectHoursInternalChecked
+    ? "project_hours_internal_only"
+    : (projectHoursFullChecked ? "project_hours" : "");
+  const selectedMasterHoursVariant = masterHoursInternalChecked
+    ? "master_hours_internal_only"
+    : (masterHoursFullChecked ? "master_hours" : "");
+
+  const cleanKeys = selectedKeys.filter((k)=>!HOURS_VARIANT_KEYS.has(k));
+  if(selectedProjectHoursVariant) cleanKeys.push(selectedProjectHoursVariant);
+  if(selectedMasterHoursVariant) cleanKeys.push(selectedMasterHoursVariant);
+
+  return {
+    selectedProjectHoursVariant,
+    selectedMasterHoursVariant,
+    selectedKeys: Array.from(new Set(cleanKeys))
+  };
+}
+
+function buildSelectedExportDefinitions(defs, selectedKeys, selectedProjectHoursVariant, selectedMasterHoursVariant){
+  const selectedDefs = defs.filter((d)=>selectedKeys.includes(d.key) && !HOURS_VARIANT_KEYS.has(d.key));
+  if(selectedProjectHoursVariant){
+    const def = defs.find((d)=>d.key === selectedProjectHoursVariant);
+    if(def) selectedDefs.push(def);
+  }
+  if(selectedMasterHoursVariant){
+    const def = defs.find((d)=>d.key === selectedMasterHoursVariant);
+    if(def) selectedDefs.push(def);
+  }
+  return selectedDefs;
+}
+
+function runUnifiedPdfExport(){
+  try{
+    const modal = el("exportPdfModal");
+    const listRoot = modal?.querySelector("#exportPdfModulesList") || el("exportPdfModulesList") || document;
+    const defs = getUnifiedExportModuleDefinitions();
+    const rawSelectedKeys = getCheckedExportModuleKeys(listRoot);
+    const {
+      selectedProjectHoursVariant,
+      selectedMasterHoursVariant,
+      selectedKeys
+    } = resolveHoursVariantsFromModalState(listRoot, rawSelectedKeys);
+
+    if(selectedKeys.length===0){
+      alert("Sélectionnez au moins un module.");
       return;
     }
-    button.onclick = () => {
-      try {
-        const persons = getFilteredPersons();
-        const popup = window.open("about:blank", "_blank");
-        if (!popup) {
-          showDataStatus("AUTORISER L'OUVERTURE DE FENETRE POUR L'EXPORT");
+
+    const isProjectMode = !el("viewProject")?.classList.contains("hidden");
+    const selectedProjectIds = getUnifiedExportSelectedProjectIdsFromUi(listRoot);
+    if(!selectedProjectIds.length){
+      alert("Sélectionnez au moins un chantier.");
+      return;
+    }
+    const selectedProjects = selectedProjectIds
+      .map(id=> state.projects.find(p=>p.id===id))
+      .filter(Boolean);
+    const currentProject = isProjectMode ? (selectedProjects[0] || null) : null;
+
+    const selectedDefs = buildSelectedExportDefinitions(
+      defs,
+      selectedKeys,
+      selectedProjectHoursVariant,
+      selectedMasterHoursVariant
+    );
+    const mergeProjectHeaderWithTasks = isProjectMode && selectedKeys.includes("project_tasks");
+    const rootStyle = getComputedStyle(document.documentElement);
+    const pdfTheme = {
+      accent: (rootStyle.getPropertyValue("--accent") || "#2563eb").trim(),
+      accentSoft: (rootStyle.getPropertyValue("--accent-soft") || "#93c5fd").trim(),
+      panel: (rootStyle.getPropertyValue("--panel") || "#f8fafc").trim(),
+      line: (rootStyle.getPropertyValue("--line") || "rgba(0,0,0,0.14)").trim(),
+      text: (rootStyle.getPropertyValue("--text") || "#0f172a").trim(),
+      muted: (rootStyle.getPropertyValue("--muted") || "#475569").trim()
+    };
+
+    const checkProjectGanttVsTasks = isProjectMode && selectedKeys.includes("project_tasks") && selectedKeys.includes("project_gantt");
+    if(checkProjectGanttVsTasks){
+      for(const project of selectedProjects){
+        const projectTasksAll = state.tasks.filter(t=>t.projectId===project.id);
+        const projectTasksDated = projectTasksAll.filter(t=>t.start && t.end);
+        if(projectTasksDated.length !== projectTasksAll.length){
+          const missingDates = projectTasksAll.length - projectTasksDated.length;
+          alert(
+            `Export bloqué : incohérence tâches / Gantt.\n\n` +
+            `Chantier: ${project.name || "Projet"}\n` +
+            `- Tableau des tâches : ${projectTasksAll.length} ligne(s)\n` +
+            `- Gantt hebdo : ${projectTasksDated.length} ligne(s)\n` +
+            `- Tâches sans dates : ${missingDates}\n\n` +
+            `Action requise : renseignez les dates manquantes ou décochez "Gantt hebdo".`
+          );
           return;
         }
-        const html = buildControlReportHtml(persons);
-        popup.document.open();
-        popup.document.write(html);
-        popup.document.close();
-        showActionStatus("update", "ETAT DE CONTROLE OUVERT");
-      } catch (error) {
-        console.error("EXPORT ETAT DE CONTROLE IMPOSSIBLE", error);
-        showDataStatus("EXPORT ETAT DE CONTROLE IMPOSSIBLE");
       }
-    };
-  });
-}
-
-function getTableColumnCount(target, fallback = 1) {
-  const body = typeof target === "string" ? document.getElementById(target) : target;
-  const table = body?.closest("table");
-  const headerRow = table?.querySelector("thead tr:last-child");
-  const count = headerRow?.children?.length || table?.querySelectorAll("thead th")?.length || fallback;
-  return count || fallback;
-}
-
-function buildEmptyTableRow(target, text, fallback = 1) {
-  return `<tr><td colspan="${getTableColumnCount(target, fallback)}" class="table-empty">${text}</td></tr>`;
-}
-
-function getEffectTableSort(tableName) {
-  const defaults = {
-    sheetEffects: { key: "typeEffet", dir: "asc" },
-    arrivalEffects: { key: "typeEffet", dir: "asc" },
-    exitEffects: { key: "typeEffet", dir: "asc" },
-    overviewPersons: { key: "nom", dir: "asc" },
-    referenceEffects: { key: "site", dir: "asc" },
-  };
-  const current = state.tableSorts?.[tableName];
-  return current && current.key && current.dir ? current : (defaults[tableName] || { key: "nom", dir: "asc" });
-}
-
-function setEffectTableSort(tableName, key) {
-  if (!state.tableSorts) {
-    state.tableSorts = {};
-  }
-  const current = getEffectTableSort(tableName);
-  state.tableSorts[tableName] = {
-    key,
-    dir: current.key === key && current.dir === "asc" ? "desc" : "asc",
-  };
-}
-
-function getEffectSortValue(person, effect, key) {
-  switch (key) {
-    case "typeEffet":
-      return effect?.typeEffet || "";
-    case "designation":
-      return getEffectDisplayDesignation(effect) || "";
-    case "siteReference":
-      return getEffectDisplaySite(effect) || "";
-    case "numeroIdentification":
-      return effect?.numeroIdentification || "";
-    case "dateRemise":
-      return effect?.dateRemise || "";
-    case "dateRetour":
-      return effect?.dateRetour || "";
-    case "statut":
-      return getEffectStatus(person, effect) || "";
-    case "cause":
-      return getEffectReplacementCause(person, effect) || "";
-    case "dateRemplacement":
-      return effect?.dateRemplacement || "";
-    case "cout":
-      return key === "cout" ? getEffectUnitValue(effect) : 0;
-    case "coutFacturable":
-      return getEffectReplacementCost(person, effect);
-    case "commentaire":
-      return effect?.commentaire || "";
-    default:
-      return "";
-  }
-}
-
-function compareEffectValues(left, right, isNumeric = false) {
-  if (isNumeric) {
-    return normalizeAmount(left) - normalizeAmount(right);
-  }
-  return compareTextValues(left, right);
-}
-
-function getOverviewSortValue(person, key) {
-  const currentEffects = getCurrentAssignedEffects(person);
-  const movementMap = getArrivalComplementMovementMap(person, person?.effetsConfies || []);
-  const movementCount = movementMap.size;
-  switch (key) {
-    case "nom":
-      return person?.nom || "";
-    case "prenom":
-      return person?.prenom || "";
-    case "site":
-      return getPersonSiteLabel(person) || "";
-    case "typePersonnel":
-      return person?.typePersonnel || "";
-    case "typeContrat":
-      return person?.typeContrat || "";
-    case "dateEntree":
-      return person?.dateEntree || "";
-    case "dateSortiePrevue":
-      return person?.dateSortiePrevue || "";
-    case "dateSortieReelle":
-      return person?.dateSortieReelle || "";
-    case "statutDossier":
-      return getDossierStatus(person) || "";
-    case "nbEffets":
-      return currentEffects.length;
-    case "nonRendus":
-      return currentEffects.filter((effect) => getEffectStatus(person, effect) === "NON RENDU").length;
-    case "mouvements":
-      return movementCount;
-    default:
-      return "";
-  }
-}
-
-function sortPersonsForOverview(persons) {
-  const sort = getEffectTableSort("overviewPersons");
-  const numericKeys = new Set(["nbEffets", "nonRendus", "mouvements"]);
-  return [...persons].sort((left, right) => {
-    const primary = compareEffectValues(
-      getOverviewSortValue(left, sort.key),
-      getOverviewSortValue(right, sort.key),
-      numericKeys.has(sort.key)
-    );
-    if (primary !== 0) {
-      return sort.dir === "asc" ? primary : -primary;
     }
 
-    const nomCompare = compareTextValues(left?.nom || "", right?.nom || "");
-    if (nomCompare !== 0) {
-      return nomCompare;
-    }
+    const checkMasterGanttVsTable = !isProjectMode && selectedKeys.includes("master_table") && selectedKeys.includes("master_gantt");
+    if(checkMasterGanttVsTable){
+      const allMasterTasks = state.tasks.filter((t)=>selectedProjectIds.includes(t.projectId));
+      const datedMasterTasks = allMasterTasks.filter(t=>t.start && t.end);
+      if(datedMasterTasks.length !== allMasterTasks.length){
+        const missingDates = allMasterTasks.length - datedMasterTasks.length;
+        alert(
+          `Export bloqué : incohérence tâches / Gantt.
 
-    const prenomCompare = compareTextValues(left?.prenom || "", right?.prenom || "");
-    if (prenomCompare !== 0) {
-      return prenomCompare;
-    }
+` +
+          `- Tableau maître : ${allMasterTasks.length} ligne(s)
+` +
+          `- Gantt global : ${datedMasterTasks.length} ligne(s)
+` +
+          `- Tâches sans dates : ${missingDates}
 
-    return compareTextValues(left?.id || "", right?.id || "");
-  });
-}
-
-function sortEffectsForTable(person, effects, tableName) {
-  const sort = getEffectTableSort(tableName);
-  const numericKeys = new Set(["cout", "coutFacturable"]);
-  const sorted = [...effects].sort((left, right) => {
-    const primary = compareEffectValues(
-      getEffectSortValue(person, left, sort.key),
-      getEffectSortValue(person, right, sort.key),
-      numericKeys.has(sort.key)
-    );
-    if (primary !== 0) {
-      return sort.dir === "asc" ? primary : -primary;
-    }
-
-    const typeCompare = compareTextValues(left?.typeEffet || "", right?.typeEffet || "");
-    if (typeCompare !== 0) {
-      return typeCompare;
-    }
-
-    const designationCompare = compareTextValues(
-      getEffectDisplayDesignation(left) || "",
-      getEffectDisplayDesignation(right) || ""
-    );
-    if (designationCompare !== 0) {
-      return designationCompare;
-    }
-
-    return compareTextValues(left?.id || "", right?.id || "");
-  });
-  return sorted;
-}
-
-function getReferenceSortValue(reference, key, renderContext = null) {
-  switch (key) {
-    case "site":
-      return getReferenceSiteLabel(reference) || "";
-    case "typeEffet":
-      return reference?.typeEffet || "";
-    case "designation":
-      return reference?.designation || "";
-    case "usage":
-      return renderContext?.referenceEffectUsage?.get(String(reference?.id || "")) || 0;
-    default:
-      return "";
-  }
-}
-
-function sortReferencesForTable(references, tableName, renderContext = null) {
-  const sort = getEffectTableSort(tableName);
-  const numericKeys = new Set(["usage"]);
-  return [...references].sort((left, right) => {
-    const primary = compareEffectValues(
-      getReferenceSortValue(left, sort.key, renderContext),
-      getReferenceSortValue(right, sort.key, renderContext),
-      numericKeys.has(sort.key)
-    );
-    if (primary !== 0) {
-      return sort.dir === "asc" ? primary : -primary;
-    }
-    return compareTextValues(String(left?.id || ""), String(right?.id || ""));
-  });
-}
-
-function updateSortableHeaders(tableName) {
-  document.querySelectorAll(`[data-sort-table="${tableName}"]`).forEach((header) => {
-    const key = String(header.getAttribute("data-sort-key") || "");
-    const sort = getEffectTableSort(tableName);
-    const active = sort.key === key;
-    header.classList.toggle("is-sorted", active);
-    header.dataset.sortDirection = active ? sort.dir : "";
-    header.setAttribute(
-      "aria-sort",
-      active ? (sort.dir === "asc" ? "ascending" : "descending") : "none"
-    );
-  });
-}
-
-function bindEffectTableSorting() {
-  document.querySelectorAll("[data-sort-table][data-sort-key]").forEach((header) => {
-    if (header.dataset.sortBound === "1") {
-      return;
-    }
-    header.dataset.sortBound = "1";
-    header.tabIndex = 0;
-    header.role = "button";
-    const activate = () => {
-      const tableName = String(header.getAttribute("data-sort-table") || "");
-      const key = String(header.getAttribute("data-sort-key") || "");
-      if (!tableName || !key) {
+` +
+          `Action requise : renseignez les dates manquantes ou décochez "Gantt global".`
+        );
         return;
       }
-      setEffectTableSort(tableName, key);
-      renderPage();
-    };
-    header.onclick = activate;
-    header.onkeydown = (event) => {
-      if (event.key === "Enter" || event.key === " ") {
-        event.preventDefault();
-        activate();
+    }
+    const masterHeaderHtml = buildMasterExportHeaderHTML(pdfTheme);
+
+    const modules = [];
+    selectedDefs.forEach(def=>{
+      if(def.key === "project_workload" && selectedKeys.includes("project_pie")){
+        return;
       }
-    };
+      if(def.key === "project_header"){
+        if(mergeProjectHeaderWithTasks) return;
+        modules.push({
+          key:def.key,
+          label:"",
+          wide:false,
+          html:buildGroupedProjectsExportHeaderHTML(selectedProjects, pdfTheme),
+          forceNewPage:true
+        });
+        return;
+      }
+
+      if(def.key === "project_tasks" && selectedProjects.length){
+        const tableHtml = buildGroupedProjectTasksExportHTML(selectedProjectIds);
+        const tasksTitle = `<div class="card-title">Tableau des tâches (cumul chantiers)</div>`;
+        const groupedHeader = buildGroupedProjectsExportHeaderHTML(selectedProjects, pdfTheme);
+        modules.push({
+          key:def.key,
+          label:"",
+          wide:true,
+          html:`${groupedHeader}${tasksTitle}${tableHtml}`,
+          noAutoProjectHeader:true,
+          forceNewPage:true
+        });
+        return;
+      }
+
+
+      if(def.key === "master_table"){
+        const tableTitle = `<div class="card-title">Tableau maître (cumul chantiers)</div>`;
+        const tableHtml = buildGroupedProjectTasksExportHTML(selectedProjectIds);
+        const groupedHeader = buildGroupedProjectsExportHeaderHTML(selectedProjects, pdfTheme);
+        modules.push({
+          key:def.key,
+          label:"",
+          wide:true,
+          html:`${groupedHeader}${tableTitle}${tableHtml}`,
+          noAutoProjectHeader:true,
+          forceNewPage:true
+        });
+        return;
+      }
+
+      if(def.key === "master_gantt"){
+        const ganttTasks = state.tasks.filter((t)=>selectedProjectIds.includes(t.projectId) && t.start && t.end);
+        const ganttHtml = buildProjectGanttHTMLForRange(null, null, ganttTasks, true);
+        const ganttTitle = `<div class="card-title">Gantt global (cumul chantiers)</div>`;
+        const groupedHeader = buildGroupedProjectsExportHeaderHTML(selectedProjects, pdfTheme);
+        modules.push({
+          key:def.key,
+          label:"",
+          wide:true,
+          html:`${groupedHeader}${ganttTitle}${ganttHtml}`,
+          noAutoProjectHeader:true,
+          forceNewPage:true
+        });
+        return;
+      }
+
+      if(def.key === "master_pie"){
+        const sectionHtml = buildGroupedProjectsRepartitionExportInnerHTML(
+          selectedProjectIds,
+          true,
+          "Répartition Interne / Externe / RSG / RI (tableau maître - cumul chantiers)"
+        );
+        const groupedHeader = buildGroupedProjectsExportHeaderHTML(selectedProjects, pdfTheme);
+        modules.push({
+          key:def.key,
+          label:"",
+          wide:true,
+          html:`${groupedHeader}${sectionHtml}`,
+          noAutoProjectHeader:true,
+          forceNewPage:true
+        });
+        return;
+      }
+
+      if(def.key === "master_hours"){
+        if(selectedMasterHoursVariant !== "master_hours") return;
+        const groupedHeader = buildGroupedProjectsExportHeaderHTML(selectedProjects, pdfTheme);
+        modules.push({
+          key:def.key,
+          label:"",
+          wide:true,
+          html:`${groupedHeader}${buildGroupedProjectsRealHoursReportInnerHTML(selectedProjectIds, true, "Analyse heures réelles (tableau maître - cumul chantiers)")}`,
+          noAutoProjectHeader:true,
+          forceNewPage:true
+        });
+        return;
+      }
+
+      if(def.key === "master_hours_internal_only"){
+        if(selectedMasterHoursVariant !== "master_hours_internal_only") return;
+        const groupedHeader = buildGroupedProjectsExportHeaderHTML(selectedProjects, pdfTheme);
+        modules.push({
+          key:def.key,
+          label:"",
+          wide:true,
+          html:`${groupedHeader}${buildGroupedProjectsRealHoursReportInnerHTML(selectedProjectIds, false, "Analyse heures réelles (tableau maître - cumul chantiers) - sans prestataires externes")}`,
+          noAutoProjectHeader:true,
+          forceNewPage:true
+        });
+        return;
+      }
+
+      if(def.key === "project_gantt" && selectedProjects.length){
+        const projectTasksForGantt = state.tasks.filter(t=> selectedProjectIds.includes(t.projectId) && t.start && t.end);
+        const ganttHtml = buildProjectGanttHTMLForRange(null, null, projectTasksForGantt, true);
+        const ganttTitle = `<div class="card-title">Gantt hebdo (cumul chantiers)</div>`;
+        const groupedHeader = buildGroupedProjectsExportHeaderHTML(selectedProjects, pdfTheme);
+        modules.push({
+          key:def.key,
+          label:"",
+          wide:true,
+          html:`${groupedHeader}${ganttTitle}${ganttHtml}`,
+          noAutoProjectHeader:true,
+          forceNewPage:true
+        });
+        return;
+      }
+
+      if(def.key === "project_pie" && selectedProjects.length){
+        const sectionHtml = buildGroupedProjectsRepartitionExportInnerHTML(
+          selectedProjectIds,
+          true,
+          "Répartition Interne / Externe / RSG / RI (cumul chantiers)"
+        );
+        const groupedHeader = buildGroupedProjectsExportHeaderHTML(selectedProjects, pdfTheme);
+        modules.push({
+          key:def.key,
+          label:"",
+          wide:true,
+          html:`${groupedHeader}${sectionHtml}`,
+          noAutoProjectHeader:true,
+          forceNewPage:true
+        });
+        return;
+      }
+
+
+      if((def.key === "project_hours" || def.key === "project_hours_internal_only") && selectedProjects.length){
+        if(def.key !== selectedProjectHoursVariant) return;
+        const includeExternal = def.key !== "project_hours_internal_only";
+        const reportTitle = includeExternal
+          ? "Analyse heures réelles (cumul chantiers)"
+          : "Analyse heures réelles (cumul chantiers) - sans prestataires externes";
+        const hoursHtml = buildGroupedProjectsRealHoursReportInnerHTML(selectedProjectIds, includeExternal, reportTitle);
+        const groupedHeader = buildGroupedProjectsExportHeaderHTML(selectedProjects, pdfTheme);
+        modules.push({
+          key:def.key,
+          label:"",
+          wide:true,
+          html:`${groupedHeader}${hoursHtml}`,
+          noAutoProjectHeader:true,
+          forceNewPage:true
+        });
+        return;
+      }
+
+      const rawNode = document.querySelector(def.selector);
+      if(!rawNode) return;
+      const node = rawNode.closest(".card") || rawNode;
+      const cloned = cloneNodeForUnifiedExport(node);
+      if(!cloned) return;
+      modules.push({
+        key: def.key,
+        label: def.label,
+        wide: !!def.wide,
+        html: cloned.outerHTML
+      });
+    });
+
+    if(modules.length===0){
+      alert("Aucun module exportable trouvé.");
+      return;
+    }
+
+    const viewer = window.open("about:blank", "_blank");
+    if(!viewer){
+      alert("Popup bloquée. Autorisez les popups puis réessayez.");
+      return;
+    }
+
+    setPrintPageFormat("A4 landscape", "2mm");
+    document.body.classList.add("print-mode");
+
+    const tpl = ensurePrintTemplate();
+    if(!tpl){
+      alert("Template d'export introuvable.");
+      return;
+    }
+
+    let container = document.getElementById("printInjection");
+    if(!container){
+      container = document.createElement("div");
+      container.id = "printInjection";
+      document.body.prepend(container);
+    }
+
+    container.innerHTML = tpl.innerHTML;
+
+    const header = container.querySelector("#printHeader");
+    const meta = container.querySelector("#printMeta");
+    const legend = container.querySelector("#printLegend");
+    const filters = getExportFiltersPayload();
+    const filtersLabel = Object.entries(filters)
+      .filter(([,v])=>String(v || "").trim())
+      .map(([k,v])=>`${k}: ${v}`)
+      .join(" • ") || "Aucun filtre";
+
+    if(header){
+      header.querySelector("h1").textContent = (el("brandTitle")?.textContent || "Suivi de Chantiers").trim();
+    }
+    if(meta){
+      const mode = isProjectMode
+        ? (selectedProjects.length > 1 ? `${selectedProjects.length} chantiers regroupés` : ((el("projectTitle")?.textContent || currentProject?.name || "Projet").trim()))
+        : "Tableau maître";
+      const metaRows = [
+        ["Contexte", mode],
+        ["Date export", new Date().toLocaleDateString("fr-FR", { day:"2-digit", month:"short", year:"numeric" })],
+        ["Filtres", filtersLabel],
+        ["Modules", modules.length]
+      ];
+      meta.innerHTML = metaRows.map(([k,v])=>`<div><strong>${k}</strong><br>${attrEscape(String(v ?? ""))}</div>`).join("");
+    }
+    if(legend) legend.innerHTML = "";
+
+    container.querySelectorAll(".print-dynamic").forEach(n=>n.remove());
+    const wrap = document.createElement("div");
+    wrap.className = "print-dynamic";
+    modules.forEach((m)=>{
+      const block = document.createElement("div");
+      block.className = `card print-block${m.forceNewPage ? " force-new-page" : ""}`;
+      const titleHtml = m.label ? `<div class="card-title">${attrEscape(m.label)}</div>` : "";
+      block.innerHTML = `${titleHtml}${m.html || ""}`;
+      wrap.appendChild(block);
+    });
+    container.querySelector(".print-order")?.appendChild(wrap);
+
+    maximizePrintContainer(container);
+    openPreparedPrintInNewWindow("Export PDF", viewer);
+
+    closeUnifiedPdfModal();
+  }catch(err){
+    reportAppError(err, "export.pdf.modal");
+    alert("Erreur export PDF: " + (err?.message || err));
+  }
+}
+window.runUnifiedPdfExport = runUnifiedPdfExport;
+
+function bind(){
+
+  loadStatusConfig();
+  applyVacationConfig();
+  buildStatusMenu();
+
+  setStatusSelection("");
+
+  el("t_status_display")?.addEventListener("click",(e)=>{ e.stopPropagation(); toggleStatusMenu(true); });
+
+  document.addEventListener("click",(e)=>{
+
+    const wrap = el("t_status_wrap");
+
+    if(wrap && !wrap.contains(e.target)){ toggleStatusMenu(false); }
+
   });
-}
 
-function ensurePdfProgressModal() {
-  return null;
-}
 
-function setPdfProgress(percent, text) {
-  return;
-}
 
-function showPdfProgressModal(docType) {
-  state.pdfGenerationActive = true;
-}
-
-function stopPdfProgressTimer() {
-  if (state.pdfProgressTimerId) {
-    window.clearInterval(state.pdfProgressTimerId);
-    state.pdfProgressTimerId = 0;
+  updateTopbarHeight();
+  updateSidebarTop();
+  applySidebarTopLock();
+  applyRoleAccess();
+  initThemePicker();
+  const performLogout = ()=>{
+    try{
+      sessionStorage.removeItem("unlocked");
+      sessionStorage.removeItem("current_user");
+      sessionStorage.removeItem("current_role");
+      sessionStorage.removeItem("current_email");
+      sessionStorage.removeItem("current_theme");
+      localStorage.removeItem("login_session_token_v1");
+    }catch(e){ softCatch(e); }
+    const lock = document.getElementById("lockscreen");
+    if(lock) lock.classList.remove("hidden");
+    applyRoleAccess();
+    try{ window.refreshLoginUsers?.(); }catch(e){ softCatch(e); }
+  };
+  const switchBtn = el("btnSwitchUser");
+  if(switchBtn){
+    switchBtn.addEventListener("click", performLogout);
   }
-}
-
-function hidePdfProgressModal() {
-  stopPdfProgressTimer();
-  state.pdfGenerationActive = false;
-}
-
-function bindPdfModalCleanup() {
-  if (pdfModalCleanupBound) {
-    return;
+  const logoutBtn = el("btnLogout");
+  if(logoutBtn){
+    logoutBtn.addEventListener("click", performLogout);
   }
+  window.addEventListener("resize", ()=>{
+    updateTopbarHeight();
+    updateSidebarTop();
+    applySidebarTopLock();
+  });
+  el("btnConfig")?.addEventListener("click", ()=>{
+    if(getCurrentRole()!=="admin") return;
+    openConfigModal();
+  });
+  el("btnHelp")?.addEventListener("click", ()=>{
+    const modal = el("helpModal");
+    if(!modal) return;
+    showModalSafely(modal);
+  });
+  el("btnHelpClose")?.addEventListener("click", ()=>{
+    const modal = el("helpModal");
+    if(!modal) return;
+    hideModalSafely(modal, "#btnHelp");
+  });
+  el("helpModal")?.addEventListener("click",(e)=>{
+    if(e.target && e.target.id==="helpModal"){
+      const modal = el("helpModal");
+      hideModalSafely(modal, "#btnHelp");
+    }
+  });
+  el("btnStatusAdd")?.addEventListener("click", ()=>{
+    if(getCurrentRole()!=="admin") return;
+    const input = el("cfg_status_label");
+    const label = (input?.value || "").trim();
+    if(!label) return;
+    const v = normalizeStatusId(label).toUpperCase();
+    if(!v) return;
+    if(STATUSES.some(s=>s.v===v)){
+      alert("Statut déjà existant.");
+      return;
+    }
+    STATUSES.push({v, label});
+    saveStatusConfig();
+    if(input) input.value = "";
+    renderConfigStatusList();
+    refreshStatusUi();
+  });
+  el("btnVendorAdd")?.addEventListener("click", ()=>{
+    if(getCurrentRole()!=="admin") return;
+    const input = el("cfg_vendor_name");
+    const name = (input?.value || "").trim();
+    if(!name) return;
+    const registry = loadVendorsRegistry();
+    if(registry.some(v=>v.toLowerCase()===name.toLowerCase())){
+      alert("Prestataire déjà existant.");
+      return;
+    }
+    const next = dedupVendors([...registry, name]).sort((a,b)=>a.localeCompare(b,"fr",{sensitivity:"base"}));
+    saveVendorsRegistry(next);
+    if(input) input.value = "";
+    refreshVendorsList();
+    renderConfigVendorsList();
+    renderAll();
+  });
+  el("cfg_vac_year")?.addEventListener("change", ()=>{
+    initVacationConfigUI();
+  });
+  el("btnVacSave")?.addEventListener("click", ()=>{
+    if(getCurrentRole()!=="admin") return;
+    const year = (el("cfg_vac_year")?.value || "").trim();
+    if(!year) return;
+    const schoolWeeks = normalizeWeekList(el("cfg_vac_school")?.value || "");
+    const internalWeeks = normalizeWeekList(el("cfg_vac_internal")?.value || "");
+    const cfg = loadConfig();
+    const school = normalizeVacationMap(cfg.vacances_school || {});
+    const internal = normalizeVacationMap(cfg.vacances_internal || {});
+    if(schoolWeeks.length) school[year] = schoolWeeks; else delete school[year];
+    if(internalWeeks.length) internal[year] = internalWeeks; else delete internal[year];
+    cfg.vacances_school = school;
+    cfg.vacances_internal = internal;
+    saveConfig(cfg);
+    applyVacationConfig();
+    initVacationConfigUI();
+    renderAll();
+  });
+  el("btnVacDelete")?.addEventListener("click", ()=>{
+    if(getCurrentRole()!=="admin") return;
+    const year = (el("cfg_vac_year")?.value || "").trim();
+    if(!year) return;
+    if(!confirm(`Supprimer les semaines pour ${year} ?`)) return;
+    const cfg = loadConfig();
+    const school = normalizeVacationMap(cfg.vacances_school || {});
+    const internal = normalizeVacationMap(cfg.vacances_internal || {});
+    delete school[year];
+    delete internal[year];
+    cfg.vacances_school = school;
+    cfg.vacances_internal = internal;
+    saveConfig(cfg);
+    applyVacationConfig();
+    initVacationConfigUI();
+    renderAll();
+  });
+  el("btnConfigSave")?.addEventListener("click", ()=>{
+    if(getCurrentRole()!=="admin") return;
+    const prev = loadConfig();
+    const cfg = {
+      name: el("cfg_name")?.value || "",
+      http: el("cfg_http")?.value || "",
+      front: el("cfg_front")?.value || "",
+      back: el("cfg_back")?.value || "",
+      statuses: prev.statuses || STATUSES,
+      vacances_school: prev.vacances_school || {},
+      vacances_internal: prev.vacances_internal || {}
+    };
+    saveConfig(cfg);
+    applyVacationConfig();
+    closeConfigModal();
+  });
+  el("btnConfigSaveTop")?.addEventListener("click", ()=>{
+    el("btnConfigSave")?.click();
+  });
+  el("btnQualityClean")?.addEventListener("click", ()=>{
+    if(getCurrentRole()!=="admin") return;
+    const report = collectDataQualityIssues(state);
+    if(report.ok){
+      showSaveToast("ok", "Nettoyage", "Aucune incohérence à corriger");
+      return;
+    }
+    if(!confirm(`Nettoyer les incohérences détectées (${report.issues.length}) ?`)) return;
+    applyDataQualityCleanup();
+  });
 
-  pdfModalCleanupBound = true;
-}
-
-function waitForNextPaint() {
-  return new Promise((resolve) => {
-    window.requestAnimationFrame(() => {
-      window.setTimeout(resolve, 40);
+  el("btnQualityExportPdf")?.addEventListener("click", ()=>{
+    if(getCurrentRole()!=="admin") return;
+    exportDataQualityReportPdf();
+  });
+  el("btnTabsSortProgress")?.addEventListener("click", ()=>{
+    tabsSortMode = (tabsSortMode === "progress_asc") ? "progress_desc" : "progress_asc";
+    renderTabs();
+  });
+  el("btnTabsSortReset")?.addEventListener("click", ()=>{
+    tabsSortMode = "progress_asc";
+    renderTabs();
+  });
+  el("btnConfigCloseTop")?.addEventListener("click", ()=>{
+    el("btnConfigClose")?.click();
+  });
+  ["cfg_http","cfg_front","cfg_back"].forEach((id)=>{
+    const input = el(id);
+    if(!input) return;
+    input.addEventListener("input", ()=>{
+      const map = {cfg_http:"cfg_http_link", cfg_front:"cfg_front_link", cfg_back:"cfg_back_link"};
+      const linkId = map[id];
+      const link = el(linkId);
+      const val = (input.value || "").trim();
+      if(!link) return;
+      if(val){
+        link.href = val;
+        link.textContent = val;
+        link.classList.remove("hidden");
+      }else{
+        link.removeAttribute("href");
+        link.textContent = "Ouvrir";
+        link.classList.add("hidden");
+      }
     });
   });
-}
-
-function wait(milliseconds) {
-  return new Promise((resolve) => {
-    window.setTimeout(resolve, milliseconds);
+  el("btnUserAdd")?.addEventListener("click", async ()=>{
+    if(getCurrentRole()!=="admin") return;
+    const name = (el("cfg_user_name")?.value || "").trim();
+    const email = (el("cfg_user_email")?.value || "").trim();
+    const role = el("cfg_user_role")?.value || "user";
+    const pass = el("cfg_user_pass")?.value || "";
+    if(!name || !pass){ alert("Nom et mot de passe requis."); return; }
+    const users = loadUsers();
+    if(email && users.some(u=>(u.email||"").toLowerCase()===email.toLowerCase())){
+      alert("Email déjà existant."); return;
+    }
+    const hash = await hashPassword(pass);
+    users.push({id: uid(), name, email, role, hash, theme:"sable"});
+    saveUsers(users);
+    el("cfg_user_name").value = "";
+    el("cfg_user_email").value = "";
+    el("cfg_user_pass").value = "";
+    renderUsersList();
   });
-}
-
-function buildPdfWaitingHtml() {
-  return `<!DOCTYPE html>
-<html lang="fr">
-  <head>
-    <meta charset="utf-8">
-    <title>GENERATION PDF</title>
-    <style>
-      body{margin:0;font-family:Segoe UI,Arial,sans-serif;background:#f4f1ea;color:#213b48;display:grid;place-items:center;min-height:100vh}
-      .wrap{width:min(420px,calc(100vw - 32px));padding:24px;border:1px solid #adbec7;border-radius:14px;background:#fffdfa;box-shadow:0 14px 30px rgba(15,30,38,.16)}
-      .eyebrow{margin:0 0 6px;font-size:11px;letter-spacing:.14em;color:#4a6170}
-      h1{margin:0 0 10px;font-size:22px}
-      p{margin:0 0 14px;color:#3f5662}
-      .status{display:flex;align-items:center;gap:10px;margin-top:6px}
-      .dot{width:14px;height:14px;border-radius:999px;background:#4c7787;box-shadow:0 0 0 0 rgba(76,119,135,.35);animation:pulse 1.2s infinite ease-out}
-      .value{font-size:12px;letter-spacing:.08em;color:#213b48}
-      @keyframes pulse{
-        0%{transform:scale(.9);box-shadow:0 0 0 0 rgba(76,119,135,.35)}
-        70%{transform:scale(1);box-shadow:0 0 0 10px rgba(76,119,135,0)}
-        100%{transform:scale(.95);box-shadow:0 0 0 0 rgba(76,119,135,0)}
+  el("btnConfigClose")?.addEventListener("click", ()=> closeConfigModal());
+  el("configModal")?.addEventListener("click",(e)=>{
+    if(e.target && e.target.id==="configModal") closeConfigModal();
+  });
+  el("cfg_login_start")?.addEventListener("change", ()=>{
+    loginRangeStart = el("cfg_login_start")?.value || "";
+    initLoginJournalUI();
+  });
+  el("cfg_login_end")?.addEventListener("change", ()=>{
+    loginRangeEnd = el("cfg_login_end")?.value || "";
+    initLoginJournalUI();
+  });
+  document.querySelectorAll(".login-log-sort").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      const key = btn.dataset.sort || "ts";
+      if(loginLogSortKey === key){
+        loginLogSortDir = (loginLogSortDir === "asc") ? "desc" : "asc";
+      }else{
+        loginLogSortKey = key;
+        loginLogSortDir = "asc";
       }
-    </style>
-  </head>
-  <body>
-    <div class="wrap">
-      <p class="eyebrow">EXPORT PDF</p>
-      <h1>GENERATION DU PDF</h1>
-      <p>PREPARATION DU DOCUMENT EN COURS...</p>
-      <div class="status"><div class="dot"></div><div class="value">PATIENTEZ...</div></div>
-    </div>
-  </body>
-</html>`;
-}
-
-function getDocumentPagePath(docType) {
-  return normalizeText(docType) === "EXIT" ? "document-sortie.html" : "document-arrivee.html";
-}
-
-function getHostedPdfDocumentPath(docType, personId, mode = "STANDARD") {
-  const pagePath = getDocumentPagePath(docType);
-  return `${pagePath}?personId=${encodeURIComponent(personId)}&pdf=1&mode=${encodeURIComponent(normalizeText(mode || "STANDARD"))}`;
-}
-
-async function openPdfDocument(docType, personId) {
-  if (state.isDirty) {
-    showDataStatus("SAUVEGARDER AVANT OUVERTURE DU PDF");
-    return;
-  }
-
-  if (!personId) {
-    showDataStatus("AUCUNE PERSONNE SELECTIONNEE");
-    return;
-  }
-
-  const person = state.data?.personnes?.find((entry) => entry.id === personId) || null;
-  const shouldArchive = isDocumentFullySigned(person, docType);
-  const archiveMode = getDocumentArchiveMode(person, docType);
-  const reusableArchive = shouldArchive ? findReusableArchivedDocument(person, docType) : null;
-  const reusableArchiveStorageRef = reusableArchive ? parseStorageSchemePath(reusableArchive.pdfPath) : null;
-  const canPromoteReusableArchiveToStorage =
-    Boolean(reusableArchive) &&
-    !reusableArchiveStorageRef &&
-    shouldArchive &&
-    getDataBackendMode() === "LOCAL_API" &&
-    isSupabaseConfigured();
-
-  const popup = window.open("", "_blank");
-  if (!popup) {
-    showDataStatus("AUTORISER L'OUVERTURE DU PDF DANS LE NAVIGATEUR");
-    return;
-  }
-
-  try {
-    popup.document.write(buildPdfWaitingHtml());
-    popup.document.close();
-  } catch (popupError) {
-    console.error(popupError);
-  }
-
-  try {
-    if (reusableArchive && !canPromoteReusableArchiveToStorage) {
-      popup.location.href = getDocumentArchiveOpenPath(reusableArchive);
-      showActionStatus("update", "PDF ARCHIVE REUTILISE");
-      return;
-    }
-    if (canPromoteReusableArchiveToStorage) {
-      showDataStatus("PDF ARCHIVE LOCAL DETECTE - MIGRATION VERS SUPABASE EN COURS");
-    }
-
-    if (getDataBackendMode() !== "LOCAL_API") {
-      const hostedPath = getHostedPdfDocumentPath(docType, personId, archiveMode);
-      const hostedUrl = `${hostedPath}&ts=${Date.now()}`;
-      popup.location.href = hostedUrl;
-      if (person && shouldArchive) {
-        await registerArchivedDocument(person, docType, hostedPath, "", archiveMode);
-      }
-      showDataStatus("DOCUMENT OUVERT - UTILISER IMPRIMER POUR GENERER LE PDF");
+      initLoginJournalUI();
+    });
+  });
+  el("cfg_login_reset")?.addEventListener("click", (e)=>{
+    e.preventDefault();
+    const end = new Date();
+    const start = new Date();
+    start.setDate(start.getDate()-29);
+    loginRangeStart = start.toISOString().slice(0,10);
+    loginRangeEnd = end.toISOString().slice(0,10);
+    const startInput = el("cfg_login_start");
+    const endInput = el("cfg_login_end");
+    if(startInput) startInput.value = loginRangeStart;
+    if(endInput) endInput.value = loginRangeEnd;
+    initLoginJournalUI();
+  });
+  el("btnSave")?.addEventListener("click", async ()=>{
+    const quality = collectDataQualityIssues(state);
+    if(!quality.ok){
+      showSaveToast("error", "Sauvegarde bloquée", formatQualityIssuesForToast(quality));
+      updateDataQualityBanner(false);
+      markDirty();
       return;
     }
 
-    showPdfProgressModal(docType);
+    _suppressSupabaseSave = true;
+    saveState({skipSupabase:true});
+    _suppressSupabaseSave = false;
 
-    const url = `/api/pdf?type=${encodeURIComponent(docType)}&personId=${encodeURIComponent(personId)}&archive=${shouldArchive ? "1" : "0"}&mode=${encodeURIComponent(archiveMode)}&ts=${Date.now()}`;
-    const response = await fetch(url, { cache: "no-store" });
-    if (!response.ok) {
-      throw new Error("PDF impossible");
-    }
+    let supabaseOk = false;
+    let usersOk = false;
+    try{ if(window.saveAppStateToSupabase) supabaseOk = await window.saveAppStateToSupabase(state); }catch(e){ softCatch(e); }
+    try{ usersOk = await saveUsersToSupabase(loadUsers()); }catch(e){ softCatch(e); }
 
-    const archiveSaved = response.headers.get("X-Archive-Saved") === "1";
-    const archivePdfPath = response.headers.get("X-Archive-Pdf-Path") || "";
-    const archiveMetadataPath = response.headers.get("X-Archive-Metadata-Path") || "";
-    const blob = await response.blob();
+    // Backup local JSON volontairement désactivé: sauvegarde via Supabase uniquement.
+    const backupEnabled = false;
 
-    let hostedStoragePdfPath = "";
-    if (shouldArchive && getDataBackendMode() === "LOCAL_API" && person) {
-      try {
-        const uploadResult = await uploadPdfBlobToSupabaseStorage(docType, person, blob, archiveMode);
-        hostedStoragePdfPath = String(uploadResult?.storageRef || "");
-        if (hostedStoragePdfPath) {
-          console.info("[SUPABASE][PDF] final storage path", hostedStoragePdfPath);
-          showDataStatus("PDF ARCHIVE ENVOYE VERS SUPABASE STORAGE");
-        } else {
-          console.warn("[SUPABASE][PDF] upload returned empty storageRef");
-        }
-      } catch (uploadError) {
-        console.error("[SUPABASE][PDF] upload fail", uploadError);
-        const message = String(uploadError?.message || "ERREUR INCONNUE").slice(0, 220);
-        showDataStatus(`UPLOAD STORAGE PDF IMPOSSIBLE - ARCHIVAGE LOCAL CONSERVE (${message})`);
-      }
+    const detailParts = [];
+    detailParts.push(`Supabase: ${supabaseOk ? "OK" : "ERREUR"}`);
+    if(usersOk === false) detailParts.push(`Users: ERREUR`);
+    if(getCurrentRole() === "admin"){
+      detailParts.push("Backup local: désactivé");
     }
+    showSaveToast(supabaseOk ? "ok" : "error", "Sauvegarde terminée", detailParts.join(" | "));
 
-    const objectUrl = window.URL.createObjectURL(blob);
-    hidePdfProgressModal();
-    popup.location.href = objectUrl;
-    const finalArchivePath = hostedStoragePdfPath || archivePdfPath;
-    if (person && finalArchivePath) {
-      registerArchivedDocument(person, docType, finalArchivePath, archiveMetadataPath, archiveMode).catch((error) => {
-        console.error(error);
-        showDataStatus("ARCHIVAGE PDF IMPOSSIBLE");
-      });
-    } else if (shouldArchive && !finalArchivePath) {
-      showDataStatus("PDF OUVERT - ARCHIVAGE NON REALISE");
-    } else if (!shouldArchive) {
-      showDataStatus("PDF OUVERT - DOCUMENT NON SIGNE, UPLOAD SUPABASE NON LANCE");
+    flashSaved();
+    renderAll();
+    el("btnNewTask")?.classList.remove("btn-armed");
+  });
+
+  el("btnExportPdfUnified")?.addEventListener("click", ()=>{
+    openUnifiedPdfModal();
+  });
+  el("btnExportPdfCancel")?.addEventListener("click", ()=>{
+    closeUnifiedPdfModal();
+  });
+
+  
+  const hmModalRoot = el("hoursTaskModal");
+  if(!(hmModalRoot && hmModalRoot.dataset.hmListenersBound === "1")){
+    if(hmModalRoot) hmModalRoot.dataset.hmListenersBound = "1";
+    el("btnOpenHoursModal")?.addEventListener("click", ()=> openHoursTaskModal());
+    el("btnCloseHoursModal")?.addEventListener("click", ()=> closeHoursTaskModal());
+    el("btnSaveHoursModal")?.addEventListener("click", ()=> saveHoursTaskModal());
+    el("hoursTaskModal")?.addEventListener("click", (e)=>{
+    if(e.target && e.target.id === "hoursTaskModal") closeHoursTaskModal();
+    });
+    el("hm_date")?.addEventListener("change", ()=>{
+    const t = getSelectedTaskForHoursModal();
+    const dateInput = el("t_time_date_input");
+    const hmDate = el("hm_date");
+    const hmHours = el("hm_hours");
+    if(!t || !dateInput || !hmDate) return;
+    dateInput.value = hmDate.value || "";
+    if(hmHours) hmHours.value = getHoursDraftForDate(hmDate.value || "");
+    updateTimeLogUI(t, true);
+    syncHoursTaskStatusFromCalendarDraft(t, hmDate.value || "", hmHours?.value || "");
+    renderHoursTaskWeeklySummary(t, collectHoursTaskCalendarEntries(t));
+    });
+    el("hm_date")?.addEventListener("input", ()=>{
+    const t = getSelectedTaskForHoursModal();
+    const dateInput = el("t_time_date_input");
+    const hmDate = el("hm_date");
+    const hmHours = el("hm_hours");
+    if(!t || !dateInput || !hmDate) return;
+    dateInput.value = hmDate.value || "";
+    if(hmHours) hmHours.value = getHoursDraftForDate(hmDate.value || "");
+    updateTimeLogUI(t, true);
+    syncHoursTaskStatusFromCalendarDraft(t, hmDate.value || "", hmHours?.value || "");
+    renderHoursTaskWeeklySummary(t, collectHoursTaskCalendarEntries(t));
+    });
+
+    el("hoursTaskModal")?.addEventListener("click", (e)=>{
+    if(!e.target?.closest?.("#hm_calendar")) return;
+    if(e.target?.closest?.(".hm-day-input")) return;
+    const btn = e.target?.closest?.("#hm_calendar .hm-day[data-date][data-active='1']");
+    if(!btn) return;
+    const t = getSelectedTaskForHoursModal();
+    const hmDate = el("hm_date");
+    const dateInput = el("t_time_date_input");
+    if(!t || !hmDate || !dateInput) return;
+    const day = btn.getAttribute("data-date") || "";
+    hmDate.value = day;
+    dateInput.value = day;
+    const hmHours = el("hm_hours");
+    updateTimeLogUI(t, true);
+    const dayInput = btn.querySelector(".hm-day-input[data-date]");
+    if(hmHours) hmHours.value = dayInput ? (dayInput.value || "") : "";
+    syncHoursTaskStatusFromCalendarDraft(t, day, dayInput ? dayInput.value : "");
+    renderHoursTaskWeeklySummary(t, collectHoursTaskCalendarEntries(t));
+    });
+    el("hoursTaskModal")?.addEventListener("input", (e)=>{
+    if(!e.target?.closest?.("#hm_calendar")) return;
+    const input = e.target?.closest?.("#hm_calendar .hm-day-input[data-date]");
+    if(!input) return;
+    const day = input.getAttribute("data-date") || "";
+    const hmDate = el("hm_date");
+    const hmHours = el("hm_hours");
+    const dateInput = el("t_time_date_input");
+    if(hmDate) hmDate.value = day;
+    if(dateInput) dateInput.value = day;
+    if(hmHours) hmHours.value = input.value || "";
+    refreshHoursDayCardVisual(input);
+    const t = getSelectedTaskForHoursModal();
+    if(t){
+      syncHoursTaskStatusFromCalendarDraft(t, day, input.value || "");
+      renderHoursTaskWeeklySummary(t, collectHoursTaskCalendarEntries(t));
     }
-    window.setTimeout(() => {
-      try {
-        window.URL.revokeObjectURL(objectUrl);
-      } catch (error) {
-        console.error(error);
-      }
-    }, 60000);
-  } catch (error) {
-    console.error(error);
-    hidePdfProgressModal();
-    try {
-      popup.document.body.innerHTML =
-        "<div style=\"font-family:Segoe UI,Arial,sans-serif;padding:24px;color:#8f4a32;\">GENERATION PDF IMPOSSIBLE</div>";
-    } catch (popupError) {
-      console.error(popupError);
+    });
+    el("hoursTaskModal")?.addEventListener("focusin", (e)=>{
+    if(!e.target?.closest?.("#hm_calendar")) return;
+    const input = e.target?.closest?.("#hm_calendar .hm-day-input[data-date][data-active='1']");
+    if(!input) return;
+    const t = getSelectedTaskForHoursModal();
+    const day = input.getAttribute("data-date") || "";
+    const hmDate = el("hm_date");
+    const dateInput = el("t_time_date_input");
+    if(!t || !day) return;
+    if(hmDate) hmDate.value = day;
+    if(dateInput) dateInput.value = day;
+    const hmHours = el("hm_hours");
+    if(hmHours) hmHours.value = input.value || "";
+    updateTimeLogUI(t, true);
+    syncHoursTaskStatusFromCalendarDraft(t, day, input.value || "");
+    renderHoursTaskWeeklySummary(t, collectHoursTaskCalendarEntries(t));
+    });
+    el("hoursTaskModal")?.addEventListener("keydown", (e)=>{
+    if(e.key !== "Enter" || e.isComposing) return;
+    const input = e.target?.closest?.("#hm_calendar .hm-day-input[data-date][data-active='1']");
+    if(!input) return;
+    e.preventDefault();
+    const day = input.getAttribute("data-date") || "";
+    const hmDate = el("hm_date");
+    const hmHours = el("hm_hours");
+    const dateInput = el("t_time_date_input");
+    if(hmDate) hmDate.value = day;
+    if(dateInput) dateInput.value = day;
+    if(hmHours) hmHours.value = input.value || "";
+    const t = getSelectedTaskForHoursModal();
+    if(t){
+      syncHoursTaskStatusFromCalendarDraft(t, day, input.value || "");
+      renderHoursTaskWeeklySummary(t, collectHoursTaskCalendarEntries(t));
     }
-    showDataStatus("GENERATION PDF IMPOSSIBLE");
+    saveHoursTaskModal();
+    });
   }
-}
+  // bouton impression PDF (utilise print.css)
 
-function bindDeletePersonButtons() {
-  document.querySelectorAll(".js-delete-person").forEach((button) => {
-    button.onclick = () => {
-      const personId = button.getAttribute("data-person-id") || getCurrentPersonId();
-      if (!personId) {
-        showDataStatus("AUCUNE PERSONNE SELECTIONNEE");
-        return;
-      }
-      deletePerson(personId);
+  el("btnBack")?.addEventListener("click", ()=>{
+
+    selectedProjectId=null; selectedTaskId=null;
+
+    renderAll();
+
+  });
+  el("btnToggleMasterVendor")?.addEventListener("click", ()=>{
+
+    ganttColVisibility.masterVendor = !ganttColVisibility.masterVendor;
+
+    applyGanttColumnVisibility();
+
+  });
+
+  el("btnToggleMasterStatus")?.addEventListener("click", ()=>{
+
+    ganttColVisibility.masterStatus = !ganttColVisibility.masterStatus;
+
+    applyGanttColumnVisibility();
+
+  });
+
+  el("btnToggleProjectVendor")?.addEventListener("click", ()=>{
+
+    ganttColVisibility.projectVendor = !ganttColVisibility.projectVendor;
+
+    applyGanttColumnVisibility();
+
+  });
+
+  el("btnToggleProjectStatus")?.addEventListener("click", ()=>{
+
+    ganttColVisibility.projectStatus = !ganttColVisibility.projectStatus;
+
+    applyGanttColumnVisibility();
+
+  });
+  el("btnAddProject")?.addEventListener("click", ()=>{
+
+    if(isLocked) return;
+
+    saveUndoSnapshot();
+
+    const id = uid();
+
+    const name = "Nouveau projet";
+
+    state.projects.push({id,name,site:"",constraints:"",subproject:""});
+
+    selectedProjectId = id;
+
+    selectedTaskId = null;
+
+    markDirty();
+
+    renderAll();
+
+  });
+
+  el("btnSaveProject")?.addEventListener("click", ()=>{
+
+    if(isLocked) return;
+
+    if(!selectedProjectId) return;
+
+    try{
+      toggleStatusMenu(false);
+      document.querySelectorAll(".vendor-dropdown,.desc-dropdown").forEach(n=>n.classList.remove("open"));
+      document.activeElement && document.activeElement.blur && document.activeElement.blur();
+    }catch(e){ softCatch(e); }
+
+    saveUndoSnapshot();
+
+    const p = state.projects.find(x=>x.id===selectedProjectId);
+
+    if(!p) return;
+
+    p.name        = el("p_name").value.trim();
+
+    p.subproject  = el("p_subproject").value.trim();
+
+    const siteSelect = el("p_site");
+    p.site        = siteSelect ? siteSelect.value.trim() : "";
+    const constraintsInput = el("p_constraints");
+    p.constraints = constraintsInput ? constraintsInput.value.trim() : (p.constraints||"");
+
+    renderTabs();
+
+    markDirty();
+
+    renderProject();
+
+  });
+
+  el("btnDeleteProject")?.addEventListener("click", ()=>{
+
+    if(isLocked) return;
+
+    if(!selectedProjectId) return;
+
+    if(!confirm("Supprimer ce projet et toutes ses tâches ? Cette action est définitive.")) return;
+
+    saveUndoSnapshot();
+
+    state.projects = state.projects.filter(p=>p.id!==selectedProjectId);
+
+    state.tasks    = state.tasks.filter(t=>t.projectId!==selectedProjectId);
+
+    selectedProjectId=null;
+
+    selectedTaskId=null;
+
+    markDirty();
+
+    renderAll();
+
+  });
+
+  el("btnAddTask")?.addEventListener("click", ()=>{
+
+    if(isLocked) return;
+
+    if(!selectedProjectId) return;
+
+    saveUndoSnapshot();
+
+    const id=uid();
+
+    state.tasks.push({id,projectId:selectedProjectId,roomNumber:"",status:"",owner:"",vendor:"",start:"",end:"",notes:""});
+
+    selectedTaskId=id;
+
+    markDirty();
+
+    renderProject();
+
+  });
+
+  el("btnNewTask")?.addEventListener("click", ()=>{
+
+    if(isLocked) return;
+
+    // Nouvelle tâche : vider tous les champs, pré-remplir uniquement la date de début (aujourd'hui)
+
+    selectedTaskId=null;
+
+    el("btnNewTask")?.classList.add("btn-armed");
+
+    const todayVal = toInputDate(new Date());
+    const tRoom = el("t_room"); if(tRoom) tRoom.value = "";
+    const tOwner = el("t_owner"); if(tOwner) tOwner.value = "";
+    const tVendor = el("t_vendor"); if(tVendor) tVendor.value = "";
+    const tStart = el("t_start"); if(tStart) tStart.value = todayVal;
+    const tEnd = el("t_end"); if(tEnd) tEnd.value = "";
+    if(window.__fpStart){ try{ window.__fpStart.setDate(todayVal || null, true, "Y-m-d"); }catch(e){ softCatch(e); } }
+    if(window.__fpEnd){ try{ window.__fpEnd.setDate(null, true, "Y-m-d"); }catch(e){ softCatch(e); } }
+
+    setStatusSelection("");
+
+  });
+
+  el("btnDuplicateTask")?.addEventListener("click", ()=>{
+
+    if(isLocked) return;
+
+    if(!selectedProjectId || !selectedTaskId) return;
+
+    const source = state.tasks.find(x=>x.id===selectedTaskId && x.projectId===selectedProjectId);
+
+    if(!source) return;
+
+    saveUndoSnapshot();
+
+    const id = uid();
+
+    const clone = {
+      ...source,
+      id,
+      projectId: selectedProjectId
     };
-  });
-}
 
-function applyFiltersToForm(form) {
-  if (!form) {
-    return;
-  }
-  const filters = state.filters || DEFAULT_FILTERS;
-  const assign = (name, value) => {
-    const field = form.elements[name];
-    if (!field) {
+    state.tasks.push(clone);
+
+    selectedTaskId = id;
+
+    markDirty();
+
+    renderProject();
+
+    el("btnNewTask")?.classList.remove("btn-armed");
+
+  });
+
+  el("btnDeleteTask")?.addEventListener("click", ()=>{
+
+    if(isLocked) return;
+
+    if(!selectedProjectId || !selectedTaskId) return;
+
+    if(!confirm("Supprimer cette tâche ?")) return;
+
+    saveUndoSnapshot();
+    const taskIdSupprimee = selectedTaskId;
+
+    state.tasks = state.tasks.filter(t=> !(t.id===selectedTaskId && t.projectId===selectedProjectId));
+    state.timeLogs = (state.timeLogs || []).filter(log => log.taskId !== taskIdSupprimee);
+
+    selectedTaskId = null;
+
+    markDirty();
+
+    renderProject();
+
+    el("btnNewTask")?.classList.remove("btn-armed");
+
+  });
+
+  el("btnSaveTask")?.addEventListener("click", ()=>{
+
+    if(isLocked) return;
+
+    if(!selectedProjectId) return;
+
+    try{
+      toggleStatusMenu(false);
+      document.querySelectorAll(".vendor-dropdown,.desc-dropdown").forEach(n=>n.classList.remove("open"));
+      document.activeElement && document.activeElement.blur && document.activeElement.blur();
+    }catch(e){ softCatch(e); }
+
+    saveUndoSnapshot();
+    const end = unformatDate(el("t_end").value);
+    if (!end || !/^\d{4}-\d{2}-\d{2}$/.test(end)) {
+      alert("La date de fin est obligatoire.");
       return;
     }
-    field.value = value || "";
+    const start = unformatDate(el("t_start").value);
+    if (new Date(end) < new Date(start)) {
+      alert("La date de fin ne peut pas être antérieure à la date de début.");
+      return;
+    }
+
+    let t = state.tasks.find(x=>x.id===selectedTaskId && x.projectId===selectedProjectId);
+
+    if(!t){
+
+      const id=uid();
+
+      t={id,projectId:selectedProjectId}; state.tasks.push(t); selectedTaskId=id;
+
+    }
+
+    t.roomNumber = el("t_room").value.trim();
+
+    t.owner      = String(el("t_owner").value || "").toUpperCase();
+
+    t.vendor     = el("t_vendor").value.trim();
+    const taskOwnerType = ownerType(t.owner);
+    if(taskOwnerType === "externe" && !t.vendor){
+      alert("Prestataire externe requis : renseignez le nom du prestataire.");
+      return;
+    }
+    if(taskOwnerType !== "externe"){
+      t.vendor = "";
+    }
+
+    t.start      = unformatDate(el("t_start").value);
+    t.end        = end;
+
+    if(t.end && t.start && t.end < t.start){
+
+      t.end = t.start;
+
+      el("t_end").value = formatDate(t.start);
+
+      console.warn("Date de fin ajustée  la date de début pour éviter une fin antérieure.");
+
+    }
+
+    updateTaskDatesWarning();
+
+    // Bloquer les dates qui tombent le week-end
+    const sDate = t.start ? new Date(t.start+"T00:00:00") : null;
+    const eDate = t.end ? new Date(t.end+"T00:00:00") : null;
+    if(sDate && !isNaN(sDate) && !isWeekday(sDate)){
+      alert("La date de début tombe un week-end. Choisis un jour ouvré.");
+      return;
+    }
+    if(eDate && !isNaN(eDate) && !isWeekday(eDate)){
+      alert("La date de fin tombe un week-end. Choisis un jour ouvré.");
+      return;
+    }
+
+    // Alerte doublon : même description + mêmes dates dans le même projet
+    if(t.roomNumber && t.start && t.end){
+      const dup = state.tasks.find(x=>
+        x.id!==t.id &&
+        x.projectId===t.projectId &&
+        (x.roomNumber||"").trim().toLowerCase()===t.roomNumber.trim().toLowerCase() &&
+        x.start===t.start &&
+        x.end===t.end
+      );
+      if(dup){
+        const ok = confirm("Attention : une tâche identique (même description + mêmes dates) existe déjà dans ce projet. Continuer quand même ?");
+        if(!ok) return;
+      }
+    }
+
+    t.status     = Array.from(selectedStatusSet).join(",");
+    purgeTaskLogsByAssignedRole(t);
+
+    markDirty();
+
+    renderProject();
+
+    refreshVendorsList();
+
+    refreshDescriptionsList();
+
+  });
+
+  const debounce = (fn, wait=200)=>{
+    let t;
+    return (...args)=>{
+      clearTimeout(t);
+      t = setTimeout(()=> fn(...args), wait);
+    };
   };
-  assign("search", filters.search);
-  assign("site", filters.site);
-  assign("typePersonnel", filters.typePersonnel);
-  assign("typeContrat", filters.typeContrat);
-  assign("statutDossier", filters.statutDossier);
-  assign("statutObjet", filters.statutObjet);
-  assign("typeEffet", filters.typeEffet);
+  ["filterSite","filterProject","filterStatus","filterStartAfter","filterEndBefore"].forEach(id=>{
+    const n=el(id);
+    if(n) n.addEventListener("input", ()=>{ 
+      if(id==="filterSite") updateSitePhoto(n.value || "");
+      renderMaster(); 
+      saveUIState(); 
+      markDirty(); 
+    });
+  });
+
+  el("btnSaveTimeLog")?.addEventListener("click", ()=>{
+    if(isLocked) return;
+    if(!selectedProjectId || !selectedTaskId){
+      alert("Sélectionne une tâche.");
+      return;
+    }
+    const input = el("t_time_hours");
+    const dateInput = el("t_time_date_input");
+    if(!input){
+      return;
+    }
+    const raw = (input.value || "").toString().replace(",",".").trim();
+    if(!raw){
+      alert("Saisis le temps passé (heures).");
+      return;
+    }
+    const hours = parseFloat(raw);
+    if(!isFinite(hours) || hours < 0){
+      alert("Temps invalide.");
+      return;
+    }
+    const minutes = Math.round(hours * 60);
+    const t = state.tasks.find(x=>x.id===selectedTaskId && x.projectId===selectedProjectId);
+    if(!t){
+      return;
+    }
+    const selectedDate = (dateInput?.value || getSelectedLogDate()).trim();
+    if(!selectedDate || !isTaskActiveOn(t, selectedDate)){
+      alert("La date est hors période de la tâche.");
+      return;
+    }
+    const dateObj = new Date(selectedDate+"T00:00:00");
+    if(!isWeekday(dateObj)){
+      alert("La date tombe un week-end.");
+      return;
+    }
+    saveUndoSnapshot();
+    const roleKey = getTaskRoleKey(t);
+    upsertTimeLog(t.id, t.projectId, minutes, "", selectedDate, roleKey);
+    markDirty();
+    updateTimeLogUI(t, true);
+    renderMaster();
+    renderProject();
+    saveState();
+  });
+  const search = el("filterSearch");
+  if(search){
+    const onSearch = debounce(()=>{ renderMaster(); saveUIState(); markDirty(); }, 250);
+    search.addEventListener("input", onSearch);
+  }
+  el("toggleMissingOnly")?.addEventListener("change", ()=>{
+    renderMaster();
+    saveUIState();
+    markDirty();
+  });
+  el("btnProcessMissingHours")?.addEventListener("click", ()=>{
+    startMissingHoursFlow();
+  });
+
+  document.addEventListener("keydown",(e)=>{
+    if(e.defaultPrevented) return;
+    if(!(e.ctrlKey || e.metaKey) || e.shiftKey) return;
+    if(String(e.key).toLowerCase()!=="z") return;
+    const target = e.target;
+    const tag = (target?.tagName || "").toLowerCase();
+    if(tag==="input" || tag==="textarea" || target?.isContentEditable) return;
+    if(restoreUndoSnapshot()) e.preventDefault();
+  });
+
+  setupVendorPicker();
+
+  setupDescriptionPicker();
+
+  // Affichage date du jour + copyright
+
+  const brandSub = el("brandSub");
+
+  if(brandSub){
+
+    const today = new Date();
+
+    const fmt = today.toLocaleDateString("fr-FR",{weekday:"long", day:"2-digit", month:"long", year:"numeric"});
+
+    brandSub.innerHTML = `Tableau maître  Projets  Gantt  <span class="brand-date">${fmt}</span>`;
+
+  }
+
+  const brandTitle = el("brandTitle");
+
+  if(brandTitle){
+
+    brandTitle.innerHTML = `Suivi de Chantiers <span class="copyright"> Sébastien DUC</span>`;
+
+  }
+
+  // flatpickr sur les dates, week-ends interdits
+
+  const fpOpts = {
+
+    dateFormat:"Y-m-d",
+
+    altInput:true,
+
+    altFormat:"d/m/Y",
+
+    allowInput:true,
+
+    locale:"fr",
+
+    disable:[ function(date){ const d=date.getDay(); return d===0 || d===6; } ]
+
+  };
+
+  let fpStart=null, fpEnd=null;
+
+  if(window.flatpickr){
+
+    const startNode = el("t_start");
+
+    const endNode   = el("t_end");
+
+    const todayIso = new Date().toISOString().slice(0,10);
+
+    const startIso = startNode?.value ? toInputDate(startNode.value) : "";
+
+    const endIso   = endNode?.value ? toInputDate(endNode.value) : "";
+
+    let currentStartIso = startIso;
+    let currentEndIso = endIso;
+
+    if(startNode){
+
+      fpStart = window.flatpickr(startNode, {...fpOpts,
+
+        defaultDate: startIso || todayIso,
+
+        onOpen: (_s,_d,inst)=>{ inst.jumpToDate(currentStartIso || todayIso); },
+
+        onChange:(selectedDates, dateStr)=>{
+          currentStartIso = dateStr || "";
+          if(fpEnd){
+            fpEnd.set("minDate", dateStr || null);
+            if(dateStr) fpEnd.jumpToDate(dateStr);
+          }
+          if(endNode && dateStr){
+            const startVal = startNode.value;
+            const endVal = endNode.value;
+            if(startVal && (!endVal || unformatDate(endVal) < unformatDate(startVal))){
+              if(fpEnd) fpEnd.setDate(startVal, true);
+              else endNode.value = startVal;
+            }
+          }
+          updateTaskDatesWarning();
+        }
+      });
+      window.__fpStart = fpStart;
+
+    }
+
+    if(endNode){
+
+      fpEnd = window.flatpickr(endNode, {...fpOpts,
+        defaultDate: endIso || startIso || todayIso,
+        minDate: startIso || null,
+        onOpen: (_s,_d,inst)=>{ const target = currentStartIso || currentEndIso || todayIso; inst.jumpToDate(target); },
+        onChange:(_sel, dateStr)=>{
+          currentEndIso = dateStr || "";
+          updateTaskDatesWarning();
+        }
+      });
+      window.__fpEnd = fpEnd;
+    }
+    updateTaskDatesWarning();
+    ["filterStartAfter","filterEndBefore"].forEach(id=>{
+      const node=el(id);
+
+      if(node) window.flatpickr(node, fpOpts);
+
+    });
+
+  }
+
+  // repositionnement des dropdowns flottants
+
+  window.addEventListener("resize", ()=>{
+
+    floatingMap.forEach((anchor, el)=> positionFloating(el, anchor));
+
+  });
+
+  window.addEventListener("scroll", ()=>{
+
+    floatingMap.forEach((anchor, el)=> positionFloating(el, anchor));
+
+  }, true);
+
+
+
+  // Repositionnement du menu multiselect en fixed (pour qu'il reste au-dessus)
+
+  const statusMenu = el("t_status_menu");
+
+  const statusDisplay = el("t_status_display");
+
+  if(statusMenu && statusDisplay){
+
+    let portal = null;
+
+    const ensurePortal = ()=>{
+
+      if(portal) return portal;
+
+      portal = document.createElement("div");
+
+      portal.style.position="fixed";
+
+      portal.style.zIndex="1000000";
+
+      portal.style.left="0";
+
+      portal.style.top="0";
+
+      document.body.appendChild(portal);
+
+      return portal;
+
+    };
+
+    const placeMenu = ()=>{
+
+      const rect = statusDisplay.getBoundingClientRect();
+
+      const p = ensurePortal();
+
+      p.style.width = `${rect.width}px`;
+
+      p.style.left = `${rect.left}px`;
+
+      p.style.top = `${rect.bottom + 4}px`;
+
+      statusMenu.style.width = `${rect.width}px`;
+
+    };
+
+    const openMenu = ()=>{
+
+      placeMenu();
+
+      const p = ensurePortal();
+
+      p.appendChild(statusMenu);
+
+      statusMenu.classList.remove("hidden");
+
+      statusDisplay.classList.add("focus");
+
+    };
+
+    const closeMenu = ()=>{
+
+      statusMenu.classList.add("hidden");
+
+      statusDisplay.appendChild(statusMenu);
+
+      statusDisplay.classList.remove("focus");
+
+    };
+
+    statusDisplay.addEventListener("click",(e)=>{ e.stopPropagation(); openMenu(); });
+
+    document.addEventListener("click",(e)=>{
+
+      if(!statusDisplay.contains(e.target) && !statusMenu.contains(e.target)){
+
+        closeMenu();
+
+      }
+
+    });
+
+    window.addEventListener("resize", placeMenu);
+
+    window.addEventListener("scroll", placeMenu, true);
+
+  }
+
+  el("masterTable")?.addEventListener("click",(e)=>{
+    const row=e.target.closest("tr[data-project]");
+    if(!row) return;
+    navigateTo(row.dataset.project, row.dataset.task, true);
+  });
+  el("masterTable")?.querySelectorAll("thead th[data-sort]")?.forEach(th=>{
+
+    th.addEventListener("click", ()=>{
+
+      const key = th.dataset.sort;
+
+      if(sortMaster.key===key) sortMaster.dir = sortMaster.dir==="asc"?"desc":"asc";
+
+      else { sortMaster.key=key; sortMaster.dir="asc"; }
+
+      renderMaster();
+
+      updateSortIndicators("masterTable", sortMaster);
+
+      markDirty();
+
+    });
+
+  });
+
+  el("btnResetSortMaster")?.addEventListener("click", ()=>{
+
+    sortMaster = {key:"start", dir:"asc"};
+
+    const ids = ["filterSite","filterProject","filterStatus","filterSearch","filterStartAfter","filterEndBefore"];
+    ids.forEach(id=>{
+      const n = el(id);
+      if(n) n.value = "";
+    });
+    const toggleMissingOnly = el("toggleMissingOnly");
+    if(toggleMissingOnly) toggleMissingOnly.checked = false;
+
+    renderMaster();
+
+    updateSortIndicators("masterTable", sortMaster);
+
+    const fb = el("filtersBadge");
+
+    if(fb) updateBadge(fb, false, "Tri/filtre actif", "Tri par défaut");
+
+    saveUIState();
+    markDirty();
+
+  });
+
+  el("projectTasksTable")?.addEventListener("click",(e)=>{
+
+    const row=e.target.closest("tr[data-task]");
+
+    if(!row) return;
+
+    selectedTaskId=row.dataset.task;
+
+    renderProject();
+
+  });
+
+  el("projectTasksTable")?.querySelectorAll("thead th[data-sort]")?.forEach(th=>{
+
+    th.addEventListener("click", ()=>{
+
+      const key = th.dataset.sort;
+
+      if(sortProject.key===key) sortProject.dir = sortProject.dir==="asc"?"desc":"asc";
+
+      else { sortProject.key=key; sortProject.dir="asc"; }
+
+      renderProjectTasks(selectedProjectId);
+
+      updateSortIndicators("projectTasksTable", sortProject);
+
+      markDirty();
+
+    });
+
+  });
+
+  el("btnResetSortProject")?.addEventListener("click", ()=>{
+
+    sortProject = {key:"start", dir:"asc"};
+
+    renderProjectTasks(selectedProjectId);
+
+    updateSortIndicators("projectTasksTable", sortProject);
+
+    markDirty();
+
+  });
+
+
+
+  // Alerte fermeture si modifications non sauvegardes
+
+  window.addEventListener("beforeunload",(e)=>{
+
+    if(unsavedChanges){
+
+      e.preventDefault();
+
+      e.returnValue="";
+
+    }
+
+  });
+
+
+
+  // état visuel du bouton Sauvegarder au démarrage
+
+  updateSaveButton();
+
+  document.querySelectorAll("[data-accordion] .cfg-accordion-head").forEach(head=>{
+    head.addEventListener("click", ()=>{
+      const wrap = head.closest("[data-accordion]");
+      if(!wrap) return;
+      wrap.classList.toggle("is-open");
+    });
+  });
+
+  // Ctrl+S / Cmd+S pour sauvegarder
+  document.addEventListener("keydown",(e)=>{
+    if(!(e.ctrlKey || e.metaKey) || e.shiftKey) return;
+    if(String(e.key).toLowerCase()!=="s") return;
+    e.preventDefault();
+    el("btnSave")?.click();
+  });
+
 }
 
-function hasActiveFilterValues(form) {
-  if (!(form instanceof HTMLFormElement)) {
-    return false;
+
+
+load();
+
+bind();
+
+// Auto‑sauvegarde toutes les 5 minutes
+setInterval(()=>{
+  if(!unsavedChanges) return;
+  try{ saveState(); }catch(e){ softCatch(e); }
+}, 5 * 60 * 1000);
+
+try{
+  history.replaceState({projectId:selectedProjectId, taskId:selectedTaskId}, "");
+}catch(e){ softCatch(e); }
+window.addEventListener("popstate",(e)=>{
+  const st = e.state || {};
+  selectedProjectId = st.projectId || null;
+  selectedTaskId = st.taskId || null;
+  closeAllOverlays();
+  setTimeout(()=> closeAllOverlays(), 0);
+  const view = document.querySelector(".main");
+  if(view){
+    view.classList.remove("view-fade");
+    void view.offsetWidth;
+    view.classList.add("view-fade");
   }
-  const controls = Array.from(form.elements || []);
-  for (const control of controls) {
-    if (!(control instanceof HTMLElement)) {
-      continue;
+  renderAll();
+  setTimeout(()=> scrollViewToTop(), 0);
+});
+renderAll();
+
+
+// Préparation impression : cartouche + lgende
+
+function setPrintPageFormat(size, margin="6mm"){
+  let n = document.getElementById("printPageFormatOverride");
+  if(!n){
+    n = document.createElement("style");
+    n.id = "printPageFormatOverride";
+    document.head.appendChild(n);
+  }
+  n.textContent = `@page { size: ${size}; margin: ${margin}; }`;
+}
+
+function ensurePrintTemplate(){
+  let tpl = document.getElementById("printTemplate");
+  if(tpl) return tpl;
+  tpl = document.createElement("template");
+  tpl.id = "printTemplate";
+  tpl.innerHTML = `
+    <section id="printHeader" class="print-header">
+      <h1>Export PDF</h1>
+      <div id="printMeta" class="print-meta"></div>
+      <div id="printLegend" class="print-legend"></div>
+    </section>
+    <section class="print-order"></section>
+  `;
+  document.body.appendChild(tpl);
+  return tpl;
+}
+let __pdfLibsPromise = null;
+function ensurePdfLibraries(){
+  if(window?.html2canvas && window?.jspdf?.jsPDF) return Promise.resolve();
+  if(__pdfLibsPromise) return __pdfLibsPromise;
+  const loadScript = (src)=> new Promise((resolve,reject)=>{
+    const s = document.createElement("script");
+    let done = false;
+    const t = setTimeout(()=>{
+      if(done) return;
+      done = true;
+      try{ s.remove(); }catch(_e){}
+      reject(new Error(`Timeout chargement script: ${src}`));
+    }, 12000);
+    s.src = src;
+    s.async = true;
+    s.onload = ()=>{
+      if(done) return;
+      done = true;
+      clearTimeout(t);
+      resolve();
+    };
+    s.onerror = ()=>{
+      if(done) return;
+      done = true;
+      clearTimeout(t);
+      reject(new Error(`Chargement impossible: ${src}`));
+    };
+    document.head.appendChild(s);
+  });
+  __pdfLibsPromise = (async()=>{
+    if(!window?.html2canvas){
+      await loadScript("https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js");
     }
-    if (
-      control instanceof HTMLButtonElement ||
-      control instanceof HTMLFieldSetElement ||
-      (control instanceof HTMLInputElement && ["submit", "reset", "button", "hidden"].includes(control.type))
-    ) {
-      continue;
+    if(!window?.jspdf?.jsPDF){
+      await loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js");
     }
-    if (control instanceof HTMLInputElement) {
-      if (["checkbox", "radio"].includes(control.type)) {
-        if (control.checked) {
-          return true;
+  })();
+  return __pdfLibsPromise;
+}
+
+function readPdfPageSetup(){
+  const text = document.getElementById("printPageFormatOverride")?.textContent || "";
+  const sizeMatch = text.match(/size\s*:\s*([^;]+);/i);
+  const marginMatch = text.match(/margin\s*:\s*([0-9]+(?:\.[0-9]+)?)\s*mm\s*;/i);
+  const size = String(sizeMatch?.[1] || "A4 landscape").toLowerCase();
+  const marginMm = Number(marginMatch?.[1] || 2);
+  return {
+    format: size.includes("a3") ? "a3" : "a4",
+    orientation: size.includes("portrait") ? "portrait" : "landscape",
+    marginMm: Number.isFinite(marginMm) ? Math.max(1, marginMm) : 2
+  };
+}
+
+async function openPreparedPrintInNewWindow(title="Export PDF", viewerRef=null){
+  const container = document.getElementById("printInjection");
+  if(!container || !container.innerHTML.trim()){
+    alert("Aucun contenu d'export à imprimer.");
+    return;
+  }
+
+  const viewer = viewerRef || window.open("about:blank", "_blank");
+  if(!viewer){
+    alert("Le popup PDF est bloqué. Autorisez les popups puis recommencez.");
+    return;
+  }
+
+  viewer.document.open();
+  viewer.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${attrEscape(title)}</title><style>
+    :root{color-scheme:light;}
+    *{box-sizing:border-box}
+    body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:18px;background:#eef3f7;font-family:"Segoe UI",Arial,sans-serif;color:#0f172a}
+    .pdf-progress-card{display:inline-flex;flex-direction:column;max-width:92vw;background:linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(233,231,225,0.96) 100%);border:1px solid rgba(0,0,0,0.12);border-radius:10px;box-shadow:0 10px 22px rgba(0,0,0,0.18);overflow:hidden}
+    .pdf-progress-body{display:flex;align-items:center;gap:20px;padding:24px 32px}
+    .pdf-progress-ok{width:48px;height:48px;border-radius:8px;border:1px solid rgba(0,0,0,0.12);background:#d1fae5;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:16px;color:#0f172a;flex:none}
+    .pdf-progress-main{flex:1;min-width:0}
+    .pdf-progress-title{font-size:18px;line-height:1.1;letter-spacing:.1px;font-weight:800;color:#0f172a;margin:0 0 4px}
+    .pdf-progress-sub{font-size:16px;line-height:1.2;margin:0;color:#475569}
+    .pdf-progress-step{font-size:13px;line-height:1.2;margin-top:6px;color:#64748b}
+    .pdf-progress-bar-wrap{height:4px;background:rgba(148,163,184,0.25)}
+    .pdf-progress-bar{height:100%;width:0%;background:linear-gradient(90deg,#34d399 0%, #22c55e 100%);transition:width .2s ease}
+    @media (max-width:900px){
+      .pdf-progress-body{padding:16px 16px;gap:12px}
+      .pdf-progress-title{font-size:16px}
+      .pdf-progress-sub{font-size:14px}
+      .pdf-progress-step{font-size:12px}
+    }
+  </style></head><body>
+    <div class="pdf-progress-card" role="status" aria-live="polite">
+      <div class="pdf-progress-body">
+        <div class="pdf-progress-ok">OK</div>
+        <div class="pdf-progress-main">
+          <h1 class="pdf-progress-title">GENERATION PDF</h1>
+          <p class="pdf-progress-sub" id="pdfProgressSub">PREPARATION EN COURS</p>
+          <div class="pdf-progress-step" id="pdfProgressStep">INITIALISATION...</div>
+        </div>
+      </div>
+      <div class="pdf-progress-bar-wrap"><div class="pdf-progress-bar" id="pdfProgressBar"></div></div>
+    </div>
+  </body></html>`);
+  viewer.document.close();
+  const updateViewerProgress = (percent, stepText="", subText="")=>{
+    try{
+      const p = Math.max(0, Math.min(100, Number(percent) || 0));
+      const bar = viewer.document.getElementById("pdfProgressBar");
+      const step = viewer.document.getElementById("pdfProgressStep");
+      const sub = viewer.document.getElementById("pdfProgressSub");
+      if(bar) bar.style.width = `${p}%`;
+      if(stepText && step) step.textContent = String(stepText).toUpperCase();
+      if(subText && sub) sub.textContent = String(subText).toUpperCase();
+    }catch(e){ softCatch(e); }
+  };
+  updateViewerProgress(4, "Initialisation...", "Préparation en cours");
+
+  const host = document.createElement("div");
+  host.style.position = "fixed";
+  host.style.left = "-20000px";
+  host.style.top = "0";
+  host.style.width = "1800px";
+  host.style.background = "#fff";
+  host.style.zIndex = "-1";
+
+  const page = document.createElement("div");
+  page.className = "print-mode";
+  page.style.background = "#fff";
+  page.innerHTML = container.innerHTML;
+  host.appendChild(page);
+  document.body.appendChild(host);
+
+  try{
+    updateViewerProgress(10, "Chargement des bibliothèques PDF...", "Préparation en cours");
+    await ensurePdfLibraries();
+    updateViewerProgress(18, "Préparation du rendu...", "Préparation en cours");
+    await new Promise(r=>setTimeout(r, 80));
+
+    const setup = readPdfPageSetup();
+    const force = document.createElement("style");
+    force.textContent = `
+      *{animation:none !important;transition:none !important;}
+      .gantt-bar,.gantt-print-bar,.bar-wrapper,.gantt-days{opacity:1 !important;visibility:visible !important;transform:none !important;}
+      body.print-mode .gantt-print-bar{
+        display:block !important;
+        height:10px !important;
+        min-height:10px !important;
+        border-radius:3px !important;
+        border:1px solid rgba(0,0,0,0.35) !important;
+        box-sizing:border-box !important;
+        background-clip:padding-box !important;
+      }
+      body.print-mode .gantt-cell-inner{
+        min-height:14px !important;
+      }
+      body.print-mode .bar-wrapper{
+        min-height:12px !important;
+        width:100% !important;
+      }
+      body.print-mode .gantt-table th.week-cell{
+        text-align:center !important;
+        vertical-align:middle !important;
+        padding:2px 1px !important;
+        line-height:1.05 !important;
+      }
+      body.print-mode .gantt-table th.week-cell .gantt-week-date{
+        display:block !important;
+        margin-top:2px !important;
+        line-height:1 !important;
+        font-size:9px !important;
+      }
+      body.print-mode .pdf-two-graphs-wrap{
+        display:grid !important;
+        grid-template-columns:1fr 1fr !important;
+        gap:3mm !important;
+        align-items:stretch !important;
+        min-height:170mm !important;
+        place-items:center stretch !important;
+      }
+      body.print-mode .pdf-two-graphs-item{
+        min-width:0 !important;
+        height:100% !important;
+        display:flex !important;
+        align-items:center !important;
+      }
+      body.print-mode .pdf-two-graphs-item .card{
+        margin-bottom:0 !important;
+        width:100% !important;
+        min-height:158mm !important;
+        height:158mm !important;
+        border:1px solid #cbd5e1 !important;
+        border-radius:8px !important;
+        padding:2.5mm !important;
+        box-shadow:0 2mm 5mm rgba(15,23,42,.14) !important;
+        display:flex !important;
+        flex-direction:column !important;
+        justify-content:flex-start !important;
+      }
+      body.print-mode .pdf-two-graphs-item #workloadChartProjectWrap,
+      body.print-mode .pdf-two-graphs-item #workloadPieProjectWrap{
+        flex:1 1 auto !important;
+        min-height:0 !important;
+        overflow:visible !important;
+        padding-bottom:3mm !important;
+      }
+      body.print-mode .pdf-two-graphs-item #workloadChartProject,
+      body.print-mode .pdf-two-graphs-item #workloadPieProject{
+        height:130mm !important;
+        width:100% !important;
+      }
+      body.print-mode .pdf-workload-legend{
+        margin-top:1.5mm !important;
+        display:flex !important;
+        justify-content:center !important;
+        align-items:center !important;
+        flex-wrap:wrap !important;
+        gap:4mm !important;
+      }
+      body.print-mode .pdf-workload-legend-item{
+        display:inline-flex !important;
+        align-items:center !important;
+        gap:1.5mm !important;
+        font-size:10px !important;
+        color:#0f172a !important;
+        font-weight:700 !important;
+      }
+      body.print-mode .pdf-workload-legend-dot{
+        width:8px !important;
+        height:8px !important;
+        border-radius:999px !important;
+        display:inline-block !important;
+      }
+      body.print-mode .pdf-two-graphs-item svg{
+        width:100% !important;
+        max-height:146mm !important;
+        overflow:visible !important;
+      }
+      body.print-mode .pdf-two-graphs-item .apexcharts-canvas,
+      body.print-mode .pdf-two-graphs-item .apexcharts-svg,
+      body.print-mode .pdf-two-graphs-item .apexcharts-inner{
+        overflow:visible !important;
+      }
+      body.print-mode .card,
+      body.print-mode .tablewrap,
+      body.print-mode .gantt-table,
+      body.print-mode .panel,
+      body.print-mode .print-header,
+      body.print-mode .print-block{
+        border:none !important;
+        box-shadow:none !important;
+        outline:none !important;
+        background:#fff !important;
+      }
+      body.print-mode .pdf-two-graphs-item .card{
+        border:1px solid #cbd5e1 !important;
+        box-shadow:0 2mm 5mm rgba(15,23,42,.14) !important;
+        overflow:visible !important;
+      }
+      body.print-mode .card-title{
+        margin-bottom:4px !important;
+      }
+      body.print-mode .num-badge{
+        display:inline-flex !important;
+        align-items:center !important;
+        justify-content:center !important;
+        width:26px !important;
+        min-width:26px !important;
+        max-width:26px !important;
+        height:22px !important;
+        padding:0 !important;
+        margin-right:4px !important;
+        border-radius:999px !important;
+        line-height:1 !important;
+        font-size:12px !important;
+        font-weight:800 !important;
+        font-variant-numeric: tabular-nums !important;
+        font-feature-settings: "tnum" 1 !important;
+        letter-spacing:0 !important;
+        text-indent:0 !important;
+        vertical-align:middle !important;
+        opacity:1 !important;
+        filter:none !important;
+        border:none !important;
+        box-shadow:0 2mm 5mm rgba(15,23,42,.14) !important;
+        text-shadow:none !important;
+        background-image:none !important;
+        -webkit-text-stroke:0 !important;
+      }
+      body.print-mode .badge.owner{
+        opacity:1 !important;
+        filter:none !important;
+      }
+      body.print-mode #printHeader{
+        width:100% !important;
+        box-sizing:border-box !important;
+      }
+      body.print-mode #printMeta{
+        display:grid !important;
+        grid-template-columns:repeat(4,minmax(0,1fr)) !important;
+        gap:2mm !important;
+        width:100% !important;
+        box-sizing:border-box !important;
+      }
+      body.print-mode #printMeta > div{
+        min-width:0 !important;
+        line-height:1.35 !important;
+      }
+      @media (max-width:1200px){
+        body.print-mode #printMeta{
+          grid-template-columns:repeat(2,minmax(0,1fr)) !important;
         }
+      }
+    `;
+    host.appendChild(force);
+
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({ orientation: setup.orientation, unit: "mm", format: setup.format, compress: true });
+
+    const pageW = pdf.internal.pageSize.getWidth();
+    const pageH = pdf.internal.pageSize.getHeight();
+    const margin = setup.marginMm || 2;
+    const drawW = pageW - (margin * 2);
+    const drawH = pageH - (margin * 2);
+
+    const blocks = Array.from(page.querySelectorAll('.print-block'));
+    const targets = blocks.length ? blocks : [page];
+    const totalTargets = Math.max(1, targets.length);
+    updateViewerProgress(24, `${totalTargets} module(s) à rendre...`, "Rendu des pages");
+
+    let yCursor = margin;
+    let hasContentOnPage = false;
+
+    for(let i=0; i<targets.length; i++){
+      const block = targets[i];
+      const loopStartPct = 24 + Math.round((i / totalTargets) * 60);
+      updateViewerProgress(loopStartPct, `Rendu du module ${i+1}/${totalTargets}...`, "Rendu des pages");
+      if(i>0 && block.classList && block.classList.contains("force-new-page")){
+        pdf.addPage();
+        yCursor = margin;
+        hasContentOnPage = false;
+      }
+      const canvas = await window.html2canvas(block, {
+        scale: 2,
+        backgroundColor: "#ffffff",
+        useCORS: true,
+        allowTaint: true,
+        logging: false,
+        windowWidth: Math.max(block.scrollWidth || block.clientWidth || 1800, 1800),
+        windowHeight: Math.max(block.scrollHeight || block.clientHeight || 300, 300)
+      });
+
+      const imgData = canvas.toDataURL("image/jpeg", 0.95);
+      const imgH = canvas.height * drawW / canvas.width;
+
+      if(yCursor + imgH <= (margin + drawH)){
+        pdf.addImage(imgData, "JPEG", margin, yCursor, drawW, imgH, undefined, "FAST");
+        yCursor += imgH + 2;
+        hasContentOnPage = true;
         continue;
       }
-      if (String(control.value || "").trim()) {
-        return true;
-      }
-      continue;
-    }
-    if (control instanceof HTMLSelectElement || control instanceof HTMLTextAreaElement) {
-      if (String(control.value || "").trim()) {
-        return true;
-      }
-    }
-  }
-  return false;
-}
 
-function updateFilterResetButtonState(form) {
-  if (!(form instanceof HTMLFormElement)) {
-    return;
-  }
-  const resetButton = form.querySelector('.form-actions--filters .button[type="reset"]');
-  if (!(resetButton instanceof HTMLElement)) {
-    return;
-  }
-  resetButton.classList.toggle("is-active", hasActiveFilterValues(form));
-}
-
-function bindFilterForms() {
-  document.querySelectorAll(".js-filter-form").forEach((form) => {
-    applyFiltersToForm(form);
-    updateFilterResetButtonState(form);
-
-    const applyFullReset = () => {
-      state.filters = { ...DEFAULT_FILTERS };
-      state.urgentMode = false;
-      saveNavigationContext({ filters: state.filters, personId: "", urgentMode: false });
-      setCurrentPersonId("", "replace");
-      applyFiltersToForm(form);
-      updateFilterResetButtonState(form);
-      updateUrgencyModeUi();
-      renderPage();
-    };
-
-    form.oninput = (event) => {
-      const target = event?.target instanceof HTMLElement ? event.target : null;
-      const searchField = form.elements.search;
-      const searchClearedByField =
-        target &&
-        searchField &&
-        target === searchField &&
-        !String(searchField.value || "").trim();
-      if (searchClearedByField) {
-        applyFullReset();
-        return;
-      }
-      state.filters = {
-        ...DEFAULT_FILTERS,
-        ...readFilters(form),
-      };
-      updateFilterResetButtonState(form);
-      saveNavigationContext({ filters: state.filters, urgentMode: state.urgentMode });
-      renderPage();
-    };
-
-    form.onreset = () => {
-      window.setTimeout(() => {
-        applyFullReset();
-        updateFilterResetButtonState(form);
-      }, 0);
-    };
-
-    const searchField = form.elements.search;
-    if (searchField) {
-      searchField.addEventListener("search", () => {
-        if (!String(searchField.value || "").trim()) {
-          applyFullReset();
+      if(imgH <= drawH){
+        if(hasContentOnPage){
+          pdf.addPage();
+          yCursor = margin;
+          hasContentOnPage = false;
         }
+        pdf.addImage(imgData, "JPEG", margin, yCursor, drawW, imgH, undefined, "FAST");
+        yCursor += imgH + 2;
+        hasContentOnPage = true;
+        continue;
+      }
+
+      const slicePx = Math.floor((drawH * canvas.width) / drawW);
+      let offsetPx = 0;
+      while(offsetPx < canvas.height){
+        if(hasContentOnPage){
+          pdf.addPage();
+          yCursor = margin;
+          hasContentOnPage = false;
+        }
+
+        const hPx = Math.min(slicePx, canvas.height - offsetPx);
+        const slice = document.createElement('canvas');
+        slice.width = canvas.width;
+        slice.height = hPx;
+        const sctx = slice.getContext('2d');
+        sctx.drawImage(canvas, 0, offsetPx, canvas.width, hPx, 0, 0, canvas.width, hPx);
+
+        const sliceData = slice.toDataURL('image/jpeg', 0.95);
+        const sliceH = hPx * drawW / canvas.width;
+        pdf.addImage(sliceData, 'JPEG', margin, yCursor, drawW, sliceH, undefined, 'FAST');
+        hasContentOnPage = true;
+
+        offsetPx += hPx;
+      }
+      yCursor = margin;
+      const loopEndPct = 24 + Math.round(((i + 1) / totalTargets) * 60);
+      updateViewerProgress(loopEndPct, `Module ${i+1}/${totalTargets} prêt`, "Rendu des pages");
+    }
+
+    updateViewerProgress(90, "Assemblage final du PDF...", "Finalisation");
+    const blob = pdf.output("blob");
+    updateViewerProgress(97, "Ouverture du document...", "Finalisation");
+    const blobUrl = URL.createObjectURL(blob);
+    updateViewerProgress(100, "Terminé", "PDF prêt");
+    viewer.location.href = blobUrl;
+    setTimeout(()=>{ try{ URL.revokeObjectURL(blobUrl); }catch(e){ softCatch(e); } }, 120000);
+  }catch(err){
+    console.error("PDF generation failed", err);
+    try{
+      viewer.document.open();
+      viewer.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Erreur export PDF</title></head><body style="font-family:Segoe UI,Arial,sans-serif;padding:16px"><h2>Erreur pendant la génération du PDF</h2><pre style="white-space:pre-wrap;color:#b91c1c">${attrEscape(String(err?.message || err || "Erreur inconnue"))}</pre></body></html>`);
+      viewer.document.close();
+    }catch(e){ softCatch(e); }
+    alert("Erreur pendant la génération du PDF.");
+  }finally{
+    try{ host.remove(); }catch(e){ softCatch(e); }
+    try{ cleanupPrint(); }catch(e){ softCatch(e); }
+  }
+}
+
+function maximizePrintContainer(container){
+  if(!container) return;
+  container.style.zoom = 1;
+  container.style.width = "100%";
+  const pageW = window.innerWidth || document.documentElement.clientWidth || 1;
+  const contentW = container.scrollWidth || container.offsetWidth || 1;
+  let scale = pageW / contentW;
+  if(!isFinite(scale) || scale <= 0) scale = 1;
+  scale = Math.min(1.18, Math.max(1, scale));
+  container.style.zoom = scale;
+}
+
+function buildRealHoursReportForTasks(tasksInput){
+  const tasks = (tasksInput || []).filter(t=>t && t.start && t.end);
+  const logs = getCanonicalTimeLogs().filter(l=>l && l.taskId && l.date && (l.minutes||0) > 0);
+  const roleOrder = ["interne","rsg","ri"];
+  const roleTotals = {interne:0, externe:0, rsg:0, ri:0};
+  const vendorTotals = new Map();
+  const internalByName = new Map();
+  const externalByName = new Map();
+  const detailRows = [];
+
+  tasks.sort((a,b)=>{
+    const oa=(taskOrderMap[a.id]||9999)-(taskOrderMap[b.id]||9999);
+    if(oa!==0) return oa;
+    return taskTitleProjectView(a).localeCompare(taskTitleProjectView(b), "fr", {sensitivity:"base"});
+  });
+
+  tasks.forEach(t=>{
+    const isExternalTask = !!String(t.vendor || "").trim() || ownerType(t.owner) === "externe";
+    const extName = (t.vendor || "Prestataire non renseigné").trim() || "Prestataire non renseigné";
+    const taskLogs = logs.filter(l=>
+      l.taskId===t.id &&
+      l.date >= t.start &&
+      l.date <= t.end
+    );
+    const perRole = new Map();
+    taskLogs.forEach(l=>{
+      const logRole = normalizeTimeLogRole(l);
+      if(isExternalTask && logRole !== "externe") return;
+      if(!isExternalTask && logRole === "externe") return;
+      const rk = isExternalTask ? "externe" : logRole;
+      const mins = Number(l.minutes)||0;
+      if(!mins) return;
+      const weightedMinutes = Math.round(mins * roleHoursMultiplier(rk));
+      const prev = perRole.get(rk) || 0;
+      perRole.set(rk, prev + weightedMinutes);
+
+      if(isExternalTask || rk==="externe"){
+        externalByName.set(extName, (externalByName.get(extName) || 0) + weightedMinutes);
+        vendorTotals.set(extName, (vendorTotals.get(extName) || 0) + weightedMinutes);
+      }else{
+        const intName = roleLabel(rk);
+        internalByName.set(intName, (internalByName.get(intName) || 0) + weightedMinutes);
+      }
+    });
+    perRole.forEach((mins, rk)=>{
+      if(!mins) return;
+      if(roleTotals[rk] !== undefined) roleTotals[rk] += mins;
+      detailRows.push({
+        num: taskOrderMap[t.id] || "",
+        task: taskTitleProjectView(t),
+        role: rk,
+        interv: rk==="externe" ? extName : roleLabel(rk),
+        mins
       });
-    }
-  });
-}
-function syncFilterFormsFromState() {
-  document.querySelectorAll(".js-filter-form").forEach((form) => {
-    applyFiltersToForm(form);
-    updateFilterResetButtonState(form);
-  });
-}
-function bindArchiveFilterForm() {
-  const form = document.getElementById("documents-archives-filter-form");
-  if (!form) {
-    return;
-  }
-  const applyArchiveReset = () => {
-    form.reset();
-    window.setTimeout(() => {
-      updateFilterResetButtonState(form);
-      renderDocumentsArchivePage();
-    }, 0);
-  };
-  form.oninput = () => {
-    updateFilterResetButtonState(form);
-    renderDocumentsArchivePage();
-  };
-  form.onreset = () => {
-    window.setTimeout(() => {
-      updateFilterResetButtonState(form);
-      renderDocumentsArchivePage();
-    }, 0);
-  };
-  const searchField = form.elements.archiveSearch;
-  if (searchField) {
-    searchField.addEventListener("search", () => {
-      if (!String(searchField.value || "").trim()) {
-        applyArchiveReset();
-      }
-    });
-  }
-  updateFilterResetButtonState(form);
-}
-
-function bindAddPersonForm() {
-  const form = document.getElementById("add-person-form");
-  if (!form) {
-    return;
-  }
-
-  form.onsubmit = (event) => {
-    event.preventDefault();
-
-    if (!state.data) {
-      showDataStatus("DONNEES NON CHARGEES");
-      return;
-    }
-
-    const formData = new FormData(form);
-    const selectedSites = readSelectedSites(form, "add");
-    const person = {
-      id: getNextId("P", state.data.personnes || []),
-      nom: normalizeText(formData.get("nom")),
-      prenom: normalizeText(formData.get("prenom")),
-      sitesAffectation: selectedSites,
-      site: "",
-      typePersonnel: normalizeText(formData.get("typePersonnel")),
-      typeContrat: normalizeText(formData.get("typeContrat")),
-      dateEntree: String(formData.get("dateEntree") || ""),
-      dateSortiePrevue: String(formData.get("dateSortiePrevue") || ""),
-      dateSortieReelle: String(formData.get("dateSortieReelle") || ""),
-      effetsConfies: [],
-    };
-
-    if (!person.nom && !person.prenom) {
-      person.nom = "PERSONNE";
-      person.prenom = person.id;
-    }
-    person.site = getPersonSiteLabel(person);
-
-    const duplicate = (state.data.personnes || []).some(
-      (entry) =>
-        entry.nom === person.nom &&
-        entry.prenom === person.prenom &&
-        haveSameSites(getPersonSites(entry), person.sitesAffectation)
-    );
-
-    if (duplicate) {
-      showDataStatus("CETTE PERSONNE EXISTE DEJA SUR CE SITE");
-      return;
-    }
-
-    pushUndoSnapshot("AJOUT PERSONNE");
-    state.data.personnes.push(person);
-    markDirty();
-    form.reset();
-    renderSiteSelector("add-site-selector", "add", []);
-    renderPage();
-    showActionStatus("create", `PERSONNE AJOUTEE : ${person.nom} ${person.prenom}`);
-    setCurrentPersonId(person.id);
-    openPersonSheet(person.id);
-  };
-}
-
-function bindPersonSheetForm() {
-  const form = document.getElementById("person-sheet-form");
-  if (!form) {
-    return;
-  }
-
-  const addButton = document.getElementById("sheet-add-person");
-  const arrivalDocumentButton = document.getElementById("sheet-open-arrival-document");
-  const exitDocumentButton = document.getElementById("sheet-open-exit-document");
-  const arrivalPdfButton = document.getElementById("sheet-open-arrival-pdf");
-  const exitPdfButton = document.getElementById("sheet-open-exit-pdf");
-  const typeContratField = form.elements.sheetTypeContrat;
-
-  const setSheetFieldMissingState = (fieldName, isMissing) => {
-    const field = form.elements[fieldName];
-    if (!(field instanceof HTMLElement)) {
-      return;
-    }
-    const node = field.closest(".field");
-    if (node) {
-      node.classList.toggle("field--missing", Boolean(isMissing));
-    }
-  };
-
-  const updateSheetRequiredHighlights = () => {
-    const formData = new FormData(form);
-    const nom = normalizeText(formData.get("sheetNom"));
-    const prenom = normalizeText(formData.get("sheetPrenom"));
-    const fonction = normalizeText(formData.get("sheetFonction"));
-    const selectedSites = readSelectedSites(form, "sheet");
-    const typePersonnel = normalizeText(formData.get("sheetTypePersonnel"));
-    const typeContrat = normalizeText(formData.get("sheetTypeContrat"));
-    const dateEntree = String(formData.get("sheetDateEntree") || "").trim();
-    const needsExpectedExitDate = ["CDD", "INTERIMAIRE"].includes(typeContrat);
-    const dateSortiePrevue = String(formData.get("sheetDateSortiePrevue") || "").trim();
-
-    setSheetFieldMissingState("sheetNom", !nom);
-    setSheetFieldMissingState("sheetPrenom", !prenom);
-    setSheetFieldMissingState("sheetFonction", !fonction);
-    setSheetFieldMissingState("sheetTypePersonnel", !typePersonnel);
-    setSheetFieldMissingState("sheetTypeContrat", !typeContrat);
-    setSheetFieldMissingState("sheetDateEntree", !dateEntree);
-    setSheetFieldMissingState("sheetDateSortiePrevue", needsExpectedExitDate && !dateSortiePrevue);
-
-    const siteField = form.querySelector("#sheet-site-selector")?.closest(".field");
-    if (siteField) {
-      siteField.classList.toggle("field--missing", selectedSites.length === 0);
-    }
-  };
-
-  const updateSheetContractDateRequirement = () => {
-    const normalizedTypeContrat = normalizeText(form.elements.sheetTypeContrat?.value || "");
-    const needsExpectedExitDate = ["CDD", "INTERIMAIRE"].includes(normalizedTypeContrat);
-    const dateSortiePrevueField = form.elements.sheetDateSortiePrevue;
-    const dateSortiePrevueNode = dateSortiePrevueField instanceof HTMLElement
-      ? dateSortiePrevueField.closest(".field")
-      : null;
-    if (dateSortiePrevueField instanceof HTMLElement) {
-      dateSortiePrevueField.required = needsExpectedExitDate;
-    }
-    if (dateSortiePrevueNode) {
-      dateSortiePrevueNode.classList.toggle("field--key", needsExpectedExitDate);
-    }
-    updateSheetRequiredHighlights();
-  };
-
-  const validateSheetRequiredFields = (formData) => {
-    const nom = normalizeText(formData.get("sheetNom"));
-    if (!nom) {
-      showDataStatus("LE NOM EST OBLIGATOIRE");
-      form.elements.sheetNom?.focus();
-      return false;
-    }
-
-    const prenom = normalizeText(formData.get("sheetPrenom"));
-    if (!prenom) {
-      showDataStatus("LE PRENOM EST OBLIGATOIRE");
-      form.elements.sheetPrenom?.focus();
-      return false;
-    }
-
-    const fonction = normalizeText(formData.get("sheetFonction"));
-    if (!fonction) {
-      showDataStatus("LA FONCTION EST OBLIGATOIRE");
-      form.elements.sheetFonction?.focus();
-      return false;
-    }
-
-    const selectedSites = readSelectedSites(form, "sheet");
-    if (!selectedSites.length) {
-      showDataStatus("AU MOINS UN SITE EST OBLIGATOIRE");
-      const firstSiteInput = form.querySelector('#sheet-site-selector input[name="sheetSites"]');
-      if (firstSiteInput instanceof HTMLElement) {
-        firstSiteInput.focus();
-      }
-      return false;
-    }
-
-    const typePersonnel = normalizeText(formData.get("sheetTypePersonnel"));
-    if (!typePersonnel) {
-      showDataStatus("LE TYPE DE PERSONNEL EST OBLIGATOIRE");
-      form.elements.sheetTypePersonnel?.focus();
-      return false;
-    }
-
-    const typeContrat = normalizeText(formData.get("sheetTypeContrat"));
-    if (!typeContrat) {
-      showDataStatus("LE TYPE DE CONTRAT EST OBLIGATOIRE");
-      form.elements.sheetTypeContrat?.focus();
-      return false;
-    }
-
-    const needsExpectedExitDate = ["CDD", "INTERIMAIRE"].includes(typeContrat);
-    const dateSortiePrevue = String(formData.get("sheetDateSortiePrevue") || "").trim();
-    if (needsExpectedExitDate && !dateSortiePrevue) {
-      showDataStatus("LA DATE DE SORTIE PREVUE EST OBLIGATOIRE POUR CDD / INTERIMAIRE");
-      form.elements.sheetDateSortiePrevue?.focus();
-      updateSheetRequiredHighlights();
-      return false;
-    }
-
-    const dateEntree = String(formData.get("sheetDateEntree") || "").trim();
-    if (!dateEntree) {
-      showDataStatus("LA DATE D'ENTREE EST OBLIGATOIRE");
-      form.elements.sheetDateEntree?.focus();
-      updateSheetRequiredHighlights();
-      return false;
-    }
-
-    updateSheetRequiredHighlights();
-    return true;
-  };
-
-  if (typeContratField instanceof HTMLElement) {
-    typeContratField.addEventListener("change", () => {
-      updateSheetContractDateRequirement();
-    });
-  }
-  [
-    "sheetNom",
-    "sheetPrenom",
-    "sheetFonction",
-    "sheetTypePersonnel",
-    "sheetTypeContrat",
-    "sheetDateEntree",
-    "sheetDateSortiePrevue",
-  ].forEach((fieldName) => {
-    const field = form.elements[fieldName];
-    if (!(field instanceof HTMLElement)) {
-      return;
-    }
-    field.addEventListener("input", updateSheetRequiredHighlights);
-    field.addEventListener("change", updateSheetRequiredHighlights);
-  });
-  form.addEventListener("change", (event) => {
-    const target = event.target;
-    if (!(target instanceof HTMLInputElement)) {
-      return;
-    }
-    if (target.name === "sheetSites") {
-      updateSheetRequiredHighlights();
-    }
-  });
-  updateSheetContractDateRequirement();
-  updateSheetRequiredHighlights();
-
-  const buildPersonFromSheetForm = () => {
-    const formData = new FormData(form);
-    if (!validateSheetRequiredFields(formData)) {
-      return null;
-    }
-    const person = {
-      id: getNextId("P", state.data?.personnes || []),
-      nom: normalizeText(formData.get("sheetNom")),
-      prenom: normalizeText(formData.get("sheetPrenom")),
-      fonction: normalizeText(formData.get("sheetFonction")),
-      sitesAffectation: readSelectedSites(form, "sheet"),
-      site: "",
-      typePersonnel: normalizeText(formData.get("sheetTypePersonnel")),
-      typeContrat: normalizeText(formData.get("sheetTypeContrat")),
-      dateEntree: String(formData.get("sheetDateEntree") || ""),
-      dateSortiePrevue: String(formData.get("sheetDateSortiePrevue") || ""),
-      dateSortieReelle: String(formData.get("sheetDateSortieReelle") || ""),
-      effetsConfies: [],
-    };
-
-    person.site = getPersonSiteLabel(person);
-    return person;
-  };
-
-  form.onsubmit = (event) => {
-    event.preventDefault();
-    const person = getCurrentPerson();
-    if (!person) {
-      showDataStatus("AUCUNE PERSONNE SELECTIONNEE");
-      return;
-    }
-
-    const formData = new FormData(form);
-    if (!validateSheetRequiredFields(formData)) {
-      return;
-    }
-    pushUndoSnapshot("MODIFICATION FICHE PERSONNE");
-    person.nom = normalizeText(formData.get("sheetNom"));
-    person.prenom = normalizeText(formData.get("sheetPrenom"));
-    person.fonction = normalizeText(formData.get("sheetFonction"));
-    person.sitesAffectation = readSelectedSites(form, "sheet");
-    person.site = getPersonSiteLabel(person);
-    person.typePersonnel = normalizeText(formData.get("sheetTypePersonnel"));
-    person.typeContrat = normalizeText(formData.get("sheetTypeContrat"));
-    person.dateEntree = String(formData.get("sheetDateEntree") || "");
-    person.dateSortiePrevue = String(formData.get("sheetDateSortiePrevue") || "");
-    person.dateSortieReelle = String(formData.get("sheetDateSortieReelle") || "");
-
-    markDirty();
-    renderPage();
-    renderPersonSheet(person.id);
-    showActionStatus("update", `FICHE MISE A JOUR : ${person.nom} ${person.prenom}`);
-  };
-
-  if (addButton) {
-    addButton.onclick = () => {
-      if (!state.data?.personnes) {
-        showDataStatus("DONNEES NON CHARGEES");
-        return;
-      }
-
-      const person = buildPersonFromSheetForm();
-      if (!person) {
-        return;
-      }
-      const duplicate = (state.data.personnes || []).some(
-        (entry) =>
-          entry.nom === person.nom &&
-          entry.prenom === person.prenom &&
-          haveSameSites(getPersonSites(entry), person.sitesAffectation)
-      );
-
-      if (duplicate) {
-        showDataStatus("CETTE PERSONNE EXISTE DEJA SUR CE SITE");
-        return;
-      }
-
-      pushUndoSnapshot("AJOUT PERSONNE");
-      state.data.personnes.push(person);
-      setCurrentPersonId(person.id);
-      markDirty();
-      renderPage();
-      renderPersonSheet(person.id);
-      showActionStatus("create", `PERSONNE AJOUTEE : ${person.nom} ${person.prenom}`);
-    };
-  }
-
-  const getSheetTargetPersonId = () => state.currentSheetPersonId || getCurrentPersonId();
-
-  if (arrivalDocumentButton) {
-    arrivalDocumentButton.onclick = () => {
-      const personId = getSheetTargetPersonId();
-      if (!personId) {
-        showDataStatus("AUCUNE PERSONNE SELECTIONNEE");
-        return;
-      }
-      navigateWithAutoSave(`document-arrivee.html?personId=${personId}`);
-    };
-  }
-
-  if (exitDocumentButton) {
-    exitDocumentButton.onclick = () => {
-      const personId = getSheetTargetPersonId();
-      if (!personId) {
-        showDataStatus("AUCUNE PERSONNE SELECTIONNEE");
-        return;
-      }
-      navigateWithAutoSave(`document-sortie.html?personId=${personId}`);
-    };
-  }
-
-  if (arrivalPdfButton) {
-    arrivalPdfButton.onclick = () => openPdfDocument("arrival", getSheetTargetPersonId());
-  }
-
-  if (exitPdfButton) {
-    exitPdfButton.onclick = () => openPdfDocument("exit", getSheetTargetPersonId());
-  }
-}
-
-function updateSheetDocumentButtons(person) {
-  const arrivalDocumentButton = document.getElementById("sheet-open-arrival-document");
-  const exitDocumentButton = document.getElementById("sheet-open-exit-document");
-  const arrivalPdfButton = document.getElementById("sheet-open-arrival-pdf");
-  const exitPdfButton = document.getElementById("sheet-open-exit-pdf");
-  const addPersonButton = document.getElementById("sheet-add-person");
-  const savePersonButton =
-    document.getElementById("sheet-save-person") ||
-    document.querySelector('#person-sheet-form button[type="submit"]');
-  const deletePersonButton = document.getElementById("sheet-delete-person");
-  const isDisabled = !person;
-  const isEditingPerson = Boolean(person);
-
-  [
-    arrivalDocumentButton,
-    exitDocumentButton,
-    arrivalPdfButton,
-    exitPdfButton,
-    savePersonButton,
-    deletePersonButton,
-  ].forEach((button) => {
-    if (!button) {
-      return;
-    }
-    button.disabled = isDisabled;
-  });
-
-  if (addPersonButton) {
-    addPersonButton.disabled = false;
-    addPersonButton.classList.toggle("button--primary", !isEditingPerson);
-    addPersonButton.classList.toggle("button--secondary", isEditingPerson);
-  }
-
-  if (savePersonButton) {
-    savePersonButton.classList.toggle("button--primary", isEditingPerson);
-    savePersonButton.classList.toggle("button--secondary", !isEditingPerson);
-  }
-}
-
-function bindEffectForm() {
-  const form = document.getElementById("effect-form");
-  if (!form) {
-    return;
-  }
-
-  const addButton = document.getElementById("effect-add-button");
-  const updateButton = document.getElementById("effect-update-button");
-  const deleteButton = document.getElementById("effect-delete-button");
-  const cancelButton = document.getElementById("effect-cancel-button");
-  const resetFieldsButton = document.getElementById("effect-reset-fields-button");
-  const typeField = form.elements.typeEffet;
-  const referenceSiteField = form.elements.referenceSite;
-  const replacementDateField = form.elements.dateRemplacement;
-  if (typeField) {
-    typeField.onchange = () => {
-      const person = getCurrentPerson();
-      hydrateEffectReferenceSiteSelect(person, "", typeField.value);
-      hydrateReferenceSelect(person || "", typeField.value, "", getSelectedEffectReferenceSite());
-      updateEffectFormMode(typeField.value);
-      syncReplacementCostField();
-      updateEffectRequiredHighlights(form);
-    };
-  }
-  if (referenceSiteField) {
-    referenceSiteField.onchange = () => {
-      const person = getCurrentPerson();
-      hydrateReferenceSelect(person || "", form.elements.typeEffet.value, "", getSelectedEffectReferenceSite());
-      syncReplacementCostField();
-      updateEffectRequiredHighlights(form);
-    };
-  }
-  if (form.elements.statutManuel) {
-    form.elements.statutManuel.onchange = () => {
-      syncReplacementCostField();
-      updateEffectRequiredHighlights(form);
-      updateManualStatusCriticalState(form);
-    };
-  }
-  if (replacementDateField) {
-    replacementDateField.onchange = () => {
-      syncReplacementCostField();
-    };
-  }
-  if (form.elements.referenceEffet) {
-    form.elements.referenceEffet.onchange = () => {
-      syncReplacementCostField();
-      updateEffectRequiredHighlights(form);
-    };
-  }
-  if (form.elements.designationLibre) {
-    form.elements.designationLibre.oninput = () => {
-      syncReplacementCostField();
-      updateEffectRequiredHighlights(form);
-    };
-  }
-
-  ["numeroIdentification", "vehiculeImmatriculation", "dateRemise"].forEach((fieldName) => {
-    const field = form.elements[fieldName];
-    if (!(field instanceof HTMLElement)) {
-      return;
-    }
-    field.addEventListener("keydown", (event) => {
-      if (event.key !== "Enter") {
-        return;
-      }
-      event.preventDefault();
-      focusNextEffectKeyField(form, fieldName);
     });
   });
 
-  const submitEffect = async (mode) => {
-    const person = getCurrentPerson();
-    if (!person) {
-      showDataStatus("SELECTIONNER UNE PERSONNE AVANT D'AJOUTER UN EFFET");
-      return;
-    }
-
-    if (mode === "edit" && !state.editingEffectId) {
-      showDataStatus("SELECTIONNER D'ABORD UN EFFET A MODIFIER");
-      return;
-    }
-
-    const formData = new FormData(form);
-    const typeEffet = normalizeText(formData.get("typeEffet"));
-    const referenceSite = normalizeText(formData.get("referenceSite"));
-    const usesReferenceCatalog = typeUsesReferenceCatalog(typeEffet);
-    const usesSiteField = typeUsesSiteField(typeEffet);
-    const referenceSelect = form.elements.referenceEffet;
-    const referenceEffetIdsRaw = usesReferenceCatalog
-      ? typeEffet === "CLE" && referenceSelect instanceof HTMLSelectElement
-        ? Array.from(referenceSelect.options)
-            .filter((option) => option.selected && String(option.value || "").trim())
-            .map((option) => String(option.value || "").trim())
-        : formData
-            .getAll("referenceEffet")
-            .map((value) => String(value || "").trim())
-            .filter(Boolean)
-      : [];
-    const referenceEffetIds = typeEffet === "CLE" ? referenceEffetIdsRaw : referenceEffetIdsRaw.slice(0, 1);
-    const referenceEffetId = referenceEffetIds[0] || "";
-    const reference = findReferenceById(referenceEffetId);
-    const designationLibre = normalizeText(formData.get("designationLibre"));
-    const availableReferenceSites = getAvailableReferenceSites(person);
-    const resolvedReferenceSite = usesReferenceCatalog
-      ? normalizeText(
-          reference?.site || referenceSite || (availableReferenceSites.length === 1 ? availableReferenceSites[0] : "")
-        )
-      : usesSiteField
-        ? normalizeText(referenceSite || (availableReferenceSites.length === 1 ? availableReferenceSites[0] : ""))
-        : "";
-    const dateRemplacement = String(formData.get("dateRemplacement") || "");
-    const coutRemplacement = normalizeAmount(formData.get("coutRemplacement"));
-    const manualStatus = normalizeText(formData.get("statutManuel"));
-
-    if (!typeEffet) {
-      showDataStatus("SELECTIONNER UN TYPE D'EFFET");
-      form.elements.typeEffet?.focus();
-      return;
-    }
-
-    if (!resolvedReferenceSite) {
-      showDataStatus("SELECTIONNER LE SITE DE L'EFFET");
-      form.elements.referenceSite?.focus();
-      return;
-    }
-
-    if (!manualStatus) {
-      showDataStatus("SELECTIONNER LE STATUT MANUEL");
-      form.elements.statutManuel?.focus();
-      return;
-    }
-
-    if (usesReferenceCatalog && !referenceEffetIds.length) {
-      showDataStatus("CHOISIR UNE CLE EXISTANTE DANS LA LISTE");
-      return;
-    }
-    const vehiculeImmatriculation =
-      typeEffet === "TELECOMMANDE URMET" ? normalizeText(formData.get("vehiculeImmatriculation")) : "";
-
-    if (!Array.isArray(person.effetsConfies)) {
-      person.effetsConfies = [];
-    }
-
-    const referenceIdsToApply =
-      mode === "add" && typeEffet === "CLE" && usesReferenceCatalog
-        ? referenceEffetIds
-        : [referenceEffetId];
-    const effectsToApply = referenceIdsToApply.map((currentReferenceId, index) => {
-      const currentReference = usesReferenceCatalog ? findReferenceById(currentReferenceId) : null;
-      const currentSiteReference = usesReferenceCatalog
-        ? normalizeText(currentReference?.site || resolvedReferenceSite)
-        : resolvedReferenceSite;
-      const effectId =
-        mode === "edit" && index === 0 ? state.editingEffectId : getNextId("E", person.effetsConfies || []);
-      const resolvedDesignation = designationLibre || (usesReferenceCatalog ? currentReference?.designation || "" : "");
-      const effect = {
-        id: effectId,
-        typeEffet,
-        siteReference: currentSiteReference,
-        referenceEffetId: currentReferenceId,
-        designation: resolvedDesignation,
-        numeroIdentification: normalizeText(formData.get("numeroIdentification")),
-        vehiculeImmatriculation,
-        dateRemise: String(formData.get("dateRemise") || ""),
-        dateRetour: String(formData.get("dateRetour") || ""),
-        statutManuel: manualStatus === "CASSE" ? "HS" : manualStatus,
-        dateRemplacement,
-        coutRemplacement,
-        commentaire: normalizeText(formData.get("commentaire")),
-      };
-      if (usesReferenceCatalog && !effect.designation) {
-        effect.designation = `EFFET ${effect.id}`;
-      }
-      return effect;
-    });
-
-    pushUndoSnapshot(mode === "edit" ? "MODIFICATION EFFET" : "AJOUT EFFET");
-    if (mode === "edit") {
-      const effect = effectsToApply[0];
-      const existingIndex = person.effetsConfies.findIndex((entry) => entry.id === effect.id);
-      if (existingIndex >= 0) {
-        person.effetsConfies[existingIndex] = effect;
-      }
-      markEffectRowFlash("update", person.id, effect.id);
-    } else {
-      effectsToApply.forEach((effect) => {
-        person.effetsConfies.push(effect);
-        markEffectRowFlash("create", person.id, effect.id);
-      });
-    }
-
-    markDirty();
-    form.reset();
-    state.editingEffectId = "";
-    hydrateEffectReferenceSiteSelect(person, "", "");
-    hydrateReferenceSelect(person, "", "", "");
-    updateEffectFormMode("");
-    renderPage();
-    renderPersonSheet(person.id);
-    if (mode === "edit") {
-      const effect = effectsToApply[0];
-      const effectLabel = effect.designation || effect.numeroIdentification || effect.id;
-      showActionStatus("update", `EFFET MODIFIE : ${effectLabel}`);
-    } else if (effectsToApply.length > 1) {
-      showActionStatus("create", `${effectsToApply.length} EFFETS AJOUTES`);
-    } else {
-      const effect = effectsToApply[0];
-      const effectLabel = effect.designation || effect.numeroIdentification || effect.id;
-      showActionStatus("create", `EFFET AJOUTE : ${effectLabel}`);
-    }
-
-    await saveAfterEffectChangeWithAvenantAlert();
-  };
-
-  form.onsubmit = async (event) => {
-    event.preventDefault();
-    await submitEffect(state.editingEffectId ? "edit" : "add");
-  };
-
-  if (addButton) {
-    addButton.onclick = async () => {
-      await submitEffect("add");
-    };
-  }
-  if (updateButton) {
-    updateButton.onclick = async () => {
-      await submitEffect("edit");
-    };
-  }
-  if (deleteButton) {
-    deleteButton.onclick = async () => {
-      const person = getCurrentPerson();
-      if (!person || !state.editingEffectId) {
-        showDataStatus("SELECTIONNER D'ABORD UN EFFET A SUPPRIMER");
-        return;
-      }
-      await deleteEffect(person.id, state.editingEffectId);
-    };
-  }
-  if (cancelButton) {
-    cancelButton.onclick = () => {
-      state.editingEffectId = "";
-      resetEffectForm();
-      showDataStatus("MODIFICATION DE L'EFFET ANNULEE");
-    };
-  }
-  if (resetFieldsButton) {
-    resetFieldsButton.onclick = () => {
-      resetEffectFormFieldsExceptCost();
-    };
-  }
-
-  form.addEventListener("input", () => {
-    updateEffectResetButtonState(form);
-  });
-  form.addEventListener("change", () => {
-    updateEffectResetButtonState(form);
-  });
-
-  updateEffectActionButtons();
-  updateEffectRequiredHighlights(form);
-  updateEffectResetButtonState(form);
-  updateManualStatusCriticalState(form);
-}
-
-async function deleteEffect(personId, effectId) {
-  const person = state.data?.personnes?.find((entry) => entry.id === personId);
-  if (!person || !Array.isArray(person.effetsConfies)) {
-    return;
-  }
-
-  const effect = person.effetsConfies.find((entry) => entry.id === effectId);
-  const confirmDelete = window.confirm(
-    `SUPPRIMER DEFINITIVEMENT CET EFFET${effect?.designation ? ` : ${effect.designation}` : effect?.numeroIdentification ? ` : ${effect.numeroIdentification}` : ""} ?`
-  );
-  if (!confirmDelete) {
-    return;
-  }
-
-  pushUndoSnapshot("SUPPRESSION EFFET");
-  person.effetsConfies = person.effetsConfies.filter((effect) => effect.id !== effectId);
-  markEffectTableFlash("delete", personId);
-  if (state.editingEffectId === effectId) {
-    state.editingEffectId = "";
-    resetEffectForm();
-  }
-  markDirty();
-  renderPage();
-  renderPersonSheet(personId);
-  showActionStatus("delete", `EFFET SUPPRIME : ${effectId}`);
-  await saveAfterEffectChangeWithAvenantAlert();
-}
-
-async function saveAfterEffectChangeWithAvenantAlert() {
-  await saveDataToFile({
-    silent: true,
-    reloadAfter: false,
-  });
-  if (state.isDirty) {
-    showDataStatus("SAUVEGARDE IMPOSSIBLE - ALERTE ANNULEE");
-    return;
-  }
-  window.alert(
-    "DES MODIFICATIONS D'EFFETS ONT ETE EFFECTUEES. VOUS DEVEZ DONC PROCEDER A UNE NOUVELLE SIGNATURE DE L'AVENANT."
-  );
-}
-
-function deletePerson(personId) {
-  if (!state.data?.personnes) {
-    return;
-  }
-
-  const person = state.data.personnes.find((entry) => entry.id === personId);
-  if (!person) {
-    return;
-  }
-
-  const confirmDelete = window.confirm(
-    `SUPPRIMER DEFINITIVEMENT ${person.nom} ${person.prenom} ?`
-  );
-  if (!confirmDelete) {
-    return;
-  }
-
-  pushUndoSnapshot("SUPPRESSION PERSONNE");
-  state.data.personnes = state.data.personnes.filter((entry) => entry.id !== personId);
-  if (getCurrentPersonId() === personId) {
-    setCurrentPersonId("");
-  }
-  state.editingEffectId = "";
-  markDirty();
-  renderPage();
-  showActionStatus("delete", `PERSONNE SUPPRIMEE : ${person.nom} ${person.prenom}`);
-
-  if (document.body.dataset.page === "person-sheet") {
-    navigateWithAutoSave("fiche-personne.html");
-  }
-}
-
-function startEditEffect(personId, effectId) {
-  const person = state.data?.personnes?.find((entry) => entry.id === personId);
-  const effect = person?.effetsConfies?.find((entry) => entry.id === effectId);
-  const form = document.getElementById("effect-form");
-  if (!person || !effect || !form) {
-    return;
-  }
-
-  state.editingEffectId = effectId;
-  hydrateEffectReferenceSiteSelect(person, effect.siteReference || referenceSiteFromEffect(effect), effect.typeEffet);
-  hydrateReferenceSelect(
-    person,
-    effect.typeEffet,
-    effect.referenceEffetId,
-    effect.siteReference || referenceSiteFromEffect(effect)
-  );
-  const usesReferenceCatalog = typeUsesReferenceCatalog(effect.typeEffet);
-  const reference = findReferenceById(effect.referenceEffetId);
-  const editDesignation = effect.designation || (usesReferenceCatalog ? reference?.designation || "" : "");
-  form.elements.typeEffet.value = effect.typeEffet || "";
-  form.elements.referenceSite.value = effect.siteReference || referenceSiteFromEffect(effect) || "";
-  form.elements.referenceEffet.value = effect.referenceEffetId || "";
-  form.elements.designationLibre.value = editDesignation;
-  form.elements.numeroIdentification.value = effect.numeroIdentification || "";
-  form.elements.vehiculeImmatriculation.value = effect.vehiculeImmatriculation || "";
-  form.elements.dateRemise.value = effect.dateRemise || "";
-  form.elements.dateRetour.value = effect.dateRetour || "";
-  form.elements.statutManuel.value = effect.statutManuel || "";
-  form.elements.dateRemplacement.value = effect.dateRemplacement || "";
-  form.elements.coutRemplacement.value = formatAmountWithEuro(effect.coutRemplacement);
-  form.elements.commentaire.value = effect.commentaire || "";
-  updateEffectFormMode(effect.typeEffet || "");
-  updateEffectActionButtons();
-  updateEffectResetButtonState(form);
-  updateManualStatusCriticalState(form);
-  form.scrollIntoView({ behavior: "smooth", block: "center" });
-  if (usesReferenceCatalog) {
-    form.elements.referenceEffet.focus();
-  } else {
-    form.elements.numeroIdentification.focus();
-    form.elements.numeroIdentification.select();
-  }
-
-  showDataStatus(
-    `EFFET EN COURS DE MODIFICATION : ${editDesignation || effect.numeroIdentification || effect.id}`
-  );
-}
-
-function resetEffectForm() {
-  const form = document.getElementById("effect-form");
-  if (!form) {
-    return;
-  }
-  form.reset();
-  hydrateEffectReferenceSiteSelect(getCurrentPerson(), "", "");
-  hydrateReferenceSelect(getCurrentPerson() || "", "", "", "");
-  updateEffectFormMode("");
-  updateEffectActionButtons();
-  updateEffectResetButtonState(form);
-  updateManualStatusCriticalState(form);
-}
-
-function resetEffectFormFieldsExceptCost() {
-  const form = document.getElementById("effect-form");
-  if (!form) {
-    return;
-  }
-  const preservedCost = String(form.elements.coutRemplacement?.value || "");
-  const person = getCurrentPerson();
-  state.editingEffectId = "";
-  form.reset();
-  hydrateEffectReferenceSiteSelect(person, "", "");
-  hydrateReferenceSelect(person || "", "", "", "");
-  updateEffectFormMode("");
-  updateEffectActionButtons();
-  if (form.elements.coutRemplacement) {
-    form.elements.coutRemplacement.value = preservedCost;
-  }
-  updateEffectRequiredHighlights(form);
-  updateEffectResetButtonState(form);
-  updateManualStatusCriticalState(form);
-  showDataStatus("CHAMPS REINITIALISES (COUT CONSERVE)");
-}
-
-function isCriticalManualStatus(value) {
-  return ["PERDU", "VOL", "HS"].includes(normalizeText(value));
-}
-
-function updateManualStatusCriticalState(form) {
-  const fieldNode = getEffectFormFieldNode(form, "statutManuel");
-  const statusValue = form?.elements?.statutManuel?.value || "";
-  if (!fieldNode) {
-    return;
-  }
-  fieldNode.classList.toggle("field--status-critical", isCriticalManualStatus(statusValue));
-}
-
-function markEffectRowFlash(kind, personId, effectId) {
-  state.effectRowFlash = {
-    kind: String(kind || ""),
-    personId: String(personId || ""),
-    effectId: String(effectId || ""),
-  };
-}
-
-function markEffectTableFlash(kind, personId) {
-  state.effectTableFlash = {
-    kind: String(kind || ""),
-    personId: String(personId || ""),
-  };
-}
-
-function hasEffectFormUserContent(form) {
-  if (!form) {
-    return false;
-  }
-  const trackedFields = [
-    "typeEffet",
-    "referenceSite",
-    "referenceEffet",
-    "designationLibre",
-    "numeroIdentification",
-    "vehiculeImmatriculation",
-    "dateRemise",
-    "dateRetour",
-    "statutManuel",
-    "dateRemplacement",
-    "commentaire",
-  ];
-  return trackedFields.some((fieldName) => {
-    const value = form.elements[fieldName]?.value;
-    return Boolean(String(value || "").trim());
-  });
-}
-
-function updateEffectResetButtonState(form) {
-  const resetButton = document.getElementById("effect-reset-fields-button");
-  if (!resetButton) {
-    return;
-  }
-  resetButton.classList.toggle("is-ready", hasEffectFormUserContent(form));
-}
-
-function updateEffectActionButtons() {
-  const addButton = document.getElementById("effect-add-button");
-  const updateButton = document.getElementById("effect-update-button");
-  const deleteButton = document.getElementById("effect-delete-button");
-  const cancelButton = document.getElementById("effect-cancel-button");
-  const isEditing = Boolean(state.editingEffectId);
-
-  if (addButton) {
-    addButton.disabled = false;
-    addButton.classList.toggle("button--primary", !isEditing);
-    addButton.classList.toggle("button--secondary", isEditing);
-  }
-  if (updateButton) {
-    updateButton.disabled = !isEditing;
-    updateButton.classList.toggle("button--primary", isEditing);
-    updateButton.classList.toggle("button--secondary", !isEditing);
-  }
-  if (deleteButton) {
-    deleteButton.disabled = !isEditing;
-  }
-  if (cancelButton) {
-    cancelButton.disabled = !isEditing;
-  }
-}
-
-function getEffectKeyFieldSequence(typeEffet) {
-  const normalizedType = normalizeText(typeEffet);
-  if (normalizedType === "TELECOMMANDE URMET") {
-    return ["typeEffet", "referenceSite", "numeroIdentification", "vehiculeImmatriculation", "dateRemise", "statutManuel"];
-  }
-  if (normalizedType === "BADGE INTRUSION" || normalizedType === "CARTE TURBOSELF") {
-    return ["typeEffet", "referenceSite", "numeroIdentification", "dateRemise", "statutManuel"];
-  }
-  if (normalizedType === "CLE" || normalizedType === "CLE CES") {
-    return ["typeEffet", "referenceSite", "referenceEffet", "numeroIdentification", "dateRemise", "statutManuel"];
-  }
-  return ["typeEffet", "numeroIdentification", "dateRemise", "statutManuel"];
-}
-
-function getEffectFormFieldNode(form, name) {
-  const node = form?.elements?.[name];
-  if (!(node instanceof HTMLElement)) {
-    return null;
-  }
-  return node.closest(".field");
-}
-
-function isEffectFieldAvailable(form, name) {
-  const node = form?.elements?.[name];
-  if (!(node instanceof HTMLElement) || node.disabled) {
-    return false;
-  }
-  return true;
-}
-
-function focusEffectField(form, name) {
-  const node = form?.elements?.[name];
-  if (!(node instanceof HTMLElement) || !isEffectFieldAvailable(form, name)) {
-    return false;
-  }
-  node.focus();
-  if (node instanceof HTMLInputElement && node.type === "text") {
-    node.select();
-  }
-  return true;
-}
-
-function focusNextEffectKeyField(form, currentFieldName) {
-  if (!form) {
-    return;
-  }
-  const sequence = getEffectKeyFieldSequence(form.elements.typeEffet?.value || "");
-  const currentIndex = sequence.indexOf(currentFieldName);
-  if (currentIndex < 0) {
-    return;
-  }
-  for (let i = currentIndex + 1; i < sequence.length; i += 1) {
-    if (focusEffectField(form, sequence[i])) {
-      return;
-    }
-  }
-}
-
-function setEffectFieldVisualState(form, name, enabled, isKey) {
-  const fieldNode = getEffectFormFieldNode(form, name);
-  const control = form?.elements?.[name];
-  if (fieldNode) {
-    fieldNode.classList.toggle("field--inactive", !enabled);
-    fieldNode.classList.toggle("field--key", Boolean(isKey));
-  }
-  if (control instanceof HTMLElement) {
-    control.disabled = !enabled;
-  }
-}
-
-function setEffectFieldMissingState(form, name, isMissing) {
-  const fieldNode = getEffectFormFieldNode(form, name);
-  if (fieldNode) {
-    fieldNode.classList.toggle("field--missing", Boolean(isMissing));
-  }
-}
-
-function updateEffectRequiredHighlights(form) {
-  if (!form) {
-    return;
-  }
-  const typeEffet = normalizeText(form.elements.typeEffet?.value || "");
-  const site = normalizeText(form.elements.referenceSite?.value || "");
-  const statutManuel = normalizeText(form.elements.statutManuel?.value || "");
-  const siteRequired = Boolean(form.elements.referenceSite?.required);
-
-  setEffectFieldMissingState(form, "typeEffet", !typeEffet);
-  setEffectFieldMissingState(form, "referenceSite", siteRequired && !site);
-  setEffectFieldMissingState(form, "statutManuel", !statutManuel);
-}
-
-function updateEffectFormMode(typeEffet) {
-  const normalizedType = normalizeText(typeEffet);
-  const person = getCurrentPerson();
-  const form = document.getElementById("effect-form");
-  const availableReferenceSites = getAvailableReferenceSites(person);
-  const referenceSiteField = document.getElementById("effect-reference-site-field");
-  const referenceSiteLabel = document.getElementById("effect-reference-site-label");
-  const referenceField = document.getElementById("effect-reference-field");
-  const referenceLabel = document.getElementById("effect-reference-label");
-  const designationField = document.getElementById("effect-designation-field");
-  const designationLabel = document.getElementById("effect-designation-label");
-  const numberLabel = document.getElementById("effect-number-label");
-  const vehicleField = document.getElementById("effect-vehicle-field");
-  const vehicleLabel = document.getElementById("effect-vehicle-label");
-  const helpNode = document.getElementById("effect-form-help");
-
-  if (
-    !form ||
-    !referenceSiteField ||
-    !referenceSiteLabel ||
-    !referenceField ||
-    !referenceLabel ||
-    !designationField ||
-    !designationLabel ||
-    !numberLabel ||
-    !vehicleField ||
-    !vehicleLabel ||
-    !helpNode
-  ) {
-    return;
-  }
-
-  const vehicleInput = vehicleField.querySelector("input");
-  if (vehicleInput && normalizedType !== "TELECOMMANDE URMET") {
-    vehicleInput.value = "";
-  }
-  numberLabel.textContent = "N° D'IDENTIFICATION";
-
-  let showReferenceSite = Boolean(normalizedType);
-  let showReference = true;
-  const showDesignation = true;
-  let showVehicle = false;
-  let keyFields = normalizedType ? getEffectKeyFieldSequence(normalizedType) : ["typeEffet"];
-
-  if (["CLE", "CLE CES"].includes(normalizedType)) {
-    showReferenceSite = true;
-    referenceSiteLabel.textContent = "SITE DE LA CLE";
-    referenceLabel.textContent = "NOM EXISTANT DE LA CLE";
-    designationLabel.textContent = "NOUVEAU NOM / MODIFICATION";
-    numberLabel.textContent = "N° DE LA CLE";
-    if (normalizedType === "CLE CES") {
-      helpNode.textContent =
-        availableReferenceSites.length > 1
-          ? "POUR UNE CLE CES : CHOISIR D'ABORD LE SITE, PUIS UNE CLE COMMENCANT PAR CES-"
-          : "POUR UNE CLE CES : CHOISIR UNE CLE COMMENCANT PAR CES-";
-    } else {
-      helpNode.textContent =
-        availableReferenceSites.length > 1
-          ? "POUR UNE CLE : CHOISIR D'ABORD LE SITE, PUIS LE NOM DE LA CLE (SELECTION MULTIPLE POSSIBLE)"
-          : "POUR UNE CLE : CHOISIR UN OU PLUSIEURS NOMS DE CLE DU SITE";
-    }
-  } else if (["BADGE INTRUSION", "TELECOMMANDE URMET", "CARTE TURBOSELF"].includes(normalizedType)) {
-    showReferenceSite = true;
-    referenceSiteLabel.textContent =
-      normalizedType === "BADGE INTRUSION"
-        ? "SITE DU BADGE"
-        : normalizedType === "CARTE TURBOSELF"
-          ? "SITE DE LA CARTE"
-          : "SITE DE LA TELECOMMANDE";
-    showReference = false;
-    showVehicle = normalizedType === "TELECOMMANDE URMET";
-    vehicleLabel.textContent = "VEHICULE / IMMATRICULATION";
-    referenceLabel.textContent = "REFERENCE EXISTANTE";
-    designationLabel.textContent = "DESIGNATION";
-    if (normalizedType === "BADGE INTRUSION") {
-      numberLabel.textContent = "N° BADGE";
-      helpNode.textContent = "POUR UN BADGE INTRUSION : RENSEIGNER UNIQUEMENT LE N°";
-    } else if (normalizedType === "TELECOMMANDE URMET") {
-      numberLabel.textContent = "N° TELECOMMANDE";
-      helpNode.textContent = "POUR UNE TELECOMMANDE URMET : RENSEIGNER UNIQUEMENT LE N°";
-    } else if (normalizedType === "CARTE TURBOSELF") {
-      numberLabel.textContent = "N° CARTE";
-      helpNode.textContent = "POUR UNE CARTE TURBOSELF : RENSEIGNER UNIQUEMENT LE N°";
-    }
-  } else {
-    showReferenceSite = Boolean(normalizedType);
-    referenceSiteLabel.textContent = "SITE DE L'EFFET";
-    referenceLabel.textContent = "DESIGNATION EXISTANTE";
-    designationLabel.textContent = "NOUVELLE DESIGNATION / MODIFICATION";
-    helpNode.textContent = normalizedType
-      ? "SI BESOIN : CHOISIR UNE REFERENCE EXISTANTE OU SAISIR UNE DESIGNATION"
-      : "CHOISIR UN TYPE D'EFFET POUR ADAPTER LA SAISIE";
-  }
-
-  setEffectFieldVisualState(form, "typeEffet", true, true);
-  setEffectFieldVisualState(form, "referenceSite", showReferenceSite, keyFields.includes("referenceSite"));
-  setEffectFieldVisualState(form, "referenceEffet", showReference, keyFields.includes("referenceEffet"));
-  setEffectFieldVisualState(form, "designationLibre", true, keyFields.includes("designationLibre"));
-  setEffectFieldVisualState(form, "numeroIdentification", true, keyFields.includes("numeroIdentification"));
-  setEffectFieldVisualState(
-    form,
-    "vehiculeImmatriculation",
-    showVehicle,
-    keyFields.includes("vehiculeImmatriculation")
-  );
-  setEffectFieldVisualState(form, "dateRemise", true, keyFields.includes("dateRemise"));
-  setEffectFieldVisualState(form, "statutManuel", true, true);
-  setEffectReferenceSelectMode(normalizedType);
-  form.elements.typeEffet.required = true;
-  form.elements.referenceSite.required = showReferenceSite;
-  form.elements.statutManuel.required = true;
-  updateEffectRequiredHighlights(form);
-}
-
-function isCesKeyDesignation(designation) {
-  return normalizeText(designation).startsWith("CES-");
-}
-
-function getReplacementCostValue(typeEffet, causeRemplacement, designation = "") {
-  const normalizedType = normalizeText(typeEffet);
-  const normalizedCauseRaw = normalizeText(causeRemplacement) || "";
-  const normalizedCause = normalizedCauseRaw === "CASSE" || normalizedCauseRaw === "DETRUIT" ? "HS" : normalizedCauseRaw;
-  if (!normalizedType) {
-    return 0;
-  }
-
-  if (normalizedType === "CLE CES") {
-    return BILLABLE_EFFECT_CAUSES.includes(normalizedCause) ? 50 : 0;
-  }
-
-  const matchingEntry = (state.data?.listes?.coutsRemplacement || []).find(
-    (entry) =>
-      normalizeText(entry.typeEffet) === normalizedType && normalizeText(entry.cause) === normalizedCause
-  );
-
-  if (!matchingEntry) {
-    return 0;
-  }
-
-  if (!BILLABLE_EFFECT_CAUSES.includes(normalizedCause)) {
-    return 0;
-  }
-
-  if (normalizedType === "CLE") {
-    return isCesKeyDesignation(designation) ? 50 : 5;
-  }
-
-  return normalizeAmount(matchingEntry.montant);
-}
-
-function getEffectUnitValue(effect) {
-  const normalizedType = normalizeText(effect?.typeEffet);
-  if (!normalizedType) {
-    return 0;
-  }
-
-  if (normalizedType === "CLE CES") {
-    return 50;
-  }
-
-  if (normalizedType === "CLE") {
-    return isCesKeyDesignation(effect?.designation || "") ? 50 : 5;
-  }
-
-  if (normalizedType === "BADGE INTRUSION") {
-    return 15;
-  }
-
-  if (normalizedType === "TELECOMMANDE URMET") {
-    return 40;
-  }
-
-  if (normalizedType === "CARTE TURBOSELF") {
-    return 10;
-  }
-
-  return 0;
-}
-
-function getEffectReplacementCause(person, effect) {
-  const status = normalizeText(getEffectStatus(person, effect));
-  if (status === "PERDU") {
-    return "PERTE";
-  }
-  if (status === "DETRUIT") {
-    return "HS";
-  }
-  if (status === "VOL") {
-    return "VOL";
-  }
-  if (status === "NON RENDU") {
-    return "NON RENDU";
-  }
-  return status === "HS" ? "HS" : "";
-}
-
-function getEffectReplacementCost(person, effect) {
-  const status = normalizeText(getEffectStatus(person, effect));
-  if (status === "HS") {
-    return 0;
-  }
-
-  const cause = normalizeText(getEffectReplacementCause(person, effect));
-  if (!cause) {
-    return 0;
-  }
-
-  if (cause === "HS") {
-    return 0;
-  }
-
-  return getReplacementCostValue(effect?.typeEffet, cause, effect?.designation || "");
-}
-
-function isEffectChargeable(person, effect) {
-  return getEffectReplacementCost(person, effect) > 0;
-}
-
-function syncReplacementCostField() {
-  const form = document.getElementById("effect-form");
-  if (!form) {
-    return;
-  }
-
-  const typeEffet = form.elements.typeEffet?.value || "";
-  const manualStatus = normalizeText(form.elements.statutManuel?.value || "");
-  const billingCause = manualStatus === "PERDU"
-    ? "PERTE"
-    : manualStatus === "DETRUIT"
-      ? "HS"
-      : manualStatus === "VOL"
-        ? "VOL"
-        : "";
-  const referenceId = form.elements.referenceEffet?.value || "";
-  const reference = findReferenceById(referenceId);
-  const designation =
-    form.elements.designationLibre?.value || reference?.designation || "";
-  const coutField = form.elements.coutRemplacement;
-  if (!coutField) {
-    return;
-  }
-
-  if (!normalizeText(typeEffet)) {
-    coutField.value = "0,00 €";
-    return;
-  }
-
-  if (manualStatus === "HS") {
-    coutField.value = "0,00 €";
-    return;
-  }
-
-  // En mode ACTIF (ou sans cause), on affiche le cout previsionnel standard de remplacement.
-  const effectiveCause = billingCause || "PERTE";
-  let previewCost = getReplacementCostValue(typeEffet, effectiveCause, designation);
-  if (previewCost <= 0) {
-    previewCost = getEffectUnitValue({ typeEffet, designation });
-  }
-  coutField.value = formatAmountWithEuro(previewCost);
-}
-
-function bindReferenceListForms() {
-  document.querySelectorAll(".js-reference-list-form").forEach((form) => {
-    form.onsubmit = (event) => {
-      event.preventDefault();
-
-      if (!state.data?.listes) {
-        showDataStatus("DONNEES NON CHARGEES");
-        return;
-      }
-
-      const listName = form.dataset.listName || "";
-      const input = form.querySelector('input[name="value"]');
-      const value = normalizeText(input?.value);
-      if (!listName || !Array.isArray(state.data.listes[listName])) {
-        return;
-      }
-      if (!value) {
-        showDataStatus("VALEUR VIDE");
-        return;
-      }
-
-      const currentEdit = state.editingSimpleReference;
-      const list = state.data.listes[listName];
-
-      if (currentEdit && currentEdit.listName === listName) {
-        const oldValue = currentEdit.originalValue;
-        const duplicate = list.some(
-          (entry) => normalizeText(entry) === value && normalizeText(entry) !== normalizeText(oldValue)
-        );
-        if (duplicate) {
-          showDataStatus("VALEUR DEJA PRESENTE");
-          return;
-        }
-
-        const index = list.findIndex((entry) => normalizeText(entry) === normalizeText(oldValue));
-        if (index >= 0) {
-          pushUndoSnapshot("MODIFICATION BASE");
-          list[index] = value;
-          cascadeSimpleReferenceRename(listName, oldValue, value);
-          sortListValues(list);
-          state.editingSimpleReference = null;
-          markDirty();
-          hydrateStaticLists();
-          renderPage();
-          form.reset();
-          const submitButton = form.querySelector('button[type="submit"]');
-          if (submitButton) {
-            submitButton.textContent = "ENREGISTRER";
-          }
-          showActionStatus("update", `BASE MISE A JOUR : ${value}`);
-          return;
-        }
-      }
-
-      if (list.some((entry) => normalizeText(entry) === value)) {
-        showDataStatus("VALEUR DEJA PRESENTE");
-        return;
-      }
-
-      pushUndoSnapshot("AJOUT BASE");
-      list.push(value);
-      sortListValues(list);
-      state.editingSimpleReference = null;
-      markDirty();
-      hydrateStaticLists();
-      renderPage();
-      form.reset();
-      const submitButton = form.querySelector('button[type="submit"]');
-      if (submitButton) {
-        submitButton.textContent = "ENREGISTRER";
-      }
-      showActionStatus("create", `BASE AJOUTEE : ${value}`);
-    };
-  });
-}
-
-function bindRepresentativeSignatoryForm() {
-  const form = document.getElementById("representative-signatory-form");
-  if (!form) {
-    return;
-  }
-
-  form.onsubmit = (event) => {
-    event.preventDefault();
-
-    if (!state.data?.listes?.representantsSignataires) {
-      showDataStatus("DONNEES NON CHARGEES");
-      return;
-    }
-
-    const representativeName = normalizeText(form.elements.representativeName?.value);
-    const representativeFunction = normalizeText(form.elements.representativeFunction?.value);
-    if (!representativeName && !representativeFunction) {
-      showDataStatus("NOM ET FONCTION VIDES");
-      return;
-    }
-
-    const existingMatch = findRepresentativeByValues(representativeName, representativeFunction);
-    const editingRepresentative = state.editingRepresentativeId
-      ? findRepresentativeById(state.editingRepresentativeId)
-      : null;
-
-    if (editingRepresentative) {
-      if (existingMatch && existingMatch.id !== editingRepresentative.id) {
-        pushUndoSnapshot("FUSION REPRESENTANT");
-        updateRepresentativeLinks(editingRepresentative.id, existingMatch);
-        state.data.listes.representantsSignataires = state.data.listes.representantsSignataires.filter(
-          (entry) => entry.id !== editingRepresentative.id
-        );
-        state.editingRepresentativeId = "";
-        markDirty();
-        renderPage();
-        form.reset();
-        showActionStatus("update", "REPRESENTANT FUSIONNE");
-        return;
-      }
-
-      pushUndoSnapshot("MODIFICATION REPRESENTANT");
-      editingRepresentative.nom = representativeName;
-      editingRepresentative.fonction = representativeFunction;
-      updateRepresentativeLinks(editingRepresentative.id, editingRepresentative);
-      sortRepresentatives();
-      state.editingRepresentativeId = "";
-      markDirty();
-      renderPage();
-      form.reset();
-      showActionStatus("update", "REPRESENTANT MIS A JOUR");
-      return;
-    }
-
-    if (existingMatch) {
-      showDataStatus("REPRESENTANT DEJA PRESENT");
-      return;
-    }
-
-    pushUndoSnapshot("AJOUT REPRESENTANT");
-    state.data.listes.representantsSignataires.push({
-      id: getNextId("REP", state.data.listes.representantsSignataires),
-      nom: representativeName,
-      fonction: representativeFunction,
-    });
-    sortRepresentatives();
-    markDirty();
-    renderPage();
-    form.reset();
-    showActionStatus("create", "REPRESENTANT AJOUTE");
-  };
-}
-
-function bindReferenceEffectForm() {
-  const form = document.getElementById("reference-effect-form");
-  if (!form) {
-    return;
-  }
-
-  const typeField = form.elements.referenceTypeEffet;
-  const siteField = form.elements.referenceSite;
-  const designationField = form.elements.referenceDesignation;
-  const syncReferenceTableFiltersFromEditor = () => {
-    const filterForm = document.getElementById("reference-filter-form");
-    if (!filterForm) {
-      return;
-    }
-    const selectedSite = normalizeText(form.elements.referenceSite?.value || "");
-    const selectedTypeEffet = normalizeText(form.elements.referenceTypeEffet?.value || "");
-    if (filterForm.elements.filterReferenceSite) {
-      filterForm.elements.filterReferenceSite.value = selectedSite;
-    }
-    if (filterForm.elements.filterReferenceTypeEffet) {
-      filterForm.elements.filterReferenceTypeEffet.value = selectedTypeEffet;
-    }
-    renderReferenceEffectsTable(state.referenceRenderContext || buildReferenceRenderContext());
-  };
-
-  if (typeField) {
-    typeField.onchange = () => {
-      updateReferenceEffectFormMode(typeField.value);
-      syncReferenceSitesSelector();
-      syncReferenceTableFiltersFromEditor();
-    };
-  }
-  if (siteField) {
-    siteField.onchange = () => {
-      syncReferenceTableFiltersFromEditor();
-    };
-  }
-  if (designationField) {
-    designationField.oninput = () => {
-      syncReferenceSitesSelector();
-    };
-  }
-
-  form.onsubmit = (event) => {
-    event.preventDefault();
-
-    if (!state.data?.listes?.referencesEffets) {
-      showDataStatus("DONNEES NON CHARGEES");
-      return;
-    }
-
-    const formData = new FormData(form);
-    const normalizedTypeEffet = normalizeText(formData.get("referenceTypeEffet"));
-    const selectedReferenceSites = Array.from(
-      form.querySelectorAll('input[name="referenceSites"]:checked')
-    ).map((input) => normalizeText(input.value));
-    const referenceId = state.editingReferenceId || getNextId("REF", state.data.listes.referencesEffets);
-    const reference = {
-      id: referenceId,
-      site: normalizeText(formData.get("referenceSite")) || "SANS SITE",
-      sitesAffectation:
-        normalizedTypeEffet === "CLE CES"
-          ? normalizeSites(selectedReferenceSites)
-          : normalizeSites([normalizeText(formData.get("referenceSite")) || "SANS SITE"]),
-      typeEffet: normalizedTypeEffet || "EFFET",
-      designation: normalizeText(formData.get("referenceDesignation")) || `REFERENCE ${referenceId}`,
-    };
-    reference.site = getReferenceSiteLabel(reference) || reference.site;
-
-    if (!typeUsesReferenceCatalog(reference.typeEffet)) {
-      showDataStatus("POUR CE TYPE : PAS DE DESIGNATION EN BASE");
-      window.alert("POUR CE TYPE : UTILISER SEULEMENT LE N° D'IDENTIFICATION");
-      return;
-    }
-
-    const currentIndex = state.data.listes.referencesEffets.findIndex((entry) => entry.id === referenceId);
-    const duplicate = state.data.listes.referencesEffets.some(
-      (entry) =>
-        entry.id !== referenceId &&
-        haveSameSites(getReferenceSites(entry), reference.sitesAffectation) &&
-        normalizeText(entry.typeEffet) === reference.typeEffet &&
-        normalizeText(entry.designation) === reference.designation
-    );
-    if (duplicate) {
-      showDataStatus("REFERENCE DEJA PRESENTE");
-      return;
-    }
-
-    pushUndoSnapshot(currentIndex >= 0 ? "MODIFICATION REFERENCE" : "AJOUT REFERENCE");
-    if (currentIndex >= 0) {
-      const previous = state.data.listes.referencesEffets[currentIndex];
-      state.data.listes.referencesEffets[currentIndex] = reference;
-      cascadeReferenceEffectUpdate(previous, reference);
-    } else {
-      state.data.listes.referencesEffets.push(reference);
-    }
-
-    sortReferenceEffects();
-    state.editingReferenceId = "";
-    markDirty();
-    hydrateStaticLists();
-    renderPage();
-    form.reset();
-    renderReferenceSitesSelector([]);
-    updateReferenceEffectFormMode("");
-    syncReferenceTableFiltersFromEditor();
-    const submitButton = form.querySelector('button[type="submit"]');
-    if (submitButton) {
-      submitButton.textContent = "ENREGISTRER LA REFERENCE";
-    }
-    showActionStatus(
-      currentIndex >= 0 ? "update" : "create",
-      currentIndex >= 0
-        ? `REFERENCE MISE A JOUR : ${reference.designation}`
-        : `REFERENCE AJOUTEE : ${reference.designation}`
-    );
-  };
-}
-
-function updateReferenceEffectFormMode(typeEffet) {
-  const field = document.getElementById("reference-sites-field");
-  const normalizedType = normalizeText(typeEffet);
-  if (!field) {
-    return;
-  }
-  field.classList.toggle("is-hidden", normalizedType !== "CLE CES");
-}
-
-function canUseAllSitesForReference() {
-  const form = document.getElementById("reference-effect-form");
-  if (!form) {
-    return false;
-  }
-  const typeEffet = normalizeText(form.elements.referenceTypeEffet?.value);
-  const designation = normalizeText(form.elements.referenceDesignation?.value);
-  return typeEffet === "CLE CES" && designation === "CES-PG";
-}
-
-function syncReferenceSitesSelector() {
-  const container = document.getElementById("reference-sites-selector");
-  if (!container) {
-    return;
-  }
-
-  const allowAllSites = canUseAllSitesForReference();
-  const allSitesItem = container.querySelector('input[name="referenceSites"][value="TOUS SITES"]')?.closest(".site-selector__item");
-  const allSitesCheckbox = container.querySelector('input[name="referenceSites"][value="TOUS SITES"]');
-
-  if (allSitesItem) {
-    allSitesItem.classList.toggle("is-hidden", !allowAllSites);
-  }
-
-  if (!allowAllSites && allSitesCheckbox) {
-    allSitesCheckbox.checked = false;
-  }
-}
-
-function getReplacementCostKey(typeEffet, cause) {
-  return `${normalizeText(typeEffet)}__${normalizeText(cause)}`;
-}
-
-function bindReplacementCostForm() {
-  const form = document.getElementById("replacement-cost-form");
-  if (!form) {
-    return;
-  }
-
-  form.onsubmit = (event) => {
-    event.preventDefault();
-
-    if (!state.data?.listes?.coutsRemplacement) {
-      showDataStatus("DONNEES NON CHARGEES");
-      return;
-    }
-
-    const formData = new FormData(form);
-    const typeEffet = normalizeText(formData.get("costTypeEffet"));
-    const cause = normalizeText(formData.get("costCauseRemplacement"));
-    const montant = normalizeAmount(formData.get("costMontant"));
-
-    if (!typeEffet || !cause) {
-      showDataStatus("TYPE D'EFFET ET CAUSE OBLIGATOIRES");
-      return;
-    }
-
-    const nextCostKey = getReplacementCostKey(typeEffet, cause);
-    const lookupKey = state.editingReplacementCostKey || nextCostKey;
-    const currentIndex = state.data.listes.coutsRemplacement.findIndex(
-      (entry) => getReplacementCostKey(entry.typeEffet, entry.cause) === lookupKey
-    );
-
-    pushUndoSnapshot(currentIndex >= 0 ? "MODIFICATION COUT" : "AJOUT COUT");
-    if (currentIndex >= 0) {
-      state.data.listes.coutsRemplacement[currentIndex] = { typeEffet, cause, montant };
-    } else {
-      state.data.listes.coutsRemplacement.push({ typeEffet, cause, montant });
-    }
-
-    state.editingReplacementCostKey = "";
-    markDirty();
-    renderPage();
-    form.reset();
-    const submitButton = form.querySelector('button[type="submit"]');
-    if (submitButton) {
-      submitButton.textContent = "ENREGISTRER LE COUT";
-    }
-    showActionStatus("update", `COUT MIS A JOUR : ${typeEffet} / ${cause}`);
-  };
-}
-
-function bindReferenceFilters() {
-  const form = document.getElementById("reference-filter-form");
-  if (!form) {
-    return;
-  }
-  const applyReferenceReset = () => {
-    form.reset();
-    window.setTimeout(() => {
-      updateFilterResetButtonState(form);
-      renderReferenceEffectsTable();
-    }, 0);
-  };
-
-  form.oninput = () => {
-    updateFilterResetButtonState(form);
-    renderReferenceEffectsTable();
-  };
-
-  form.onreset = () => {
-    window.setTimeout(() => {
-      updateFilterResetButtonState(form);
-      renderReferenceEffectsTable();
-    }, 0);
-  };
-
-  const searchField = form.elements.filterReferenceSearch;
-  if (searchField) {
-    searchField.addEventListener("search", () => {
-      if (!String(searchField.value || "").trim()) {
-        applyReferenceReset();
-      }
-    });
-  }
-  updateFilterResetButtonState(form);
-}
-
-function bindMobileSignatureSettingsForm() {
-  const form = document.getElementById("mobile-signature-settings-form");
-  if (!(form instanceof HTMLFormElement)) {
-    return;
-  }
-
-  form.onsubmit = (event) => {
-    event.preventDefault();
-    if (!state.data?.meta) {
-      return;
-    }
-
-    const rawValue = String(form.elements.mobileSignatureBaseUrl?.value || "").trim();
-    const normalized = normalizeHttpUrl(rawValue);
-    if (rawValue && !normalized) {
-      showDataStatus("URL INVALIDE (UTILISER HTTP OU HTTPS)");
-      form.elements.mobileSignatureBaseUrl?.focus();
-      return;
-    }
-
-    pushUndoSnapshot("CONFIGURATION URL SIGNATURE MOBILE");
-    state.data.meta.signatureMobileBaseUrl = normalized;
-    state.mobileSignatureNetworkInfo = null;
-    markDirty();
-    renderMobileSignatureSettings();
-    showActionStatus("update", normalized ? "URL PUBLIQUE SIGNATURE MOBILE ENREGISTREE" : "URL PUBLIQUE SIGNATURE MOBILE VIDEE");
-  };
-}
-
-function readFilters(form) {
-  const formData = new FormData(form);
-  return {
-    search: normalizeText(formData.get("search")),
-    site: normalizeText(formData.get("site")),
-    typePersonnel: normalizeText(formData.get("typePersonnel")),
-    typeContrat: normalizeText(formData.get("typeContrat")),
-    statutDossier: normalizeText(formData.get("statutDossier")),
-    statutObjet: normalizeText(formData.get("statutObjet")),
-    typeEffet: normalizeText(formData.get("typeEffet")),
-  };
-}
-
-function hydrateStaticLists() {
-  if (!state.data?.listes) {
-    return;
-  }
-
-  const {
-    sites = [],
-    typesPersonnel = [],
-    typesContrats = [],
-    fonctions = [],
-    typesEffets = [],
-    statutsObjetManuels = [],
-  } = state.data.listes;
-
-  populateSelect('select[name="typePersonnel"]', typesPersonnel);
-  populateSelect('select[name="typeContrat"]', typesContrats);
-  populateSelect('select[name="site"]', sites);
-  populateSelect('select[name="sheetTypePersonnel"]', typesPersonnel);
-  populateSelect('select[name="sheetTypeContrat"]', typesContrats);
-  populateSelect('select[name="sheetFonction"]', fonctions);
-  populateSelect('select[name="typeEffet"]', typesEffets);
-  populateSelect('select[name="referenceSite"]', sites);
-  populateSelect('select[name="referenceTypeEffet"]', typesEffets);
-  populateSelect('select[name="filterReferenceSite"]', sites);
-  populateSelect('select[name="filterReferenceTypeEffet"]', typesEffets);
-  populateSelect('select[name="statutManuel"]', statutsObjetManuels);
-  populateSelect('select[name="costTypeEffet"]', typesEffets);
-  populateSelect('select[name="costCauseRemplacement"]', EFFECT_STATUS_CAUSES);
-  renderSiteSelector("add-site-selector", "add", []);
-  renderSiteSelector("sheet-site-selector", "sheet", getPersonSites(getCurrentPerson()));
-  renderReferenceSitesSelector([]);
-}
-
-function renderSiteSelector(containerId, prefix, selectedSites = []) {
-  const container = document.getElementById(containerId);
-  if (!container || !state.data?.listes?.sites) {
-    return;
-  }
-
-  const normalizedSelectedSites = normalizeSites(selectedSites);
-  const selectedAllSites = normalizedSelectedSites.includes(ALL_SITES_VALUE);
-  const items = Array.from(new Set([ALL_SITES_VALUE, ...(state.data.listes.sites || [])]))
-    .map((site) => {
-      const normalizedSite = normalizeText(site);
-      const checked = selectedAllSites
-        ? normalizedSite === ALL_SITES_VALUE
-        : normalizedSelectedSites.includes(normalizedSite);
-      return `<label class="site-selector__item">
-        <input type="checkbox" name="${prefix}Sites" value="${escapeHtml(site)}" ${checked ? "checked" : ""} />
-        <span>${escapeHtml(site)}</span>
-      </label>`;
-    })
-    .join("");
-
-  container.innerHTML = items;
-
-  const checkboxes = Array.from(container.querySelectorAll(`input[name="${prefix}Sites"]`));
-  checkboxes.forEach((checkbox) => {
-    checkbox.onchange = () => {
-      const normalizedValue = normalizeText(checkbox.value);
-      if (normalizedValue === ALL_SITES_VALUE && checkbox.checked) {
-        checkboxes.forEach((entry) => {
-          if (normalizeText(entry.value) !== ALL_SITES_VALUE) {
-            entry.checked = false;
-          }
-        });
-      }
-
-      if (normalizedValue !== ALL_SITES_VALUE && checkbox.checked) {
-        const allSitesCheckbox = checkboxes.find((entry) => normalizeText(entry.value) === ALL_SITES_VALUE);
-        if (allSitesCheckbox) {
-          allSitesCheckbox.checked = false;
-        }
-      }
-    };
-  });
-}
-
-function renderReferenceSitesSelector(selectedSites = []) {
-  const container = document.getElementById("reference-sites-selector");
-  if (!container || !state.data?.listes?.sites) {
-    return;
-  }
-
-  const normalizedSelectedSites = normalizeSites(selectedSites);
-  const selectedAllSites = normalizedSelectedSites.includes(ALL_SITES_VALUE);
-  const items = Array.from(new Set([ALL_SITES_VALUE, ...(state.data.listes.sites || [])]))
-    .map((site) => {
-      const normalizedSite = normalizeText(site);
-      const checked = selectedAllSites
-        ? normalizedSite === ALL_SITES_VALUE
-        : normalizedSelectedSites.includes(normalizedSite);
-      return `<label class="site-selector__item">
-        <input type="checkbox" name="referenceSites" value="${escapeHtml(site)}" ${checked ? "checked" : ""} />
-        <span>${escapeHtml(site)}</span>
-      </label>`;
-    })
-    .join("");
-
-  container.innerHTML = items;
-
-  const checkboxes = Array.from(container.querySelectorAll('input[name="referenceSites"]'));
-  checkboxes.forEach((checkbox) => {
-    checkbox.onchange = () => {
-      const normalizedValue = normalizeText(checkbox.value);
-      if (normalizedValue === ALL_SITES_VALUE && checkbox.checked) {
-        checkboxes.forEach((entry) => {
-          if (normalizeText(entry.value) !== ALL_SITES_VALUE) {
-            entry.checked = false;
-          }
-        });
-      }
-
-      if (normalizedValue !== ALL_SITES_VALUE && checkbox.checked) {
-        const allSitesCheckbox = checkboxes.find((entry) => normalizeText(entry.value) === ALL_SITES_VALUE);
-        if (allSitesCheckbox) {
-          allSitesCheckbox.checked = false;
-        }
-      }
-    };
-  });
-
-  syncReferenceSitesSelector();
-}
-
-function populateSelect(selector, values) {
-  const elements = document.querySelectorAll(selector);
-  elements.forEach((element) => {
-    const firstOption = element.querySelector("option");
-    const baseValue = firstOption ? firstOption.outerHTML : "";
-    const currentValue = normalizeText(element.value);
-    const options = values
-      .map((value) => `<option value="${value}">${normalizeText(value)}</option>`)
-      .join("");
-    element.innerHTML = `${baseValue}${options}`;
-    if (currentValue) {
-      element.value = currentValue;
-    }
-  });
-}
-
-function renderPage() {
-  const page = document.body.dataset.page || "";
-  const persons = getFilteredPersons();
-  const currentPersonId = getCurrentPersonId();
-
-  if (page === "overview") {
-    renderOverview(persons);
-  }
-
-  if (page === "global") {
-    renderGlobalEffectsChart(persons);
-    renderGlobalTable(persons);
-  }
-
-  if (page === "documents-archives") {
-    renderDocumentsArchivePage();
-  }
-
-  if (page === "person-sheet" || page === "arrival-document" || page === "exit-document") {
-    renderPersonPicker();
-  }
-
-  if (page === "mobile-signature") {
-    renderMobileSignaturePage();
-    refreshDocumentSignatureCanvases(getCurrentMobileSignatureDocType());
-  }
-
-  if (page === "person-sheet") {
-    renderPersonSheet(currentPersonId);
-    bindEffectTableSorting();
-    updateSortableHeaders("sheetEffects");
-  }
-
-  if (page === "arrival-document") {
-    renderArrivalDocument(currentPersonId);
-    refreshDocumentSignatureCanvases("arrival");
-    updateSortableHeaders("arrivalEffects");
-    syncMobileSignaturePolling();
-  }
-
-  if (page === "exit-document") {
-    renderExitDocument(currentPersonId);
-    refreshDocumentSignatureCanvases("exit");
-    updateSortableHeaders("exitEffects");
-    syncMobileSignaturePolling();
-  }
-
-  if (page === "reference-bases") {
-    renderReferenceBases();
-  }
-
-  updateDocumentPdfButtonsState();
-  renderDirtyState();
-}
-
-function renderEffectsChart(nodeId, persons) {
-  const node = document.getElementById(nodeId);
-  if (!node) {
-    return;
-  }
-
-  const filters = state.filters || DEFAULT_FILTERS;
-  const effects = getAllEffects(persons)
-    .filter(({ person, effect }) => {
-      if (!effectMatchesSiteFilter(person, effect, filters.site)) {
-        return false;
-      }
-      if (filters.typeEffet && normalizeText(effect?.typeEffet) !== filters.typeEffet) {
-        return false;
-      }
-      if (filters.statutObjet && getEffectStatus(person, effect) !== filters.statutObjet) {
-        return false;
-      }
-      return true;
-    })
-    .map(({ person, effect }) => ({ person, effect }));
-  if (!effects.length) {
-    node.innerHTML = '<div class="effects-chart__empty">AUCUNE DONNEE A AFFICHER</div>';
-    return;
-  }
-
-  const counts = new Map();
-  const totals = {
-    actif: 0,
-    nonRendu: 0,
-    restitue: 0,
-    perdu: 0,
-    vole: 0,
-    hs: 0,
-  };
-  const totalsCost = {
-    actif: 0,
-    nonRendu: 0,
-    restitue: 0,
-    perdu: 0,
-    vole: 0,
-    hs: 0,
-  };
-  let totalEntrustedCost = 0;
-  let totalFacturable = 0;
-  effects.forEach(({ person, effect }) => {
-    const type = normalizeText(effect?.typeEffet) || "EFFET";
-    if (!counts.has(type)) {
-      counts.set(type, {
-        total: 0,
-        segments: {
-          actif: 0,
-          nonRendu: 0,
-          restitue: 0,
-          perdu: 0,
-          vole: 0,
-          hs: 0,
-        },
-      });
-    }
-
-    const row = counts.get(type);
-    row.total += 1;
-    const category = getEffectChartCategory(person, effect);
-    row.segments[category] += 1;
-    totals[category] += 1;
-    totalEntrustedCost += getReplacementCostValue(effect?.typeEffet, "NON RENDU", effect?.designation || "");
-    const replacementCost = getEffectReplacementCost(person, effect);
-    totalsCost[category] += replacementCost;
-    totalFacturable += replacementCost;
-  });
-
-  const rows = Array.from(counts.entries())
-    .sort((left, right) => {
-      const typeOrder = left[0].localeCompare(right[0], "fr");
-      if (typeOrder !== 0) {
-        return typeOrder;
-      }
-      return left[1].total - right[1].total;
-    });
-
-  const maxValue = Math.max(...rows.map(([, row]) => row.total), 1);
-  const summaryMarkup = `
-    <div class="effects-chart__summary">
-      <span class="effects-chart__summary-item">TOTAL EFFETS CONFIES <strong>${effects.length}</strong><span class="effects-chart__summary-sub">COUT <strong>${formatAmountWithEuro(totalEntrustedCost)}</strong></span></span>
-      <span class="effects-chart__summary-item">TOTAL FACTURABLE <strong>${formatAmountWithEuro(totalFacturable)}</strong></span>
-    </div>`;
-  const legendMarkup = `
-    <div class="effects-chart__legend">
-      <span class="effects-chart__legend-item"><span class="effects-chart__legend-dot effects-chart__legend-dot--actif"></span>ACTIF <strong>${totals.actif}</strong><span class="effects-chart__legend-cost">${formatAmountWithEuro(totalsCost.actif)}</span></span>
-      <span class="effects-chart__legend-item"><span class="effects-chart__legend-dot effects-chart__legend-dot--nonRendu"></span>NON RENDU <strong>${totals.nonRendu}</strong><span class="effects-chart__legend-cost">${formatAmountWithEuro(totalsCost.nonRendu)}</span></span>
-      <span class="effects-chart__legend-item"><span class="effects-chart__legend-dot effects-chart__legend-dot--restitue"></span>RENDU <strong>${totals.restitue}</strong><span class="effects-chart__legend-cost">${formatAmountWithEuro(totalsCost.restitue)}</span></span>
-      <span class="effects-chart__legend-item"><span class="effects-chart__legend-dot effects-chart__legend-dot--perdu"></span>PERDU <strong>${totals.perdu}</strong><span class="effects-chart__legend-cost">${formatAmountWithEuro(totalsCost.perdu)}</span></span>
-      <span class="effects-chart__legend-item"><span class="effects-chart__legend-dot effects-chart__legend-dot--vole"></span>VOLE <strong>${totals.vole}</strong><span class="effects-chart__legend-cost">${formatAmountWithEuro(totalsCost.vole)}</span></span>
-      <span class="effects-chart__legend-item"><span class="effects-chart__legend-dot effects-chart__legend-dot--hs"></span>HS <strong>${totals.hs}</strong><span class="effects-chart__legend-cost">${formatAmountWithEuro(totalsCost.hs)}</span></span>
-    </div>`;
-  const rowsMarkup = rows
-    .map(([type, row]) => {
-      const width = Math.max(8, Math.round((row.total / maxValue) * 100));
-      const segmentMarkup = [
-        ["actif", "ACTIF"],
-        ["nonRendu", "NON RENDU"],
-        ["restitue", "RENDU"],
-        ["perdu", "PERDU"],
-        ["vole", "VOLE"],
-        ["hs", "HS"],
-      ]
-        .filter(([key]) => row.segments[key] > 0)
-        .map(
-          ([key, label]) =>
-            `<span class="effects-chart__segment effects-chart__segment--${key}" style="width:${(row.segments[key] / row.total) * 100}%" title="${label} : ${row.segments[key]}"></span>`
-        )
-        .join("");
-      return `<div class="effects-chart__row">
-        <span class="effects-chart__label">${escapeHtml(type)}</span>
-        <span class="effects-chart__track" aria-hidden="true">
-          <span class="effects-chart__bar-group" style="width:${width}%">${segmentMarkup}</span>
-        </span>
-        <strong class="effects-chart__value">${row.total}</strong>
-      </div>`;
-    })
-    .join("");
-  node.innerHTML = `${summaryMarkup}${legendMarkup}${rowsMarkup}`;
-}
-
-function renderGlobalEffectsChart(persons) {
-  renderEffectsChart("global-effects-chart", persons);
-}
-
-function effectMatchesSiteFilter(person, effect, site) {
-  const normalizedSite = normalizeText(site);
-  if (!normalizedSite) {
-    return true;
-  }
-
-  const effectSite = normalizeText(effect?.siteReference || referenceSiteFromEffect(effect));
-  if (effectSite) {
-    return effectSite === ALL_SITES_VALUE || effectSite === normalizedSite;
-  }
-
-  return personHasSite(person, normalizedSite);
-}
-
-function getCurrentPerson() {
-  const personId = getCurrentPersonId();
-  return state.data?.personnes?.find((entry) => entry.id === personId) || null;
-}
-
-function sortDocumentsArchives() {
-  if (!Array.isArray(state.data?.documentsArchives)) {
-    return;
-  }
-  state.data.documentsArchives.sort((left, right) => {
-    const leftLabel = `${String(left.dateDocument || "")} ${normalizeText(left.nom)} ${normalizeText(left.prenom)} ${normalizeText(left.typeDocument)}`;
-    const rightLabel = `${String(right.dateDocument || "")} ${normalizeText(right.nom)} ${normalizeText(right.prenom)} ${normalizeText(right.typeDocument)}`;
-    return rightLabel.localeCompare(leftLabel, "fr");
-  });
-}
-
-function sanitizeFilePart(value) {
-  return String(value || "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^A-Za-z0-9_-]+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "") || "document";
-}
-
-function getDocumentArchiveStoragePath(entry) {
-  const folder = normalizeText(entry?.typeDocument) === "SORTIE" ? "archives/pdf/sortie" : "archives/pdf/arrivee";
-  const name = `${sanitizeFilePart(entry?.dateDocument || getTodayIsoDate())}_${sanitizeFilePart(entry?.nom)}_${sanitizeFilePart(entry?.prenom)}.pdf`;
-  return `${folder}/${name}`;
-}
-
-function getDocumentArchiveSignatureStatus(entry) {
-  return normalizeText(entry?.statutSignature) || "EN ATTENTE";
-}
-
-function getDocumentTypeLabel(docType) {
-  return normalizeText(docType) === "EXIT" ? "SORTIE" : "ARRIVEE";
-}
-
-function isDocumentFullySigned(person, docType) {
-  const hasPersonnelSignature =
-    Boolean(getSignatureValue(person, docType, "personnel")) &&
-    Boolean(getSignatureValidationDate(person, docType, "personnel"));
-  const hasRepresentativeSignature =
-    Boolean(getSignatureValue(person, docType, "representant")) &&
-    Boolean(getSignatureValidationDate(person, docType, "representant"));
-  return hasPersonnelSignature && hasRepresentativeSignature;
-}
-
-function validateFinalSignatureBeforeSave(person, docType) {
-  if (!person) {
-    return { ok: false, message: "AUCUNE PERSONNE SELECTIONNEE" };
-  }
-  if (normalizeText(docType) !== "EXIT") {
-    return { ok: true, message: "" };
-  }
-
-  const effects = person.effetsConfies || [];
-  const hasInvalidRestitution = effects.some(
-    (effect) =>
-      normalizeText(getEffectStatus(person, effect)) === "RESTITUE" &&
-      !normalizeDateString(effect?.dateRetour || "")
-  );
-  if (hasInvalidRestitution) {
-    return {
-      ok: false,
-      message: "VERROU SIGNATURE: AU MOINS UN EFFET RESTITUE N'A PAS DE DATE DE RETOUR",
-    };
-  }
-
-  const nonRendus = effects.filter((effect) => normalizeText(getEffectStatus(person, effect)) === "NON RENDU");
-  const totalFacturable = effects
-    .filter((effect) => isEffectChargeable(person, effect))
-    .reduce((sum, effect) => sum + getEffectReplacementCost(person, effect), 0);
-
-  if (nonRendus.length > 0 && totalFacturable <= 0) {
-    return {
-      ok: false,
-      message: "VERROU SIGNATURE: DES EFFETS NON RENDUS SONT PRESENTS MAIS LE TOTAL FACTURABLE EST A ZERO",
-    };
-  }
-
-  return { ok: true, message: "" };
-}
-
-function getDocumentArchiveDate(person, docType) {
-  return normalizeText(docType) === "EXIT"
-    ? person?.dateSortieReelle || person?.dateSortiePrevue || getTodayIsoDate()
-    : person?.dateEntree || getTodayIsoDate();
-}
-
-function getDocumentArchiveEntryMode(entry) {
-  return normalizeText(entry?.documentMode || "STANDARD");
-}
-
-function getDocumentArchiveVersionLabel(entry) {
-  return getDocumentArchiveEntryMode(entry) === "COMPLEMENTAIRE" ? "AVENANT" : "INITIAL";
-}
-
-function getDocumentArchiveMode(person, docType) {
-  if (!state.data || !person || normalizeText(docType) !== "ARRIVAL") {
-    return "STANDARD";
-  }
-  const signedArrivalArchives = (state.data.documentsArchives || []).filter(
-    (entry) =>
-      String(entry.personId || "") === String(person.id || "") &&
-      normalizeText(entry.typeDocument) === "ARRIVEE" &&
-      getDocumentArchiveSignatureStatus(entry) === "SIGNE"
-  );
-  if (!signedArrivalArchives.length) {
-    return "STANDARD";
-  }
-  const fingerprint = getDocumentFingerprint(person, docType);
-  const matchingArchive = signedArrivalArchives.find((entry) => String(entry.fingerprint || "") === fingerprint);
-  if (matchingArchive) {
-    return getDocumentArchiveEntryMode(matchingArchive);
-  }
-  return "COMPLEMENTAIRE";
-}
-
-function getEffectMovementKey(effect) {
-  const explicitId = String(effect?.id || "").trim();
-  if (explicitId) {
-    return `ID:${explicitId}`;
-  }
-  return [
-    normalizeText(effect?.typeEffet),
-    normalizeText(effect?.siteReference || referenceSiteFromEffect(effect)),
-    normalizeText(getEffectDisplayDesignation(effect)),
-    normalizeText(effect?.numeroIdentification),
-    String(effect?.dateRemise || ""),
-  ].join("|");
-}
-
-function getEffectStableKey(effect) {
-  const explicitId = String(effect?.id || "").trim();
-  if (explicitId) {
-    return `ID:${explicitId}`;
-  }
-  return [
-    normalizeText(effect?.typeEffet),
-    normalizeText(effect?.siteReference || referenceSiteFromEffect(effect)),
-    normalizeText(getEffectDisplayDesignation(effect)),
-    normalizeText(effect?.numeroIdentification),
-  ].join("|");
-}
-
-function getEffectComparableSignature(person, effect) {
-  return JSON.stringify({
-    typeEffet: normalizeText(effect?.typeEffet),
-    site: normalizeText(effect?.siteReference || referenceSiteFromEffect(effect)),
-    designation: normalizeText(getEffectDisplayDesignation(effect)),
-    numeroIdentification: normalizeText(effect?.numeroIdentification),
-    vehiculeImmatriculation: normalizeText(effect?.vehiculeImmatriculation),
-    dateRemise: String(effect?.dateRemise || ""),
-    dateRetour: String(effect?.dateRetour || ""),
-    statut: normalizeText(getEffectStatus(person, effect)),
-    cause: normalizeText(getEffectReplacementCause(person, effect)),
-    dateRemplacement: String(effect?.dateRemplacement || ""),
-    commentaire: normalizeText(effect?.commentaire),
-    cout: normalizeAmount(getEffectReplacementCost(person, effect)),
-  });
-}
-
-function getMovementBadgeVariant(movement) {
-  const normalized = normalizeText(movement);
-  if (normalized === "RENDU") return "retour";
-  if (normalized === "PERDU") return "perdu";
-  if (normalized === "DETRUIT") return "hs";
-  if (normalized === "VOLE") return "vole";
-  if (normalized === "HS") return "hs";
-  if (normalized === "NON RENDU") return "non-rendu";
-  if (normalized === "SUPPRIME") return "supprime";
-  if (normalized === "MODIFIE") return "modifie";
-  return "ajout";
-}
-
-function getMovementRowVariant(movement) {
-  const normalized = normalizeText(movement);
-  if (normalized === "RENDU") return "returned";
-  if (normalized === "PERDU") return "lost";
-  if (normalized === "DETRUIT") return "hs";
-  if (normalized === "VOLE") return "stolen";
-  if (normalized === "HS") return "hs";
-  if (normalized === "SUPPRIME") return "removed";
-  if (normalized === "MODIFIE") return "updated";
-  return "added";
-}
-
-function getArrivalDeletedEffects(person, currentEffects) {
-  const latestSignedArrival = getLatestSignedArrivalArchiveForPerson(person?.id);
-  if (!latestSignedArrival?.fingerprint) {
-    return [];
-  }
-
-  let baselineEffects = [];
-  try {
-    const payload = JSON.parse(String(latestSignedArrival.fingerprint || ""));
-    baselineEffects = Array.isArray(payload?.effects) ? payload.effects : [];
-  } catch (error) {
-    baselineEffects = [];
-  }
-  if (!baselineEffects.length) {
-    return [];
-  }
-
-  const currentById = new Set(
-    (currentEffects || [])
-      .map((effect) => String(effect?.id || "").trim())
-      .filter(Boolean)
-  );
-  const currentByStable = new Set(
-    (currentEffects || [])
-      .map((effect) => getEffectStableKey(effect))
-      .filter(Boolean)
-  );
-
-  return baselineEffects
-    .filter((baselineEffect) => {
-      const baselineId = String(baselineEffect?.id || "").trim();
-      if (baselineId && currentById.has(baselineId)) {
-        return false;
-      }
-      const baselineStable = getEffectStableKey(baselineEffect);
-      if (baselineStable && currentByStable.has(baselineStable)) {
-        return false;
-      }
-      return true;
-    })
-    .map((baselineEffect, index) => ({
-      ...baselineEffect,
-      id: `DEL-${person?.id || "P"}-${index}-${String(baselineEffect?.id || "").trim() || getEffectStableKey(baselineEffect)}`,
-      __movementOverride: "SUPPRIME",
-      __archivedDeleted: true,
-    }));
-}
-
-function normalizeDateString(value) {
-  const raw = String(value || "").trim();
-  if (!raw) {
-    return "";
-  }
-  const isoMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (isoMatch) {
-    return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
-  }
-  const frMatch = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
-  if (frMatch) {
-    return `${frMatch[3]}-${frMatch[2]}-${frMatch[1]}`;
-  }
-  const parsed = new Date(raw);
-  if (Number.isNaN(parsed.getTime())) {
-    return "";
-  }
-  const year = String(parsed.getFullYear());
-  const month = String(parsed.getMonth() + 1).padStart(2, "0");
-  const day = String(parsed.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function getLatestSignedArrivalArchiveForPerson(personId) {
-  const entries = (state.data?.documentsArchives || [])
-    .filter(
-      (entry) =>
-        String(entry?.personId || "") === String(personId || "") &&
-        normalizeText(entry?.typeDocument) === "ARRIVEE" &&
-        normalizeText(entry?.statutSignature) === "SIGNE"
-    )
-    .slice()
-    .sort((left, right) => String(right?.dateArchivage || "").localeCompare(String(left?.dateArchivage || "")));
-  return entries[0] || null;
-}
-
-function getArrivalComplementMovementMap(person, effects) {
-  const movements = new Map();
-  if (!person || !Array.isArray(effects) || !effects.length) {
-    return movements;
-  }
-
-  const latestSignedArrival = getLatestSignedArrivalArchiveForPerson(person.id);
-  let baselineKeys = new Set();
-  let baselineByStableKey = new Map();
-  const baselineArchivedAt = normalizeDateString(latestSignedArrival?.dateArchivage || "");
-  if (latestSignedArrival?.fingerprint) {
-    try {
-      const payload = JSON.parse(String(latestSignedArrival.fingerprint || ""));
-      const baselineEffects = Array.isArray(payload?.effects) ? payload.effects : [];
-      baselineKeys = new Set(
-        baselineEffects
-          .map((effect) => getEffectMovementKey(effect))
-          .filter(Boolean)
-      );
-      baselineByStableKey = new Map(
-        baselineEffects
-          .map((effect) => [getEffectStableKey(effect), effect])
-          .filter(([key]) => Boolean(key))
-      );
-    } catch (error) {
-      baselineKeys = new Set();
-      baselineByStableKey = new Map();
-    }
-  }
-
-  effects.forEach((effect) => {
-    const key = getEffectMovementKey(effect);
-    if (!key) {
-      return;
-    }
-    if (String(effect?.dateRetour || "")) {
-      movements.set(key, "RENDU");
-      return;
-    }
-    const effectStatus = normalizeText(getEffectStatus(person, effect));
-    const effectCause = normalizeText(getEffectReplacementCause(person, effect));
-    if (effectStatus === "HS") {
-      movements.set(key, "HS");
-      return;
-    }
-    if (effectCause === "VOL") {
-      movements.set(key, "VOLE");
-      return;
-    }
-    if (effectStatus === "PERDU" || effectCause === "PERTE") {
-      movements.set(key, "PERDU");
-      return;
-    }
-    if (baselineKeys.size && !baselineKeys.has(key)) {
-      movements.set(key, "AJOUTE");
-      return;
-    }
-    const stableKey = getEffectStableKey(effect);
-    const baselineEffect = stableKey ? baselineByStableKey.get(stableKey) : null;
-    if (baselineEffect) {
-      const baselineSignature = getEffectComparableSignature(
-        person,
-        {
-          ...effect,
-          ...baselineEffect,
-          siteReference: baselineEffect?.site || baselineEffect?.siteReference || effect?.siteReference || "",
-        }
-      );
-      const currentSignature = getEffectComparableSignature(person, effect);
-      if (baselineSignature !== currentSignature) {
-        movements.set(key, "MODIFIE");
-        return;
-      }
-    }
-    if (!baselineKeys.size && baselineArchivedAt) {
-      const remiseDate = normalizeDateString(effect?.dateRemise || "");
-      if (remiseDate && remiseDate >= baselineArchivedAt) {
-        movements.set(key, "AJOUTE");
-      }
-      return;
-    }
-    if (!baselineKeys.size && !baselineArchivedAt) {
-      movements.set(key, "AJOUTE");
-    }
-  });
-
-  return movements;
-}
-
-function getEffectMovementLabel(person, effect, movementMap = null) {
-  const forcedMovement = normalizeText(effect?.__movementOverride || "");
-  if (forcedMovement) {
-    return forcedMovement;
-  }
-  const key = getEffectMovementKey(effect);
-  if (movementMap instanceof Map && key) {
-    const fromMap = String(movementMap.get(key) || "").trim();
-    if (fromMap) {
-      return fromMap;
-    }
-  }
-
-  if (String(effect?.dateRetour || "").trim()) {
-    return "RENDU";
-  }
-
-  const effectStatus = normalizeText(getEffectStatus(person, effect));
-  const effectCause = normalizeText(getEffectReplacementCause(person, effect));
-
-  if (effectStatus === "DETRUIT") {
-    return "HS";
-  }
-  if (effectStatus === "HS") {
-    return "HS";
-  }
-  if (effectCause === "VOL") {
-    return "VOLE";
-  }
-  if (effectStatus === "PERDU" || effectCause === "PERTE") {
-    return "PERDU";
-  }
-  if (effectStatus === "NON RENDU") {
-    return "NON RENDU";
-  }
-  return "";
-}
-
-function getDocumentFingerprint(person, docType) {
-  if (!person) {
-    return "";
-  }
-  const normalizedDocType = normalizeText(docType);
-  const bucket = normalizedDocType === "EXIT" ? "exit" : "arrival";
-  const effects = (person.effetsConfies || []).map((effect) => {
-    const baseEffect = {
-      id: String(effect.id || ""),
-      typeEffet: normalizeText(effect.typeEffet),
-      site: normalizeText(effect.siteReference || referenceSiteFromEffect(effect)),
-      designation: normalizeText(getEffectDisplayDesignation(effect)),
-      numeroIdentification: normalizeText(effect.numeroIdentification),
-      vehiculeImmatriculation: normalizeText(effect.vehiculeImmatriculation),
-      dateRemise: String(effect.dateRemise || ""),
-      commentaire: normalizeText(effect.commentaire),
-    };
-
-    if (normalizedDocType === "ARRIVAL") {
-      return {
-        ...baseEffect,
-        cout: normalizeAmount(getEffectUnitValue(effect)),
-      };
-    }
-
-    return {
-      ...baseEffect,
-      dateRetour: String(effect.dateRetour || ""),
-      statut: normalizeText(getEffectStatus(person, effect)),
-      cause: normalizeText(getEffectReplacementCause(person, effect)),
-      dateRemplacement: String(effect.dateRemplacement || ""),
-      cout: normalizeAmount(getEffectReplacementCost(person, effect)),
-    };
-  });
-
-  return JSON.stringify({
-    layoutVersion: PDF_LAYOUT_VERSION,
-    docType: normalizedDocType,
-    personId: String(person.id || ""),
-    nom: normalizeText(person.nom),
-    prenom: normalizeText(person.prenom),
-    fonction: normalizeFunctionLabel(person.fonction),
-    typePersonnel: normalizeText(person.typePersonnel),
-    typeContrat: normalizeText(person.typeContrat),
-    sites: getPersonSites(person),
-    dateEntree: String(person.dateEntree || ""),
-    dateSortiePrevue: String(person.dateSortiePrevue || ""),
-    dateSortieReelle: normalizedDocType === "EXIT" ? String(person.dateSortieReelle || "") : "",
-    representant: getRepresentativeInfo(person, bucket),
-    signatures: {
-      personnel: Boolean(getSignatureValue(person, bucket, "personnel")),
-      representant: Boolean(getSignatureValue(person, bucket, "representant")),
-      personnelDate: String(getSignatureValidationDate(person, bucket, "personnel") || ""),
-      representantDate: String(getSignatureValidationDate(person, bucket, "representant") || ""),
-    },
-    effects,
-  });
-}
-
-function getDocumentArchiveOpenPath(entry) {
-  const raw = String(entry?.pdfPath || "").trim();
-  if (!raw) {
-    return "";
-  }
-  if (/^https?:\/\//i.test(raw)) {
-    return raw;
-  }
-  const storageRef = parseStorageSchemePath(raw);
-  if (storageRef) {
-    return getSupabaseStoragePublicUrl(storageRef.bucket, storageRef.objectPath) || "";
-  }
-  return raw.replace(/^\/+/, "");
-}
-
-function getArchiveEntrySites(entry) {
-  return normalizeSites(String(entry?.sites || "").split("/").map((value) => value.trim()));
-}
-
-function archiveEntryMatchesSite(entry, site) {
-  const normalizedSite = normalizeText(site);
-  if (!normalizedSite) {
-    return true;
-  }
-  const sites = getArchiveEntrySites(entry);
-  return sites.includes(ALL_SITES_VALUE) || sites.includes(normalizedSite);
-}
-
-function buildDocumentArchiveEntry(person, docType, pdfPath, metadataPath, archiveMode = "STANDARD") {
-  const effects = person?.effetsConfies || [];
-  const documentMode = normalizeText(archiveMode || "STANDARD");
-  const baseId = `DOC-${getDocumentTypeLabel(docType)}-${person?.id || ""}`;
-  return {
-    id: baseId,
-    personId: String(person?.id || ""),
-    nom: String(person?.nom || ""),
-    prenom: String(person?.prenom || ""),
-    typeDocument: getDocumentTypeLabel(docType),
-    documentMode,
-    dateDocument: getDocumentArchiveDate(person, docType),
-    sites: getPersonSiteLabel(person),
-    typePersonnel: String(person?.typePersonnel || ""),
-    typeContrat: String(person?.typeContrat || ""),
-    statutSignature: isDocumentFullySigned(person, docType) ? "SIGNE" : "EN ATTENTE",
-    totalEffets: effects.length,
-    totalFacturable:
-      normalizeText(docType) === "EXIT"
-        ? effects.reduce((sum, effect) => sum + getEffectReplacementCost(person, effect), 0)
-        : 0,
-    fingerprint: getDocumentFingerprint(person, docType),
-    pdfPath: String(pdfPath || ""),
-    metadataPath: String(metadataPath || ""),
-    dateArchivage: getCurrentSignatureTimestamp(),
-  };
-}
-
-function findReusableArchivedDocument(person, docType) {
-  if (!state.data || !person) {
-    return null;
-  }
-  const typeLabel = getDocumentTypeLabel(docType);
-  const archives = (state.data.documentsArchives || []).filter(
-    (entry) =>
-      String(entry.personId || "") === String(person.id || "") &&
-      normalizeText(entry.typeDocument) === typeLabel &&
-      Boolean(entry.pdfPath)
-  );
-  const fingerprint = getDocumentFingerprint(person, docType);
-  if (typeLabel === "ARRIVEE") {
-    return (
-      archives.find(
-        (entry) =>
-          getDocumentArchiveSignatureStatus(entry) === "SIGNE" &&
-          String(entry.fingerprint || "") === fingerprint
-      ) || null
-    );
-  }
-  return archives.find((entry) => String(entry.fingerprint || "") === fingerprint) || null;
-}
-
-function upsertDocumentArchiveEntry(entry) {
-  if (!state.data) {
-    return;
-  }
-  if (!Array.isArray(state.data.documentsArchives)) {
-    state.data.documentsArchives = [];
-  }
-  const index = state.data.documentsArchives.findIndex((currentEntry) => String(currentEntry.id) === String(entry.id));
-  if (index >= 0) {
-    state.data.documentsArchives[index] = {
-      ...state.data.documentsArchives[index],
-      ...entry,
-    };
-  } else {
-    state.data.documentsArchives.push(entry);
-  }
-  state.data.documentsArchives = state.data.documentsArchives.filter((currentEntry) => {
-    if (String(currentEntry.id || "") === String(entry.id || "")) {
-      return true;
-    }
-    return !(
-      String(currentEntry.personId || "") === String(entry.personId || "") &&
-      normalizeText(currentEntry.typeDocument) === normalizeText(entry.typeDocument)
-    );
-  });
-  sortDocumentsArchives();
-}
-
-async function registerArchivedDocument(person, docType, pdfPath, metadataPath, archiveMode = "STANDARD") {
-  if (!state.data || !person || !pdfPath) {
-    return;
-  }
-  if (!isDocumentFullySigned(person, docType)) {
-    return;
-  }
-  upsertDocumentArchiveEntry(buildDocumentArchiveEntry(person, docType, pdfPath, metadataPath, archiveMode));
-  markDirty();
-  await saveDataToFile({
-    silent: true,
-    reloadAfter: false,
-    successText: "ARCHIVE PDF MISE A JOUR",
-  });
-  renderDocumentsArchivePage();
-  showActionStatus("update", "PDF SIGNE ARCHIVE");
-}
-
-function renderDocumentsArchivePage() {
-  const body = document.getElementById("documents-archives-body");
-  if (!body) {
-    return;
-  }
-
-  const filterForm = document.getElementById("documents-archives-filter-form");
-  const search = normalizeText(filterForm?.elements?.archiveSearch?.value);
-  const typeDocument = normalizeText(filterForm?.elements?.archiveTypeDocument?.value);
-  const site = normalizeText(filterForm?.elements?.archiveSite?.value);
-  const statutSignature = normalizeText(filterForm?.elements?.archiveStatutSignature?.value);
-  const archiveSiteSelect = filterForm?.elements?.archiveSite;
-  syncSelectOptions(archiveSiteSelect, state.data?.listes?.sites || [], "TOUS");
-
-  let totalArchives = 0;
-  let totalArrivalArchives = 0;
-  let totalExitArchives = 0;
-  const signedArchives = (state.data?.documentsArchives || []).filter(
-    (entry) => getDocumentArchiveSignatureStatus(entry) === "SIGNE"
-  );
-  const archives = signedArchives.filter((entry) => {
-    totalArchives += 1;
-    if (normalizeText(entry.typeDocument) === "ARRIVEE") {
-      totalArrivalArchives += 1;
-    }
-    if (normalizeText(entry.typeDocument) === "SORTIE") {
-      totalExitArchives += 1;
-    }
-    if (typeDocument && normalizeText(entry.typeDocument) !== typeDocument) {
-      return false;
-    }
-    if (!archiveEntryMatchesSite(entry, site)) {
-      return false;
-    }
-    if (statutSignature && getDocumentArchiveSignatureStatus(entry) !== statutSignature) {
-      return false;
-    }
-    if (search) {
-      const haystack = [
-        entry.nom,
-        entry.prenom,
-        entry.typeDocument,
-        entry.sites,
-        entry.typePersonnel,
-        entry.typeContrat,
-        entry.pdfPath,
-      ]
-        .map(normalizeText)
-        .join(" ");
-      if (!haystack.includes(search)) {
-        return false;
-      }
-    }
-    return true;
-  });
-
-  const totalNode = document.getElementById("archive-count-total");
-  const arrivalNode = document.getElementById("archive-count-arrival");
-  const exitNode = document.getElementById("archive-count-exit");
-  if (totalNode) {
-    totalNode.textContent = String(totalArchives);
-  }
-  if (arrivalNode) {
-    arrivalNode.textContent = String(totalArrivalArchives);
-  }
-  if (exitNode) {
-    exitNode.textContent = String(totalExitArchives);
-  }
-
-  if (!archives.length) {
-    body.innerHTML = buildEmptyTableRow(body, "AUCUN DOCUMENT ARCHIVE", 11);
-    return;
-  }
-
-  const rowsHtml = archives
-    .map(
-      (entry) => {
-        const openPath = getDocumentArchiveOpenPath(entry);
-        return `<tr>
-        <td>${escapeHtml(entry.nom || "-")}</td>
-        <td>${escapeHtml(entry.prenom || "-")}</td>
-        <td>${escapeHtml(entry.typeDocument || "-")}</td>
-        <td>${escapeHtml(formatDate(entry.dateDocument) || "-")}</td>
-        <td>${escapeHtml(formatTime(entry.dateArchivage) || "-")}</td>
-        <td>${escapeHtml(entry.sites || "-")}</td>
-        <td>${escapeHtml(getDocumentArchiveSignatureStatus(entry))}</td>
-        <td>${escapeHtml(String(entry.totalEffets ?? "-"))}</td>
-        <td>${formatAmountWithEuro(entry.totalFacturable || 0)}</td>
-        <td>${escapeHtml(getDocumentArchiveVersionLabel(entry))}</td>
-        <td class="archive-actions-cell">${openPath ? `<a class="archive-pdf-button" href="${escapeHtml(openPath)}" target="_blank" rel="noopener" aria-label="OUVRIR PDF"><span class="archive-pdf-button__icon" aria-hidden="true"><img src="https://dphrvdhqhgycmllietuk.supabase.co/storage/v1/object/public/ui-assets/ui/icone-pdf.png" alt="" class="archive-pdf-button__image" /></span></a>` : "-"} <button type="button" class="table-link js-delete-archive-row" data-archive-id="${escapeHtml(String(entry.id || ""))}">SUPPRIMER</button></td>
-      </tr>`;
-      }
-    );
-
-  renderTableRowsProgressively(body, rowsHtml, buildEmptyTableRow(body, "AUCUN DOCUMENT ARCHIVE", 11), 24);
-  bindArchiveRowActions();
-}
-
-function deleteDocumentArchiveEntry(archiveId) {
-  if (!archiveId || !Array.isArray(state.data?.documentsArchives)) {
-    return;
-  }
-  const archive = state.data.documentsArchives.find((entry) => String(entry?.id || "") === String(archiveId));
-  if (!archive) {
-    return;
-  }
-  const displayName = `${archive.nom || ""} ${archive.prenom || ""}`.trim();
-  const confirmDelete = window.confirm(
-    `SUPPRIMER CETTE LIGNE D'ARCHIVE${displayName ? ` : ${displayName}` : ""} ?`
-  );
-  if (!confirmDelete) {
-    return;
-  }
-
-  pushUndoSnapshot("SUPPRESSION ARCHIVE");
-  state.data.documentsArchives = state.data.documentsArchives.filter(
-    (entry) => String(entry?.id || "") !== String(archiveId)
-  );
-  markDirty();
-  renderDocumentsArchivePage();
-  showActionStatus("delete", `ARCHIVE SUPPRIMEE : ${archive.typeDocument || "DOCUMENT"} ${displayName}`.trim());
-}
-
-function bindArchiveRowActions() {
-  const body = document.getElementById("documents-archives-body");
-  if (!body || body.dataset.boundArchiveActions === "true") {
-    return;
-  }
-
-  body.addEventListener("click", (event) => {
-    const target = event.target;
-    if (!(target instanceof HTMLElement)) {
-      return;
-    }
-    const deleteButton = target.closest(".js-delete-archive-row");
-    if (!(deleteButton instanceof HTMLElement)) {
-      return;
-    }
-    const archiveId = String(deleteButton.dataset.archiveId || "");
-    if (!archiveId) {
-      return;
-    }
-    deleteDocumentArchiveEntry(archiveId);
-  });
-
-  body.dataset.boundArchiveActions = "true";
-}
-
-function getSignatureValue(person, docType, signer) {
-  if (!person?.signatures?.[docType]) {
-    return "";
-  }
-  const rawValue = String(person.signatures[docType][signer]?.image || "");
-  const storageRef = parseStorageSchemePath(rawValue);
-  if (storageRef) {
-    return getSupabaseStoragePublicUrl(storageRef.bucket, storageRef.objectPath) || "";
-  }
-  return rawValue;
-}
-
-function getRepresentativeInfo(person, docType) {
-  if (!person?.representants?.[docType]) {
-    return { id: "", nom: "", fonction: "" };
-  }
-  return {
-    id: String(person.representants[docType].id || ""),
-    nom: String(person.representants[docType].nom || ""),
-    fonction: String(person.representants[docType].fonction || ""),
-  };
-}
-
-function setRepresentativeInfo(person, docType, values) {
-  if (!person) {
-    return;
-  }
-  if (!person.representants || typeof person.representants !== "object") {
-    person.representants = {};
-  }
-  if (!person.representants[docType] || typeof person.representants[docType] !== "object") {
-    person.representants[docType] = {};
-  }
-  const normalizedNom = normalizeText(values.nom);
-  const normalizedFonction = normalizeText(values.fonction);
-  const representative = ensureRepresentativeReference(normalizedNom, normalizedFonction);
-  person.representants[docType].id = representative?.id || "";
-  person.representants[docType].nom = representative?.nom || normalizedNom;
-  person.representants[docType].fonction = representative?.fonction || normalizedFonction;
-}
-
-function findRepresentativeByValues(nom, fonction) {
-  const normalizedNom = normalizeText(nom);
-  const normalizedFonction = normalizeText(fonction);
-  return (state.data?.listes?.representantsSignataires || []).find(
-    (entry) => normalizeText(entry.nom) === normalizedNom && normalizeText(entry.fonction) === normalizedFonction
-  ) || null;
-}
-
-function findRepresentativeById(representativeId) {
-  return (state.data?.listes?.representantsSignataires || []).find((entry) => entry.id === representativeId) || null;
-}
-
-function ensureRepresentativeReference(nom, fonction) {
-  const normalizedNom = normalizeText(nom);
-  const normalizedFonction = normalizeText(fonction);
-  if (!normalizedNom && !normalizedFonction) {
-    return null;
-  }
-  const existing = findRepresentativeByValues(normalizedNom, normalizedFonction);
-  if (existing) {
-    return existing;
-  }
-  const created = {
-    id: getNextId("REP", state.data?.listes?.representantsSignataires || []),
-    nom: normalizedNom,
-    fonction: normalizedFonction,
-  };
-  state.data.listes.representantsSignataires.push(created);
-  sortRepresentatives();
-  return created;
-}
-
-function updateRepresentativeLinks(previousRepresentativeId, nextRepresentative) {
-  (state.data?.personnes || []).forEach((person) => {
-    ["arrival", "exit"].forEach((docType) => {
-      const currentRepresentative = person.representants?.[docType];
-      if (!currentRepresentative) {
-        return;
-      }
-      if (String(currentRepresentative.id || "") !== String(previousRepresentativeId || "")) {
-        return;
-      }
-      currentRepresentative.id = String(nextRepresentative?.id || "");
-      currentRepresentative.nom = String(nextRepresentative?.nom || "");
-      currentRepresentative.fonction = String(nextRepresentative?.fonction || "");
-    });
-  });
-}
-
-function sortRepresentatives() {
-  if (!Array.isArray(state.data?.listes?.representantsSignataires)) {
-    return;
-  }
-  state.data.listes.representantsSignataires.sort((left, right) => {
-    const leftLabel = `${normalizeText(left.nom)} ${normalizeText(left.fonction)}`;
-    const rightLabel = `${normalizeText(right.nom)} ${normalizeText(right.fonction)}`;
-    return leftLabel.localeCompare(rightLabel, "fr");
-  });
-}
-
-function getRepresentativeUsage(representativeId) {
-  return (state.data?.personnes || []).reduce((count, person) => {
-    const arrivalMatch = String(person.representants?.arrival?.id || "") === representativeId ? 1 : 0;
-    const exitMatch = String(person.representants?.exit?.id || "") === representativeId ? 1 : 0;
-    return count + arrivalMatch + exitMatch;
-  }, 0);
-}
-
-function populateRepresentativeSelect(select, selectedId = "") {
-  if (!(select instanceof HTMLSelectElement)) {
-    return;
-  }
-  const currentValue = String(selectedId || "");
-  const representatives = (state.data?.listes?.representantsSignataires || []).slice();
-  select.innerHTML = ['<option value="">SELECTIONNER</option>']
-    .concat(
-      representatives.map(
-        (entry) =>
-          `<option value="${escapeHtml(entry.id)}">${escapeHtml(entry.nom || entry.fonction || entry.id)}</option>`
-      )
-    )
-    .join("");
-  select.value = currentValue;
-}
-
-function hasRepresentativeIdentityForDocument(docType) {
-  const nameInput = document.getElementById(`${docType}-signature-representant-name-input`);
-  const functionInput = document.getElementById(`${docType}-signature-representant-function-input`);
-  return Boolean(
-    nameInput instanceof HTMLSelectElement &&
-      functionInput instanceof HTMLInputElement &&
-      normalizeText(nameInput.value) &&
-      normalizeText(functionInput.value)
-  );
-}
-
-function updateRepresentativeSignatureActionState(docType) {
-  document
-    .querySelectorAll(`.js-signature-save[data-doc-type="${docType}"][data-signer="representant"]`)
-    .forEach((button) => {
-      const enabled = hasRepresentativeIdentityForDocument(docType);
-      button.classList.toggle("is-disabled", !enabled);
-      button.setAttribute("aria-disabled", enabled ? "false" : "true");
-      button.title = enabled
-        ? ""
-        : "VOUS DEVEZ IDENTIFIER L'IDENTITE DU REPRESENTANT DE L'ETABLISSEMENT";
-    });
-}
-
-function getSignatureValidationDate(person, docType, signer) {
-  if (!person?.signatures?.[docType]) {
-    return "";
-  }
-  return String(person.signatures[docType][signer]?.validatedAt || "");
-}
-
-function setSignatureValue(person, docType, signer, value, validatedAt = "", storageRef = "", storagePublicUrl = "") {
-  if (!person) {
-    return;
-  }
-  if (!person.signatures || typeof person.signatures !== "object") {
-    person.signatures = {};
-  }
-  if (!person.signatures[docType] || typeof person.signatures[docType] !== "object") {
-    person.signatures[docType] = {};
-  }
-  person.signatures[docType][signer] = {
-    image: String(value || ""),
-    validatedAt: String(validatedAt || ""),
-    storageRef: String(storageRef || ""),
-    storagePublicUrl: String(storagePublicUrl || ""),
-  };
-}
-
-function applySignedExitCompletion(person) {
-  if (!person || !isDocumentFullySigned(person, "exit")) {
-    return;
-  }
-  if (!person.dateSortieReelle) {
-    person.dateSortieReelle = getTodayIsoDate();
-  }
-}
-
-function resizeSignatureCanvas(canvas) {
-  const ratio = window.devicePixelRatio || 1;
-  const width = Math.max(1, Math.round(canvas.clientWidth));
-  const height = Math.max(1, Math.round(canvas.clientHeight));
-  const targetWidth = Math.max(1, Math.round(width * ratio));
-  const targetHeight = Math.max(1, Math.round(height * ratio));
-  const needsResize = canvas.width !== targetWidth || canvas.height !== targetHeight;
-  if (needsResize) {
-    canvas.width = targetWidth;
-    canvas.height = targetHeight;
-  }
-  const context = canvas.getContext("2d");
-  if (!context) {
-    return null;
-  }
-  context.setTransform(ratio, 0, 0, ratio, 0, 0);
-  context.lineCap = "round";
-  context.lineJoin = "round";
-  context.lineWidth = 2;
-  context.strokeStyle = "#233f4d";
-  return context;
-}
-
-function clearSignatureCanvas(canvas) {
-  const context = resizeSignatureCanvas(canvas);
-  if (!context) {
-    return;
-  }
-  context.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
-}
-
-function drawSignatureFromDataUrl(canvas, dataUrl) {
-  const context = resizeSignatureCanvas(canvas);
-  if (!context) {
-    return;
-  }
-  context.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
-  if (!dataUrl) {
-    return;
-  }
-
-  const image = new Image();
-  image.onload = () => {
-    const width = canvas.clientWidth;
-    const height = canvas.clientHeight;
-    context.clearRect(0, 0, width, height);
-    const sourceWidth = Math.max(1, image.naturalWidth || image.width || 1);
-    const sourceHeight = Math.max(1, image.naturalHeight || image.height || 1);
-    const scale = Math.min(width / sourceWidth, height / sourceHeight);
-    const drawWidth = sourceWidth * scale;
-    const drawHeight = sourceHeight * scale;
-    const offsetX = (width - drawWidth) / 2;
-    const offsetY = (height - drawHeight) / 2;
-    context.drawImage(image, offsetX, offsetY, drawWidth, drawHeight);
-  };
-  image.src = dataUrl;
-}
-
-function refreshDocumentSignatureCanvases(docType) {
-  document.querySelectorAll(`.js-signature-canvas[data-doc-type="${docType}"]`).forEach((canvas) => {
-    const person = getCurrentPerson();
-    const signer = String(canvas.getAttribute("data-signer") || "");
-    const dataUrl = getSignatureValue(person, docType, signer);
-    const canvasState = signatureCanvases.get(canvas);
-    if (canvasState) {
-      canvasState.pendingDataUrl = dataUrl;
-    }
-    drawSignatureFromDataUrl(canvas, dataUrl);
-
-    const statusNode = canvas
-      .closest(".signature-box")
-      ?.querySelector(".signature-box__status");
-    if (statusNode) {
-      const hasSignature = Boolean(dataUrl);
-      const validatedAt = formatSignatureTimestamp(getSignatureValidationDate(person, docType, signer));
-      statusNode.textContent = hasSignature
-        ? validatedAt
-          ? `SIGNATURE ENREGISTREE LE ${validatedAt}`
-          : "SIGNATURE ENREGISTREE"
-        : "AUCUNE SIGNATURE";
-      statusNode.classList.toggle("is-signed", hasSignature);
-    }
-  });
-}
-
-function bindRepresentativeFields() {
-  [
-    { docType: "arrival", nameInputId: "arrival-signature-representant-name-input", functionInputId: "arrival-signature-representant-function-input" },
-    { docType: "exit", nameInputId: "exit-signature-representant-name-input", functionInputId: "exit-signature-representant-function-input" },
-  ].forEach(({ docType, nameInputId, functionInputId }) => {
-    const nameInput = document.getElementById(nameInputId);
-    const functionInput = document.getElementById(functionInputId);
-    if (!(nameInput instanceof HTMLSelectElement) || !(functionInput instanceof HTMLInputElement)) {
-      return;
-    }
-
-    const syncRepresentativeOptions = () => {
-      const person = getCurrentPerson();
-      populateRepresentativeSelect(nameInput, person ? getRepresentativeInfo(person, docType).id : "");
-    };
-
-    const applyRepresentativeSelection = () => {
-      const person = getCurrentPerson();
-      if (!person) {
-        functionInput.value = "";
-        return;
-      }
-      const representative = findRepresentativeById(nameInput.value);
-      functionInput.value = representative?.fonction || "";
-    };
-
-    const syncRepresentative = () => {
-      const person = getCurrentPerson();
-      syncRepresentativeOptions();
-      if (!person) {
-        functionInput.value = "";
-        updateRepresentativeSignatureActionState(docType);
-        return;
-      }
-      const currentRepresentative = getRepresentativeInfo(person, docType);
-      const linkedRepresentative =
-        findRepresentativeById(currentRepresentative.id) ||
-        findRepresentativeByValues(currentRepresentative.nom, currentRepresentative.fonction);
-      functionInput.value = linkedRepresentative?.fonction || currentRepresentative.fonction || "";
-      updateRepresentativeSignatureActionState(docType);
-    };
-
-    const saveRepresentative = () => {
-      const person = getCurrentPerson();
-      if (!person) {
-        functionInput.value = "";
-        updateRepresentativeSignatureActionState(docType);
-        return;
-      }
-      const representative = findRepresentativeById(nameInput.value);
-      functionInput.value = representative?.fonction || "";
-      setRepresentativeInfo(person, docType, {
-        nom: representative?.nom || "",
-        fonction: representative?.fonction || "",
-      });
-      if (representative) {
-        const currentSignature = person.signatures?.[docType]?.representant || {};
-        if (!String(currentSignature.validatedAt || "")) {
-          setSignatureValue(
-            person,
-            docType,
-            "representant",
-            String(currentSignature.image || ""),
-            getCurrentSignatureTimestamp(),
-            String(currentSignature.storageRef || ""),
-            String(currentSignature.storagePublicUrl || "")
-          );
-        }
-      }
-      const representantNameNode = document.getElementById(`${docType}-signature-representant-name`);
-      const representantFunctionNode = document.getElementById(`${docType}-signature-representant-function`);
-      const signatureRepresentantDateNode = document.getElementById(`${docType}-signature-representant-date`);
-      if (representantNameNode) {
-        representantNameNode.textContent = representative?.nom || "-";
-      }
-      if (representantFunctionNode) {
-        representantFunctionNode.textContent = representative?.fonction || "-";
-      }
-      if (signatureRepresentantDateNode) {
-        signatureRepresentantDateNode.textContent =
-          formatSignatureTimestamp(getSignatureValidationDate(person, docType, "representant")) || "-";
-      }
-      markDirty();
-      updateDocumentPdfButtonsState();
-      updateRepresentativeSignatureActionState(docType);
-      syncDocumentMobileSignatureLink(docType, person.id, "representant");
-      showActionStatus("update", "REPRESENTANT MIS A JOUR");
-    };
-
-    syncRepresentative();
-    nameInput.onfocus = syncRepresentativeOptions;
-    nameInput.onmousedown = syncRepresentativeOptions;
-    nameInput.onclick = syncRepresentativeOptions;
-    nameInput.oninput = applyRepresentativeSelection;
-    nameInput.onchange = () => {
-      applyRepresentativeSelection();
-      updateRepresentativeSignatureActionState(docType);
-      saveRepresentative();
-    };
-    updateRepresentativeSignatureActionState(docType);
-  });
-}
-
-function bindSignatureCanvases() {
-  document.querySelectorAll(".js-signature-canvas").forEach((canvas) => {
-    if (signatureCanvases.has(canvas)) {
-      return;
-    }
-
-    const stateRef = {
-      drawing: false,
-      moved: false,
-      pointerId: null,
-      context: null,
-      pendingDataUrl: "",
-    };
-    signatureCanvases.set(canvas, stateRef);
-
-    const getContext = () => {
-      stateRef.context = resizeSignatureCanvas(canvas);
-      return stateRef.context;
-    };
-
-    const getPoint = (event) => {
-      const rect = canvas.getBoundingClientRect();
-      return {
-        x: event.clientX - rect.left,
-        y: event.clientY - rect.top,
-      };
-    };
-
-    const storePendingSignature = () => {
-      stateRef.pendingDataUrl = canvas.toDataURL("image/png");
-    };
-
-    const saveSignature = async () => {
-      const person = getCurrentPerson();
-      const docType = String(canvas.getAttribute("data-doc-type") || "");
-      const signer = String(canvas.getAttribute("data-signer") || "");
-      if (!person || !docType || !signer) {
-        return;
-      }
-      const wasFullySigned = isDocumentFullySigned(person, docType);
-      const nextValue = stateRef.pendingDataUrl || "";
-      const validatedAt = nextValue ? getCurrentSignatureTimestamp() : "";
-      let signatureStorageRef = "";
-      let signatureStoragePublicUrl = "";
-      if (nextValue && isSupabaseConfigured()) {
-        try {
-          const signatureUpload = await uploadSignatureImageToSupabaseStorage(docType, person, signer, nextValue);
-          signatureStorageRef = String(signatureUpload?.storageRef || "");
-          signatureStoragePublicUrl = String(signatureUpload?.publicUrl || "");
-          if (signatureStorageRef) {
-            console.info("[SUPABASE][SIGNATURE] final storage path", signatureStorageRef);
-          }
-        } catch (signatureUploadError) {
-          console.error("[SUPABASE][SIGNATURE] upload fail", signatureUploadError);
-          const message = String(signatureUploadError?.message || "ERREUR INCONNUE").slice(0, 160);
-          showDataStatus(`UPLOAD SIGNATURE SUPABASE IMPOSSIBLE (${message})`);
-        }
-      }
-      setSignatureValue(
-        person,
-        docType,
-        signer,
-        nextValue,
-        validatedAt,
-        signatureStorageRef,
-        signatureStoragePublicUrl
-      );
-      if (docType === "arrival") {
-        renderArrivalDocument(person.id);
-      } else if (docType === "exit") {
-        renderExitDocument(person.id);
-      }
-      refreshDocumentSignatureCanvases(docType);
-      updateDocumentPdfButtonsState();
-      if (document.body.dataset.page === "mobile-signature" && nextValue) {
-        const request = getCurrentMobileSignatureRequest();
-        if (
-          request &&
-          normalizeText(request.docType) === normalizeText(docType) &&
-          normalizeMobileSignatureSigner(request.signer || "") === signer
-        ) {
-          markMobileSignatureRequestSigned(request);
-        }
-      }
-      if (nextValue && docType === "exit") {
-        applySignedExitCompletion(person);
-      }
-      const isNowFullySigned = isDocumentFullySigned(person, docType);
-      markDirty();
-      const saveText =
-        isNowFullySigned && !wasFullySigned
-          ? "DOCUMENT SIGNE - SAUVEGARDE AUTOMATIQUE"
-          : nextValue
-            ? "SIGNATURE VALIDEE"
-            : "SIGNATURE SUPPRIMEE";
-      const signatureBox = canvas.closest(".signature-box");
-      if (nextValue && signatureBox instanceof HTMLElement) {
-        signatureBox.classList.remove("signature-box--validated-once");
-        void signatureBox.offsetWidth;
-        signatureBox.classList.add("signature-box--validated-once");
-        window.setTimeout(() => {
-          signatureBox.classList.remove("signature-box--validated-once");
-        }, 700);
-      }
-      showActionStatus(nextValue ? "update" : "delete", saveText);
-      const isMobileSignaturePage = document.body.dataset.page === "mobile-signature";
-      const mustAlertAndClose = Boolean(nextValue) && isMobileSignaturePage;
-      await saveDataToFile({
-        silent: !mustAlertAndClose,
-        reloadAfter: !mustAlertAndClose,
-        successText: saveText,
-        alertText: "DONNEES SUPABASE MISES A JOUR",
-        closeAfterAlert: mustAlertAndClose,
-      });
-      if (document.body.dataset.page === "mobile-signature") {
-        renderMobileSignaturePage();
-      }
-    };
-
-    canvas.addEventListener("pointerdown", (event) => {
-      if (document.body.dataset.pdfMode === "true" || !getCurrentPerson()) {
-        return;
-      }
-      const context = getContext();
-      if (!context) {
-        return;
-      }
-      stateRef.drawing = true;
-      stateRef.moved = false;
-      stateRef.pointerId = event.pointerId;
-      canvas.setPointerCapture(event.pointerId);
-      const point = getPoint(event);
-      context.beginPath();
-      context.moveTo(point.x, point.y);
-      event.preventDefault();
-    });
-
-    canvas.addEventListener("pointermove", (event) => {
-      if (!stateRef.drawing || stateRef.pointerId !== event.pointerId) {
-        return;
-      }
-      const context = stateRef.context || getContext();
-      if (!context) {
-        return;
-      }
-      const point = getPoint(event);
-      context.lineTo(point.x, point.y);
-      context.stroke();
-      stateRef.moved = true;
-      event.preventDefault();
-    });
-
-    const finishDrawing = (event) => {
-      if (!stateRef.drawing || stateRef.pointerId !== event.pointerId) {
-        return;
-      }
-      if (canvas.hasPointerCapture(event.pointerId)) {
-        canvas.releasePointerCapture(event.pointerId);
-      }
-      stateRef.drawing = false;
-      stateRef.pointerId = null;
-      if (stateRef.moved) {
-        storePendingSignature();
-        showDataStatus("SIGNATURE DESSINEE - CLIQUER SUR VALIDER LA SIGNATURE");
-      }
-      event.preventDefault();
-    };
-
-    canvas.addEventListener("pointerup", finishDrawing);
-    canvas.addEventListener("pointercancel", finishDrawing);
-
-    const signatureBox = canvas.closest(".signature-box");
-    const clearButton = signatureBox?.querySelector(".js-signature-clear");
-    const saveButton = signatureBox?.querySelector(".js-signature-save");
-
-    if (saveButton instanceof HTMLButtonElement) {
-      saveButton.onclick = async () => {
-        const person = getCurrentPerson();
-        if (!person) {
-          return;
-        }
-        const docType = String(canvas.getAttribute("data-doc-type") || "");
-        const signer = String(canvas.getAttribute("data-signer") || "");
-        const currentSignerHasSignature = Boolean(getSignatureValue(person, docType, signer));
-        const otherSigner = signer === "personnel" ? "representant" : "personnel";
-        const otherSignerHasSignature = Boolean(getSignatureValue(person, docType, otherSigner));
-        const pendingValue = String(stateRef.pendingDataUrl || "");
-        const willFinalizeDocument = Boolean(pendingValue) && (otherSignerHasSignature || currentSignerHasSignature);
-        if (
-          signer === "representant" &&
-          document.body.dataset.page !== "mobile-signature" &&
-          !hasRepresentativeIdentityForDocument(docType)
-        ) {
-          showDataStatus("IDENTITE DU REPRESENTANT OBLIGATOIRE AVANT VALIDATION");
-          window.alert("VOUS DEVEZ IDENTIFIER L'IDENTITE DU REPRESENTANT DE L'ETABLISSEMENT POUR VALIDATION.");
-          updateRepresentativeSignatureActionState(docType);
-          return;
-        }
-        if (willFinalizeDocument) {
-          const check = validateFinalSignatureBeforeSave(person, docType);
-          if (!check.ok) {
-            showDataStatus(check.message);
-            window.alert(check.message);
-            return;
-          }
-        }
-        await saveSignature();
-      };
-    }
-
-    if (clearButton instanceof HTMLButtonElement) {
-      clearButton.onclick = async () => {
-        const person = getCurrentPerson();
-        const docType = String(canvas.getAttribute("data-doc-type") || "");
-        const signer = String(canvas.getAttribute("data-signer") || "");
-        if (!person || !docType || !signer) {
-          return;
-        }
-        stateRef.pendingDataUrl = "";
-        clearSignatureCanvas(canvas);
-        setSignatureValue(person, docType, signer, "", "", "", "");
-        if (document.body.dataset.page === "mobile-signature") {
-          const request = getCurrentMobileSignatureRequest();
-          if (
-            request &&
-            normalizeText(request.docType) === normalizeText(docType) &&
-            normalizeMobileSignatureSigner(request.signer || "") === signer
-          ) {
-            request.status = "EN ATTENTE";
-            request.validatedAt = "";
-          }
-        }
-        markDirty();
-        showActionStatus("delete", "SIGNATURE EFFACEE");
-        await saveDataToFile();
-        if (document.body.dataset.page === "mobile-signature") {
-          renderMobileSignaturePage();
-        }
-      };
-    }
-  });
-}
-
-function getCurrentMobileSignatureRequest() {
-  const token = getCurrentMobileSignatureToken();
-  if (!token) {
-    return null;
-  }
-  cleanupExpiredMobileSignatureRequests();
-  return findMobileSignatureRequestByToken(token);
-}
-
-function isMobileSignatureRequestValid(request) {
-  if (!request) {
-    return false;
-  }
-  if (request.status !== "EN ATTENTE") {
-    return false;
-  }
-  const expiresAt = Date.parse(request.expiresAt || "");
-  return Number.isFinite(expiresAt) && expiresAt > Date.now();
-}
-
-function markMobileSignatureRequestSigned(request) {
-  if (!request) {
-    return;
-  }
-  request.status = "SIGNEE";
-  request.validatedAt = getCurrentSignatureTimestamp();
-}
-
-function renderMobileSignaturePage() {
-  const request = getCurrentMobileSignatureRequest();
-  const person = getCurrentPerson();
-  const docType = getCurrentMobileSignatureDocType();
-  const signerFromUrl = getCurrentMobileSignatureSigner();
-  const signerFromRequest = normalizeMobileSignatureSigner(request?.signer || "");
-  const signer = request ? signerFromRequest : signerFromUrl;
-  const titleNode = document.getElementById("mobile-signature-title");
-  const subtitleNode = document.getElementById("mobile-signature-subtitle");
-  const identityLabelNode = document.getElementById("mobile-signature-identity-label");
-  const personNode = document.getElementById("mobile-signature-person");
-  const dateNode = document.getElementById("mobile-signature-date");
-  const statusNode = document.getElementById("mobile-signature-request-status");
-  const panelNode = document.getElementById("mobile-signature-panel");
-  const mobileCostsHead = document.getElementById("mobile-costs-head");
-  const mobileCostsBody = document.getElementById("mobile-costs-body");
-  const saveButton = document.querySelector(".js-signature-save");
-  const clearButton = document.querySelector(".js-signature-clear");
-  const canvas = document.querySelector(".js-signature-canvas");
-  const docLabel = normalizeText(docType) === "EXIT" ? "DOCUMENT DE SORTIE" : "DOCUMENT D'ARRIVEE";
-
-  if (canvas) {
-    canvas.setAttribute("data-doc-type", normalizeText(docType) === "EXIT" ? "exit" : "arrival");
-    canvas.setAttribute("data-signer", signer);
-  }
-  if (saveButton) {
-    saveButton.setAttribute("data-doc-type", normalizeText(docType) === "EXIT" ? "exit" : "arrival");
-    saveButton.setAttribute("data-signer", signer);
-  }
-  if (clearButton) {
-    clearButton.setAttribute("data-doc-type", normalizeText(docType) === "EXIT" ? "exit" : "arrival");
-    clearButton.setAttribute("data-signer", signer);
-  }
-
-  if (titleNode) {
-    titleNode.textContent =
-      signer === "representant"
-        ? "SIGNATURE DU REPRESENTANT DE L'ETABLISSEMENT"
-        : "SIGNATURE DU PERSONNEL";
-  }
-  if (subtitleNode) {
-    subtitleNode.textContent = docLabel;
-  }
-  if (identityLabelNode) {
-    identityLabelNode.textContent = signer === "representant" ? "REPRESENTANT" : "PERSONNEL";
-  }
-  if (personNode) {
-    const representative = person ? getRepresentativeInfo(person, normalizeText(docType) === "EXIT" ? "exit" : "arrival") : null;
-    personNode.textContent =
-      signer === "representant"
-        ? representative?.nom || "-"
-        : person
-        ? `${person.nom || ""} ${person.prenom || ""}`.trim() || "-"
-        : "-";
-  }
-  if (dateNode) {
-    dateNode.textContent = docType === "exit" ? formatDate(person?.dateSortieReelle || person?.dateSortiePrevue) || "-" : formatDate(person?.dateEntree) || "-";
-  }
-
-  const representative = person ? getRepresentativeInfo(person, normalizeText(docType) === "EXIT" ? "exit" : "arrival") : null;
-  const representativeReady =
-    signer !== "representant" || Boolean(normalizeText(representative?.nom) && normalizeText(representative?.fonction));
-  const valid = Boolean(
-    person &&
-      request &&
-      isMobileSignatureRequestValid(request) &&
-      normalizeText(request.docType) === normalizeText(docType) &&
-      signerFromRequest === signer &&
-      representativeReady
-  );
-  if (panelNode) {
-    panelNode.hidden = !valid;
-  }
-  if (saveButton instanceof HTMLButtonElement) {
-    saveButton.disabled = !valid;
-    saveButton.classList.toggle("is-disabled", !valid);
-  }
-  if (clearButton instanceof HTMLButtonElement) {
-    clearButton.disabled = !valid;
-    clearButton.classList.toggle("is-disabled", !valid);
-  }
-
-  if (statusNode) {
-    if (!request) {
-      statusNode.textContent = "DEMANDE DE SIGNATURE INTROUVABLE";
-    } else if (!person) {
-      statusNode.textContent = "PERSONNEL INTROUVABLE";
-    } else if (!isMobileSignatureRequestValid(request)) {
-      statusNode.textContent =
-        request.status === "SIGNEE"
-          ? "SIGNATURE ENREGISTREE - VOUS POUVEZ FERMER CETTE PAGE"
-          : "DEMANDE EXPIREE";
-    } else if (!representativeReady) {
-      statusNode.textContent = "IDENTITE DU REPRESENTANT INCOMPLETE: RENSEIGNER NOM ET FONCTION SUR LE DOCUMENT";
-    } else {
-      const expires = formatSignatureTimestamp(request.expiresAt);
-      statusNode.textContent = expires ? `DEMANDE ACTIVE JUSQU'A ${expires}` : "DEMANDE ACTIVE";
-    }
-  }
-
-  if (mobileCostsHead && mobileCostsBody) {
-    renderDocumentCostsTable(mobileCostsHead, mobileCostsBody);
-  }
-
-  fillMobileSignatureShareLink(valid ? request : null);
-}
-
-function renderPersonPicker() {
-  const picker = document.getElementById("person-picker-search");
-  const pickerList = document.getElementById("person-picker-list");
-  const suggestionBox = document.getElementById("person-picker-suggestions");
-  if (!picker || !pickerList || !state.data?.personnes) {
-    return;
-  }
-
-  const currentPersonId = getCurrentPersonId();
-  const selectedPerson = currentPersonId
-    ? state.data.personnes.find((person) => person.id === currentPersonId) || null
-    : null;
-
-  const pickerIsFocused = document.activeElement === picker;
-  if (!pickerIsFocused) {
-    picker.value = selectedPerson ? getPersonPickerLabel(selectedPerson) : "";
-  }
-
-  const page = document.body.dataset.page || "";
-  const useDirectNavigation = page === "arrival-document" || page === "exit-document";
-  const useSuggestionBox = Boolean(suggestionBox);
-  const options = state.data.personnes
-    .map((person) => {
-      const label = getPersonPickerLabel(person);
-      return `<option value="${escapeHtml(label)}"></option>`;
-    })
-    .join("");
-
-  if (useSuggestionBox) {
-    picker.removeAttribute("list");
-    pickerList.innerHTML = "";
-  } else {
-    picker.setAttribute("list", "person-picker-list");
-    pickerList.innerHTML = options;
-  }
-
-  const renderSuggestions = (rawQuery = "") => {
-    if (!useSuggestionBox) {
-      return;
-    }
-
-    const query = normalizeText(rawQuery);
-    if (!query) {
-      suggestionBox.innerHTML = "";
-      suggestionBox.hidden = true;
-      return;
-    }
-    const matches = state.data.personnes
-      .filter((person) => {
-        return normalizeText(getPersonPickerLabel(person)).includes(query);
-      })
-      .slice(0, 8);
-
-    if (!matches.length) {
-      suggestionBox.innerHTML = "";
-      suggestionBox.hidden = true;
-      return;
-    }
-
-    suggestionBox.innerHTML = matches
-      .map((person) => {
-        const label = getPersonPickerLabel(person);
-        return `<button type="button" class="picker-suggestions__item" data-person-id="${escapeHtml(person.id)}">${escapeHtml(label)}</button>`;
-      })
-      .join("");
-    suggestionBox.hidden = false;
-  };
-
-  const hideSuggestions = () => {
-    if (!useSuggestionBox) {
-      return;
-    }
-    suggestionBox.hidden = true;
-  };
-
-  const applyDocumentNavigation = (personId) => {
-    setCurrentPersonId(personId, "replace");
-    renderPersonPicker();
-    if (page === "arrival-document") {
-      renderArrivalDocument(personId);
-      refreshDocumentSignatureCanvases("arrival");
-      updateSortableHeaders("arrivalEffects");
-      syncMobileSignaturePolling();
-    } else if (page === "exit-document") {
-      renderExitDocument(personId);
-      refreshDocumentSignatureCanvases("exit");
-      updateSortableHeaders("exitEffects");
-      syncMobileSignaturePolling();
-    } else {
-      renderPage();
-    }
-    renderDirtyState();
-    picker.blur();
-  };
-
-  const applyFullResetFromPicker = () => {
-    state.filters = { ...DEFAULT_FILTERS };
-    saveNavigationContext({ filters: state.filters, personId: "" });
-    if (useDirectNavigation) {
-      hideSuggestions();
-      applyDocumentNavigation("");
-      return true;
-    }
-    setCurrentPersonId("", "replace");
-    renderPage();
-    return true;
-  };
-
-  const applyPickerSelection = (mode = "push") => {
-    const rawValue = String(picker.value || "");
-    if (!rawValue.trim()) {
-      return applyFullResetFromPicker();
-    }
-
-    const normalizedSearch = normalizeText(rawValue);
-    const exactMatch = state.data.personnes.find(
-      (person) => normalizeText(getPersonPickerLabel(person)) === normalizedSearch
-    );
-    const partialMatches = state.data.personnes.filter((person) =>
-      normalizeText(getPersonPickerLabel(person)).includes(normalizedSearch)
-    );
-    const matchedPerson =
-      exactMatch || (partialMatches.length === 1 ? partialMatches[0] : null);
-
-    if (!matchedPerson) {
-      showDataStatus("PERSONNE NON TROUVEE");
-      return false;
-    }
-
-    picker.value = getPersonPickerLabel(matchedPerson);
-    if (useDirectNavigation) {
-      hideSuggestions();
-      applyDocumentNavigation(matchedPerson.id);
-      return true;
-    }
-    setCurrentPersonId(matchedPerson.id, mode);
-    renderPage();
-    picker.blur();
-    return true;
-  };
-
-  picker.oninput = () => {
-    const rawValue = String(picker.value || "");
-    if (!rawValue.trim()) {
-      if (useDirectNavigation) {
-        hideSuggestions();
-      }
-      applyFullResetFromPicker();
-      return;
-    }
-    if (useSuggestionBox) {
-      renderSuggestions(rawValue);
-      return;
-    }
-    const normalizedSearch = normalizeText(rawValue);
-    const exactMatch = state.data.personnes.find(
-      (person) => normalizeText(getPersonPickerLabel(person)) === normalizedSearch
-    );
-    const partialMatches = state.data.personnes.filter((person) =>
-      normalizeText(getPersonPickerLabel(person)).includes(normalizedSearch)
-    );
-    if (exactMatch || partialMatches.length === 1) {
-      applyPickerSelection("push");
-    }
-  };
-  picker.onfocus = () => {
-    if (useSuggestionBox) {
-      hideSuggestions();
-    }
-  };
-  picker.onchange = () => applyPickerSelection("push");
-  picker.onsearch = () => {
-    if (!String(picker.value || "").trim()) {
-      if (useSuggestionBox) {
-        hideSuggestions();
-      }
-      applyFullResetFromPicker();
-      return;
-    }
-    applyPickerSelection("push");
-  };
-  picker.onblur = () => {
-    if (document.activeElement === picker) {
-      return;
-    }
-    if (useSuggestionBox) {
-      window.setTimeout(() => {
-        hideSuggestions();
-      }, 120);
-    }
-    if (useDirectNavigation && !String(picker.value || "").trim()) {
-      applyFullResetFromPicker();
-      return;
-    }
-    applyPickerSelection("replace");
-  };
-  picker.onkeydown = (event) => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      applyPickerSelection("push");
-    }
-  };
-
-  if (useSuggestionBox && suggestionBox.dataset.bound !== "true") {
-    suggestionBox.addEventListener("pointerdown", (event) => {
-      const button = event.target.closest(".picker-suggestions__item");
-      if (!(button instanceof HTMLElement)) {
-        return;
-      }
-      event.preventDefault();
-      const personId = button.dataset.personId || "";
-      const person = state.data.personnes.find((entry) => entry.id === personId);
-      if (!person) {
-        return;
-      }
-      picker.value = getPersonPickerLabel(person);
-      hideSuggestions();
-      applyDocumentNavigation(person.id);
-    });
-    suggestionBox.dataset.bound = "true";
-  }
-}
-
-function getPersonPickerLabel(person) {
-  return [person.nom, person.prenom, getPersonSiteLabel(person)].filter(Boolean).join(" - ");
-}
-
-function getFilteredPersons() {
-  if (!state.data?.personnes) {
-    return [];
-  }
-  return state.data.personnes.filter((person) => matchesFilters(person, state.filters));
-}
-
-function hasUrgencyCondition(person) {
-  if (!person) {
-    return false;
-  }
-  const hasOverdueExitAlert = hasOverdueExit(person);
-  const hasNonRendu = (person.effetsConfies || []).some(
-    (effect) => normalizeText(getEffectStatus(person, effect)) === "NON RENDU"
-  );
-  return hasOverdueExitAlert && hasNonRendu;
-}
-
-function matchesFilters(person, filters) {
-  const dossierStatus = getDossierStatus(person);
-  const effects = (person.effetsConfies || []).map((effect) => ({
-    ...effect,
-    statutAffiche: getEffectStatus(person, effect),
+  const totalMinutes = Object.values(roleTotals).reduce((s,v)=>s+v,0);
+  const summaryRows = roleOrder.map(rk=>({
+    label: roleLabel(rk),
+    mins: roleTotals[rk] || 0
   }));
+  const externalVendors = Array.from(vendorTotals.entries())
+    .sort((a,b)=>a[0].localeCompare(b[0], "fr", {sensitivity:"base"}));
+  const internalByNameRows = Array.from(internalByName.entries())
+    .sort((a,b)=>a[0].localeCompare(b[0], "fr", {sensitivity:"base"}));
+  const externalByNameRows = Array.from(externalByName.entries())
+    .sort((a,b)=>a[0].localeCompare(b[0], "fr", {sensitivity:"base"}));
+  const internalTotalMinutes = roleTotals.interne + roleTotals.rsg + roleTotals.ri;
+  const externalTotalMinutes = roleTotals.externe;
 
-  if (filters.site && !personHasSite(person, filters.site)) return false;
-  if (filters.typePersonnel && normalizeText(person.typePersonnel) !== filters.typePersonnel) return false;
-  if (filters.typeContrat && normalizeText(person.typeContrat) !== filters.typeContrat) return false;
-  if (filters.statutDossier && dossierStatus !== filters.statutDossier) return false;
-  if (filters.typeEffet && !effects.some((effect) => normalizeText(effect.typeEffet) === filters.typeEffet)) return false;
-  if (filters.statutObjet && !effects.some((effect) => effect.statutAffiche === filters.statutObjet)) return false;
-  if (state.urgentMode && !hasUrgencyCondition(person)) return false;
-  if (!filters.search) return true;
-
-  const personText = [person.nom, person.prenom, getPersonSiteLabel(person), person.typePersonnel, person.typeContrat]
-    .map(normalizeText)
-    .join(" ");
-  const effectsText = effects
-    .flatMap((effect) => [
-        effect.typeEffet,
-        effect.designation,
-        effect.numeroIdentification,
-        effect.vehiculeImmatriculation,
-        effect.commentaire,
-        effect.statutAffiche,
-    ])
-    .map(normalizeText)
-    .join(" ");
-
-  return `${personText} ${effectsText}`.includes(filters.search);
-}
-
-function renderOverview(persons) {
-  const inPostNode = document.getElementById("kpi-personnes-en-poste");
-  const totalEffectsNode = document.getElementById("kpi-effets-confies");
-  const missingEffectsNode = document.getElementById("kpi-effets-non-rendus");
-  const body = document.getElementById("overview-table-body");
-  const alertsSection = document.getElementById("overview-alerts-section");
-  const alertsList = document.getElementById("overview-alerts-list");
-
-  let inPostCount = 0;
-  let totalEffectsCount = 0;
-  let missingEffectsCount = 0;
-
-  persons.forEach((person) => {
-    const allEffects = person.effetsConfies || [];
-    if (getDossierStatus(person) === "EN POSTE") {
-      inPostCount += 1;
-    }
-    allEffects.forEach((effect) => {
-      totalEffectsCount += 1;
-      if (getEffectStatus(person, effect) === "NON RENDU") {
-        missingEffectsCount += 1;
-      }
-    });
-  });
-
-  if (inPostNode) {
-    setKpiCountAnimated(inPostNode, inPostCount);
-  }
-  if (totalEffectsNode) {
-    setKpiCountAnimated(totalEffectsNode, totalEffectsCount);
-  }
-  if (missingEffectsNode) {
-    setKpiCountAnimated(missingEffectsNode, missingEffectsCount);
-  }
-
-  renderEffectsChart("overview-effects-chart", persons);
-
-  if (body) {
-    const sortedPersons = sortPersonsForOverview(persons);
-    const rowsHtml = buildOverviewRows(sortedPersons);
-    renderTableRowsProgressively(body, [rowsHtml], buildEmptyTableRow("overview-table-body", "AUCUNE DONNEE A AFFICHER", 13), 1);
-    bindPersonRowActions();
-    bindDeletePersonButtons();
-    updateSortableHeaders("overviewPersons");
-  }
-
-  if (alertsSection && alertsList) {
-    const alerts = persons
-      .filter((person) => hasOverdueExit(person))
-      .map((person) => {
-        const alertMeta = getOverdueExitAlertMeta(person);
-        return {
-          id: person.id,
-          nom: person.nom,
-          prenom: person.prenom,
-          message: alertMeta.message,
-          type: alertMeta.type,
-        };
-      });
-
-    alertsSection.hidden = alerts.length === 0;
-    alertsList.innerHTML = alerts
-      .map(
-        (alert) => `<button type="button" class="overview-alert-item overview-alert-item--${alert.type || "dateSortiePrevue"} js-open-person-alert" data-person-id="${alert.id}">
-          <span class="overview-alert-item__icon overview-alert-item__icon--${alert.type || "dateSortiePrevue"}" aria-hidden="true">${alert.type === "dateSortieReelle" ? "✕" : "!"}</span>
-          <span class="overview-alert-item__content">
-            <strong>${escapeHtml(`${alert.nom} ${alert.prenom}`.trim())}</strong>
-            <span>${escapeHtml(alert.message)}</span>
-          </span>
-        </button>`
-      )
-      .join("");
-
-    alertsList.querySelectorAll(".js-open-person-alert").forEach((button) => {
-      button.onclick = () => {
-        const personId = button.getAttribute("data-person-id") || "";
-        if (personId) {
-          openPersonSheet(personId);
-        }
-      };
-    });
-  }
-}
-
-function buildOverviewRows(persons) {
-  if (!persons.length) {
-    return buildEmptyTableRow("overview-table-body", "AUCUNE DONNEE A AFFICHER", 13);
-  }
-  return persons
-    .map((person) => {
-      const currentEffects = getCurrentAssignedEffects(person);
-      const totalEffects = currentEffects.length;
-      const nonRendus = currentEffects.filter(
-        (effect) => getEffectStatus(person, effect) === "NON RENDU"
-      ).length;
-      const movementMap = getArrivalComplementMovementMap(person, person.effetsConfies || []);
-      const movementCounts = {
-        AJOUTE: 0,
-        MODIFIE: 0,
-        RENDU: 0,
-        PERDU: 0,
-        VOLE: 0,
-        HS: 0,
-      };
-      movementMap.forEach((movement) => {
-        const normalized = normalizeText(movement);
-        if (Object.prototype.hasOwnProperty.call(movementCounts, normalized)) {
-          movementCounts[normalized] += 1;
-        }
-      });
-      const movementMarkup = Object.entries(movementCounts)
-        .filter(([, count]) => count > 0)
-        .map(
-          ([movement, count]) =>
-            `<span class="movement-badge movement-badge--${getMovementBadgeVariant(movement)}">${movement} ${count}</span>`
-        )
-        .join(" ");
-      const alertType = getOverdueExitAlertMeta(person).type;
-      const alertClass = alertType ? ` is-alert-row is-alert-row--${alertType}` : "";
-      return `<tr class="js-person-row${alertClass}" data-person-id="${person.id}">
-        <td>${person.nom}</td>
-        <td>${person.prenom}</td>
-        <td>${getPersonSiteMarkup(person)}</td>
-        <td>${person.typePersonnel || ""}</td>
-        <td>${person.typeContrat || ""}</td>
-        <td>${formatDate(person.dateEntree)}</td>
-        <td>${formatDate(person.dateSortiePrevue)}</td>
-        <td>${formatDate(person.dateSortieReelle)}</td>
-        <td>${getDossierStatusCellMarkup(getDossierStatus(person))}</td>
-        <td>${totalEffects}</td>
-        <td>${nonRendus > 0 ? '<span class="row-alert-dot" aria-hidden="true"></span>' : ""}${nonRendus}</td>
-        <td>${movementMarkup || "-"}</td>
-        <td>
-          <a class="table-link js-open-person-link" data-person-id="${person.id}" href="fiche-personne.html?personId=${person.id}">VOIR</a>
-          <button type="button" class="table-link js-delete-person" data-person-id="${person.id}">SUPPRIMER</button>
-        </td>
-      </tr>`;
-    })
-    .join("");
-}
-
-function renderGlobalTable(persons) {
-  const body = document.getElementById("global-table-body");
-  if (!body) {
-    return;
-  }
-
-  if (!persons.length) {
-    body.innerHTML = buildEmptyTableRow(body, "AUCUNE DONNEE A AFFICHER", 13);
-    return;
-  }
-
-  const rowsHtml = persons
-    .map((person) => {
-      const currentEffects = getCurrentAssignedEffects(person);
-      const totalEffects = currentEffects.length;
-      const nonRendus = currentEffects.filter(
-        (effect) => getEffectStatus(person, effect) === "NON RENDU"
-      ).length;
-      const movementMap = getArrivalComplementMovementMap(person, person.effetsConfies || []);
-      const movementCounts = {
-        AJOUTE: 0,
-        MODIFIE: 0,
-        RENDU: 0,
-        PERDU: 0,
-        VOLE: 0,
-        HS: 0,
-      };
-      movementMap.forEach((movement) => {
-        const normalized = normalizeText(movement);
-        if (Object.prototype.hasOwnProperty.call(movementCounts, normalized)) {
-          movementCounts[normalized] += 1;
-        }
-      });
-      const movementMarkup = Object.entries(movementCounts)
-        .filter(([, count]) => count > 0)
-        .map(
-          ([movement, count]) =>
-            `<span class="movement-badge movement-badge--${getMovementBadgeVariant(movement)}">${movement} ${count}</span>`
-        )
-        .join(" ");
-      const alertType = getOverdueExitAlertMeta(person).type;
-      const alertClass = alertType ? ` is-alert-row is-alert-row--${alertType}` : "";
-      return `<tr class="js-person-row${alertClass}" data-person-id="${person.id}">
-        <td>${person.nom}</td>
-        <td>${person.prenom}</td>
-        <td>${getPersonSiteMarkup(person)}</td>
-        <td>${person.typePersonnel}</td>
-        <td>${person.typeContrat || ""}</td>
-        <td>${formatDate(person.dateEntree)}</td>
-        <td>${formatDate(person.dateSortiePrevue)}</td>
-        <td>${formatDate(person.dateSortieReelle)}</td>
-        <td>${getDossierStatusCellMarkup(getDossierStatus(person))}</td>
-        <td>${totalEffects}</td>
-        <td>${nonRendus > 0 ? '<span class="row-alert-dot" aria-hidden="true"></span>' : ""}${nonRendus}</td>
-        <td>${movementMarkup || "-"}</td>
-        <td>
-          <a class="table-link js-open-person-link" data-person-id="${person.id}" href="fiche-personne.html?personId=${person.id}">VOIR</a>
-          <button type="button" class="table-link js-delete-person" data-person-id="${person.id}">SUPPRIMER</button>
-        </td>
-      </tr>`;
-    })
-    ;
-
-  renderTableRowsProgressively(body, rowsHtml, buildEmptyTableRow(body, "AUCUNE DONNEE A AFFICHER", 13), 24);
-
-  bindPersonRowActions();
-  bindDeletePersonButtons();
-}
-
-function getDossierStatusCellMarkup(status) {
-  const normalizedStatus = normalizeText(status);
-  let iconClass = "status-icon-inline status-icon-inline--pending";
-
-  if (normalizedStatus === "EN POSTE") {
-    iconClass = "status-icon-inline status-icon-inline--active";
-  } else if (normalizedStatus === "SORTIE PREVUE") {
-    iconClass = "status-icon-inline status-icon-inline--warning";
-  } else if (normalizedStatus === "SORTI") {
-    iconClass = "status-icon-inline status-icon-inline--exit";
-  }
-
-  return `<span class="status-cell"><span class="${iconClass}" aria-hidden="true"></span><span>${escapeHtml(status || "")}</span></span>`;
-}
-
-function bindPersonRowActions() {
-  ["overview-table-body", "global-table-body"].forEach((bodyId) => {
-    const body = document.getElementById(bodyId);
-    if (!body || body.dataset.bound === "true") {
-      return;
-    }
-
-    body.addEventListener("click", (event) => {
-      const target = event.target;
-      if (!(target instanceof HTMLElement)) {
-        return;
-      }
-      if (target.closest("a, button")) {
-        return;
-      }
-
-      const row = target.closest(".js-person-row");
-      if (!(row instanceof HTMLElement)) {
-        return;
-      }
-
-      const personId = row.dataset.personId || "";
-      if (!personId) {
-        return;
-      }
-
-      openPersonSheet(personId);
-    });
-
-    body.dataset.bound = "true";
-  });
-}
-
-function bindOpenPersonLinks() {
-  document.querySelectorAll(".js-open-person-link").forEach((link) => {
-    if (link.dataset.bound === "true") {
-      return;
-    }
-    link.addEventListener("click", () => {
-      const personId = link.getAttribute("data-person-id") || "";
-      if (personId) {
-        setCurrentPersonId(personId, "replace");
-      }
-    });
-    link.dataset.bound = "true";
-  });
-}
-function getSheetEffectTypeIconVariant(typeEffet) {
-  const normalizedType = normalizeText(typeEffet);
-  if (normalizedType === "CLE CES") {
-    return "cle-ces";
-  }
-  if (normalizedType === "BADGE INTRUSION") {
-    return "badge";
-  }
-  if (normalizedType === "TELECOMMANDE URMET") {
-    return "telecommande";
-  }
-  if (normalizedType === "CARTE TURBOSELF") {
-    return "carte";
-  }
-  if (normalizedType === "CLE" || normalizedType === "CLE CES") {
-    return "cle";
-  }
-  return "total";
-}
-
-function getSheetEffectTypeIconSvg(typeEffet) {
-  const variant = getSheetEffectTypeIconVariant(typeEffet);
-  if (variant === "cle-ces") {
-    return '<img src="https://dphrvdhqhgycmllietuk.supabase.co/storage/v1/object/public/ui-assets/sidebar/icone-cle-ces.png" alt="" loading="lazy">';
-  }
-  if (variant === "badge") {
-    return '<img src="https://dphrvdhqhgycmllietuk.supabase.co/storage/v1/object/public/ui-assets/sidebar/icone-badge.png" alt="" loading="lazy">';
-  }
-  if (variant === "telecommande") {
-    return '<img src="https://dphrvdhqhgycmllietuk.supabase.co/storage/v1/object/public/ui-assets/sidebar/icone-telecommande.png" alt="" loading="lazy">';
-  }
-  if (variant === "carte") {
-    return '<img src="https://dphrvdhqhgycmllietuk.supabase.co/storage/v1/object/public/ui-assets/sidebar/icone-carte.png" alt="" loading="lazy">';
-  }
-  if (variant === "cle") {
-    return '<img src="https://dphrvdhqhgycmllietuk.supabase.co/storage/v1/object/public/ui-assets/sidebar/icone-cle.png" alt="" loading="lazy">';
-  }
-  return `<svg viewBox="0 0 24 24" focusable="false">
-    <rect x="5" y="5" width="14" height="14" rx="3" fill="currentColor"></rect>
-    <path d="M9 12h6M12 9v6" stroke="#FBFAF7" stroke-width="2" stroke-linecap="round"></path>
-  </svg>`;
-}
-
-function renderSheetEffectTypeKpis(effects) {
-  const container = document.getElementById("sheet-effect-type-kpis");
-  if (!container) {
-    return;
-  }
-
-  const baseTypes = Array.from(new Set((state.data?.listes?.typesEffets || []).filter(Boolean)));
-  container.innerHTML = baseTypes
-    .map((typeEffet) => {
-      const normalizedType = normalizeText(typeEffet);
-      const matchingEffects = effects.filter(
-        (effect) => normalizeText(effect.typeEffet) === normalizedType
-      );
-      const amount = matchingEffects.reduce((sum, effect) => sum + getEffectUnitValue(effect), 0);
-      const variant = getSheetEffectTypeIconVariant(typeEffet);
-
-      return `<div class="effect-type-kpi">
-        <span class="effect-type-kpi__icon effect-type-kpi__icon--${variant}" aria-hidden="true">
-          ${getSheetEffectTypeIconSvg(typeEffet)}
-        </span>
-        <div class="effect-type-kpi__content">
-          <span class="effect-type-kpi__label">${escapeHtml(typeEffet)}</span>
-          <strong class="effect-type-kpi__value">${matchingEffects.length}</strong>
-          <span class="effect-type-kpi__amount">${formatAmountWithEuro(amount)}</span>
-        </div>
-      </div>`;
-    })
-    .join("");
-}
-
-function renderPersonSheet(personId) {
-  const nameNode = document.getElementById("sheet-person-name");
-  const metaNode = document.getElementById("sheet-person-meta");
-  const alertNode = document.getElementById("sheet-date-alert");
-  const statusNode = document.getElementById("sheet-person-status");
-  const body = document.getElementById("sheet-effects-body");
-  const totalNode = document.getElementById("sheet-summary-total");
-  const returnedNode = document.getElementById("sheet-summary-returned");
-  const missingNode = document.getElementById("sheet-summary-missing");
-  const costNode = document.getElementById("sheet-summary-cost");
-  const totalTypesNode = document.getElementById("sheet-kpi-total-types");
-  const totalTypesAmountNode = document.getElementById("sheet-kpi-total-amount");
-  if (!nameNode || !metaNode || !alertNode || !statusNode || !body) {
-    return;
-  }
-
-  const person = state.data?.personnes?.find((entry) => entry.id === personId);
-  if (!person) {
-    state.currentSheetPersonId = "";
-    nameNode.textContent = "AUCUNE PERSONNE SELECTIONNEE";
-    metaNode.textContent = "SELECTIONNER UNE PERSONNE POUR AFFICHER LA FICHE";
-    alertNode.hidden = true;
-    alertNode.textContent = "";
-    applySheetPersonStatus(statusNode, "EN ATTENTE");
-    body.innerHTML = buildEmptyTableRow(body, "AUCUN EFFET A AFFICHER", 11);
-    fillSheetForm(null);
-    if (totalNode) totalNode.textContent = "0";
-    if (returnedNode) returnedNode.textContent = "0";
-    if (missingNode) missingNode.textContent = "0";
-    if (costNode) costNode.textContent = "0,00 €";
-    renderSheetEffectTypeKpis([]);
-    if (totalTypesNode) totalTypesNode.textContent = "0";
-    if (totalTypesAmountNode) totalTypesAmountNode.textContent = "0,00 €";
-    updateSheetDocumentButtons(null);
-    hydrateEffectReferenceSiteSelect(null, "", "");
-    hydrateReferenceSelect("", "", "");
-    updateEffectFormMode("");
-    return;
-  }
-
-  state.currentSheetPersonId = person.id;
-  nameNode.textContent = `${person.nom} ${person.prenom}`;
-  metaNode.innerHTML = [
-    getPersonSiteMarkup(person),
-    escapeHtml(person.typePersonnel || ""),
-    escapeHtml(person.typeContrat || ""),
-  ]
-    .filter(Boolean)
-    .join(' <span class="meta-separator">|</span> ');
-  const overdueMessage = getOverdueExitMessage(person);
-  alertNode.hidden = !overdueMessage;
-  alertNode.textContent = overdueMessage;
-  applySheetPersonStatus(statusNode, getDossierStatus(person));
-  updateSheetDocumentButtons(person);
-  fillSheetForm(person);
-
-  const effects = person.effetsConfies || [];
-  const currentEffects = getCurrentAssignedEffects(person);
-  const sortedEffects = sortEffectsForTable(person, currentEffects, "sheetEffects");
-  const rowFlash =
-    state.effectRowFlash && String(state.effectRowFlash.personId || "") === String(person.id || "")
-      ? state.effectRowFlash
-      : null;
-  const movementMap = getArrivalComplementMovementMap(person, currentEffects);
-  const returned = effects.filter((effect) => getEffectStatus(person, effect) === "RESTITUE").length;
-  const missing = currentEffects.filter((effect) => getEffectStatus(person, effect) === "NON RENDU").length;
-  const totalCost = currentEffects.reduce((sum, effect) => sum + getEffectReplacementCost(person, effect), 0);
-  const totalEffectsUnitValue = currentEffects.reduce((sum, effect) => sum + getEffectUnitValue(effect), 0);
-
-  if (totalNode) totalNode.textContent = String(currentEffects.length);
-  if (returnedNode) returnedNode.textContent = String(returned);
-  if (missingNode) missingNode.textContent = String(missing);
-  if (costNode) costNode.textContent = formatAmountWithEuro(totalCost);
-  renderSheetEffectTypeKpis(currentEffects);
-  if (totalTypesNode) totalTypesNode.textContent = String(currentEffects.length);
-  if (totalTypesAmountNode) totalTypesAmountNode.textContent = formatAmountWithEuro(totalEffectsUnitValue);
-
-  body.innerHTML = sortedEffects.length
-    ? `${sortedEffects
-        .map((effect) => {
-          const effectStatus = getEffectStatus(person, effect);
-          const effectDesignation = getEffectDisplayDesignation(effect);
-          const effectSite = getEffectDisplaySite(effect);
-          const effectUnitValue = getEffectUnitValue(effect);
-          const movement =
-            movementMap.get(getEffectMovementKey(effect)) ||
-            movementMap.get(getEffectStableKey(effect)) ||
-            getEffectMovementLabel(person, effect);
-          const movementBadge = movement
-            ? `<span class="movement-badge movement-badge--${getMovementBadgeVariant(movement)}">${movement}</span>`
-            : "";
-          const statusWithDot =
-            effectStatus === "NON RENDU"
-              ? `<span>${effectStatus}</span><span class="row-alert-dot row-alert-dot--inside" aria-hidden="true"></span>`
-              : `<span>${effectStatus}</span>`;
-          const rowFlashClass =
-            rowFlash &&
-            String(rowFlash.effectId || "") === String(effect.id || "") &&
-            ["create", "update"].includes(String(rowFlash.kind || ""))
-              ? ` row-flash row-flash--${rowFlash.kind}`
-              : "";
-          return `<tr class="js-effect-row${rowFlashClass}" data-person-id="${person.id}" data-effect-id="${effect.id}">
-            <td>${effect.typeEffet || ""}</td>
-            <td>${effectDesignation}</td>
-            <td>${effectSite}</td>
-            <td>${effect.numeroIdentification || ""}</td>
-            <td>${formatDate(effect.dateRemise)}</td>
-            <td>${formatDate(effect.dateRetour)}</td>
-            <td><span class="status-text-inline">${statusWithDot}</span></td>
-            <td class="movement-cell">${movementBadge}</td>
-            <td>${formatDate(effect.dateRemplacement)}</td>
-            <td>${formatAmountWithEuro(effectUnitValue)}</td>
-            <td>${effect.commentaire || ""}</td>
-          </tr>`;
-        })
-        .join("")}
-        <tr class="table-total-row">
-          <td colspan="9">TOTAL DES EFFETS CONFIES</td>
-          <td>${formatAmountWithEuro(totalEffectsUnitValue)}</td>
-          <td></td>
-        </tr>`
-    : buildEmptyTableRow(body, "AUCUN EFFET A AFFICHER", 11);
-
-  if (rowFlash) {
-    state.effectRowFlash = null;
-  }
-  if (
-    state.effectTableFlash &&
-    String(state.effectTableFlash.personId || "") === String(person.id || "") &&
-    String(state.effectTableFlash.kind || "") === "delete"
-  ) {
-    body.classList.remove("table-flash--delete");
-    void body.offsetWidth;
-    body.classList.add("table-flash--delete");
-    window.setTimeout(() => {
-      body.classList.remove("table-flash--delete");
-    }, 420);
-    state.effectTableFlash = null;
-  }
-
-  const currentTypeEffet = document.querySelector('#effect-form [name="typeEffet"]')?.value || "";
-  const currentReferenceSite = document.querySelector('#effect-form [name="referenceSite"]')?.value || "";
-  const currentReferenceId = document.querySelector('#effect-form [name="referenceEffet"]')?.value || "";
-  hydrateEffectReferenceSiteSelect(person, currentReferenceSite, currentTypeEffet);
-  hydrateReferenceSelect(person, currentTypeEffet, currentReferenceId, currentReferenceSite);
-  updateEffectFormMode(currentTypeEffet);
-  updateManualStatusCriticalState(document.getElementById("effect-form"));
-  bindEffectRowActions();
-  updateSortableHeaders("sheetEffects");
-
-  const requestedEditEffectId = consumeRequestedEditEffectId();
-  if (requestedEditEffectId && currentEffects.some((effect) => String(effect.id || "") === requestedEditEffectId)) {
-    startEditEffect(person.id, requestedEditEffectId);
-  }
-}
-
-function getSheetPersonStatusClass(status) {
-  const normalizedStatus = normalizeText(status);
-  if (normalizedStatus === "EN POSTE") {
-    return "status-pill status-pill--sheet status-pill--sheet-active";
-  }
-  if (normalizedStatus === "SORTIE PREVUE") {
-    return "status-pill status-pill--sheet status-pill--sheet-warning";
-  }
-  if (normalizedStatus === "SORTI") {
-    return "status-pill status-pill--sheet status-pill--sheet-exit";
-  }
-  return "status-pill status-pill--sheet status-pill--sheet-pending";
-}
-
-function applySheetPersonStatus(node, status) {
-  if (!node) {
-    return;
-  }
-  node.className = getSheetPersonStatusClass(status);
-  node.textContent = status || "EN ATTENTE";
-  node.setAttribute("title", status || "EN ATTENTE");
-  node.setAttribute("aria-label", status || "EN ATTENTE");
-}
-
-function bindEffectRowActions() {
-  const body = document.getElementById("sheet-effects-body");
-  if (!body || body.dataset.bound === "true") {
-    return;
-  }
-
-  body.addEventListener("click", (event) => {
-    const target = event.target;
-    if (!(target instanceof HTMLElement)) {
-      return;
-    }
-    if (target.closest("button, a")) {
-      return;
-    }
-
-    const row = target.closest(".js-effect-row");
-    if (!(row instanceof HTMLElement)) {
-      return;
-    }
-
-    const personId = row.dataset.personId || "";
-    const effectId = row.dataset.effectId || "";
-    if (!personId || !effectId) {
-      return;
-    }
-    startEditEffect(personId, effectId);
-  });
-
-  body.dataset.bound = "true";
-}
-
-function fillSheetForm(person) {
-  const form = document.getElementById("person-sheet-form");
-  const mapping = {
-    sheetNom: person?.nom || "",
-    sheetPrenom: person?.prenom || "",
-    sheetFonction: person?.fonction || "",
-    sheetTypePersonnel: person?.typePersonnel || "",
-    sheetTypeContrat: person?.typeContrat || "",
-    sheetDateEntree: person?.dateEntree || "",
-    sheetDateSortiePrevue: person?.dateSortiePrevue || "",
-    sheetDateSortieReelle: person?.dateSortieReelle || "",
-    sheetStatutDossier: person ? getDossierStatus(person) : "",
+  return {
+    summaryRows,
+    externalVendors,
+    detailRows,
+    totalMinutes,
+    internalByNameRows,
+    externalByNameRows,
+    internalTotalMinutes,
+    externalTotalMinutes
   };
-
-  Object.entries(mapping).forEach(([name, value]) => {
-    const field = document.querySelector(`[name="${name}"]`);
-    if (field) {
-      field.value = value;
-    }
-  });
-  renderSiteSelector("sheet-site-selector", "sheet", getPersonSites(person));
-  if (form instanceof HTMLFormElement) {
-    const normalizedTypeContrat = normalizeText(form.elements.sheetTypeContrat?.value || "");
-    const needsExpectedExitDate = ["CDD", "INTERIMAIRE"].includes(normalizedTypeContrat);
-    const nom = normalizeText(form.elements.sheetNom?.value || "");
-    const prenom = normalizeText(form.elements.sheetPrenom?.value || "");
-    const fonction = normalizeText(form.elements.sheetFonction?.value || "");
-    const typePersonnel = normalizeText(form.elements.sheetTypePersonnel?.value || "");
-    const typeContrat = normalizeText(form.elements.sheetTypeContrat?.value || "");
-    const dateEntree = String(form.elements.sheetDateEntree?.value || "").trim();
-    const dateSortiePrevueValue = String(form.elements.sheetDateSortiePrevue?.value || "").trim();
-    const dateSortiePrevueField = form.elements.sheetDateSortiePrevue;
-    const dateSortiePrevueNode = dateSortiePrevueField instanceof HTMLElement
-      ? dateSortiePrevueField.closest(".field")
-      : null;
-    if (dateSortiePrevueField instanceof HTMLElement) {
-      dateSortiePrevueField.required = needsExpectedExitDate;
-    }
-    if (dateSortiePrevueNode) {
-      dateSortiePrevueNode.classList.toggle("field--key", needsExpectedExitDate);
-      dateSortiePrevueNode.classList.toggle(
-        "field--missing",
-        needsExpectedExitDate && !dateSortiePrevueValue
-      );
-    }
-    form.elements.sheetNom?.closest(".field")?.classList.toggle("field--missing", !nom);
-    form.elements.sheetPrenom?.closest(".field")?.classList.toggle("field--missing", !prenom);
-    form.elements.sheetFonction?.closest(".field")?.classList.toggle("field--missing", !fonction);
-    form.elements.sheetTypePersonnel?.closest(".field")?.classList.toggle("field--missing", !typePersonnel);
-    form.elements.sheetTypeContrat?.closest(".field")?.classList.toggle("field--missing", !typeContrat);
-    form.elements.sheetDateEntree?.closest(".field")?.classList.toggle("field--missing", !dateEntree);
-    const siteField = form.querySelector("#sheet-site-selector")?.closest(".field");
-    if (siteField) {
-      siteField.classList.toggle("field--missing", readSelectedSites(form, "sheet").length === 0);
-    }
-  }
 }
 
-function renderArrivalDocument(personId) {
-  const person = state.data?.personnes?.find((entry) => entry.id === personId) || null;
-  const explicitMode = normalizeText(new URLSearchParams(window.location.search).get("mode") || "");
-  const computedMode = person ? getDocumentArchiveMode(person, "arrival") : "STANDARD";
-  let mode = explicitMode || computedMode;
-  let isComplement = mode === "COMPLEMENTAIRE";
-  const dateNode = document.getElementById("arrival-doc-date");
-  const referenceNode = document.getElementById("arrival-doc-reference");
-  const titleNode = document.getElementById("arrival-doc-title");
-  const subtitleNode = document.getElementById("arrival-doc-subtitle");
-  const nomNode = document.getElementById("arrival-person-nom");
-  const prenomNode = document.getElementById("arrival-person-prenom");
-  const fonctionNode = document.getElementById("arrival-person-fonction");
-  const typePersonnelNode = document.getElementById("arrival-person-type-personnel");
-  const typeContratNode = document.getElementById("arrival-person-type-contrat");
-  const sitesNode = document.getElementById("arrival-person-sites");
-  const dateEntreeNode = document.getElementById("arrival-person-date-entree");
-  const dateSortiePrevueNode = document.getElementById("arrival-person-date-sortie-prevue");
-  const body = document.getElementById("arrival-effects-body");
-  const totalEffectsNode = document.getElementById("arrival-total-effects");
-  const totalValueNode = document.getElementById("arrival-total-value");
-  const signatureNameNode = document.getElementById("arrival-signature-person-name");
-  const signaturePersonDateNode = document.getElementById("arrival-signature-person-date");
-  const signatureRepresentantDateNode = document.getElementById("arrival-signature-representant-date");
-  const representantNameInput = document.getElementById("arrival-signature-representant-name-input");
-  const representantFunctionInput = document.getElementById("arrival-signature-representant-function-input");
-  const representantNameNode = document.getElementById("arrival-signature-representant-name");
-  const representantFunctionNode = document.getElementById("arrival-signature-representant-function");
-  const costsHead = document.getElementById("arrival-costs-head");
-  const costsBody = document.getElementById("arrival-costs-body");
-
-  if (
-    !dateNode ||
-    !referenceNode ||
-    !titleNode ||
-    !subtitleNode ||
-    !nomNode ||
-    !prenomNode ||
-    !fonctionNode ||
-    !typePersonnelNode ||
-    !typeContratNode ||
-    !sitesNode ||
-    !dateEntreeNode ||
-    !dateSortiePrevueNode ||
-    !body ||
-    !totalEffectsNode ||
-    !totalValueNode ||
-    !signatureNameNode ||
-    !signaturePersonDateNode ||
-    !signatureRepresentantDateNode ||
-    !representantNameInput ||
-    !representantFunctionInput ||
-    !representantNameNode ||
-    !representantFunctionNode ||
-    !costsHead ||
-    !costsBody
-  ) {
-    return;
-  }
-  const isPdfMode = isPdfRenderMode();
-
-  if (!person) {
-    titleNode.textContent = isComplement
-      ? "AVENANT DE REMISE DES EFFETS CONFIES"
-      : "ATTESTATION DE REMISE DES EFFETS CONFIES A L'ARRIVEE";
-    subtitleNode.textContent = isComplement
-      ? "COMPLEMENT DE DOTATION APRES DOCUMENT D'ARRIVEE SIGNE"
-      : "DOCUMENT DE REMISE DES EFFETS CONFIES ET ACCEPTATION DES CONDITIONS DE RESTITUTION";
-    dateNode.textContent = formatDateTimeForDocument("");
-    referenceNode.textContent = "-";
-    nomNode.textContent = "-";
-    prenomNode.textContent = "-";
-    fonctionNode.textContent = "-";
-    typePersonnelNode.textContent = "-";
-    typeContratNode.textContent = "-";
-    sitesNode.textContent = "-";
-    dateEntreeNode.textContent = "-";
-    dateSortiePrevueNode.textContent = "-";
-    body.innerHTML = buildEmptyTableRow(body, "AUCUN EFFET A AFFICHER", 7);
-    renderArrivalCostsTable(costsHead, costsBody);
-    totalEffectsNode.textContent = "0";
-    totalValueNode.textContent = "0,00 €";
-    signatureNameNode.textContent = "-";
-    signaturePersonDateNode.textContent = "-";
-    signatureRepresentantDateNode.textContent = "-";
-    populateRepresentativeSelect(representantNameInput, "");
-    representantFunctionInput.value = "";
-    representantNameNode.textContent = "-";
-    representantFunctionNode.textContent = "-";
-    updateRepresentativeSignatureActionState("arrival");
-    syncDocumentMobileSignatureLink("arrival", "", "personnel");
-    syncDocumentMobileSignatureLink("arrival", "", "representant");
-    return;
-  }
-
-  const allEffects = Array.isArray(person.effetsConfies) ? person.effetsConfies : [];
-  const fallbackMovements = getArrivalComplementMovementMap(person, allEffects);
-
-  if (!explicitMode && !isComplement && fallbackMovements.size && isPdfMode) {
-    mode = "COMPLEMENTAIRE";
-    isComplement = true;
-  }
-
-  const activeEffects = isComplement
-    ? allEffects
-    : allEffects.filter((effect) => Boolean(effect.dateRemise));
-  const deletedEffects = isComplement ? getArrivalDeletedEffects(person, allEffects) : [];
-  const effectsForDisplay = [...activeEffects, ...deletedEffects];
-  const sortedEffects = sortEffectsForTable(person, effectsForDisplay, "arrivalEffects");
-  const totalValue = activeEffects.reduce((sum, effect) => sum + getEffectUnitValue(effect), 0);
-
-  titleNode.textContent = isComplement
-    ? "AVENANT DE REMISE DES EFFETS CONFIES"
-    : "ATTESTATION DE REMISE DES EFFETS CONFIES A L'ARRIVEE";
-  subtitleNode.textContent = isComplement
-    ? "COMPLEMENT DE DOTATION APRES DOCUMENT D'ARRIVEE SIGNE"
-    : "DOCUMENT DE REMISE DES EFFETS CONFIES ET ACCEPTATION DES CONDITIONS DE RESTITUTION";
-  dateNode.textContent = formatDateTimeForDocument(new Date().toISOString());
-  referenceNode.textContent = `${isComplement ? "AVD" : "ARR"}-${person.id || "-"}`;
-  nomNode.textContent = person.nom || "-";
-  prenomNode.textContent = person.prenom || "-";
-  fonctionNode.textContent = person.fonction || "-";
-  typePersonnelNode.textContent = person.typePersonnel || "-";
-  typeContratNode.textContent = person.typeContrat || "-";
-  sitesNode.textContent = getPersonSiteLabel(person) || "-";
-  dateEntreeNode.textContent = formatDate(person.dateEntree) || "-";
-  dateSortiePrevueNode.textContent = formatDate(person.dateSortiePrevue) || "-";
-  signatureNameNode.textContent = `${person.nom || ""} ${person.prenom || ""}`.trim() || "-";
-  const arrivalRepresentative = getRepresentativeInfo(person, "arrival");
-  populateRepresentativeSelect(representantNameInput, arrivalRepresentative.id);
-  representantFunctionInput.value = arrivalRepresentative.fonction;
-  representantNameNode.textContent = arrivalRepresentative.nom || "-";
-  representantFunctionNode.textContent = arrivalRepresentative.fonction || "-";
-  updateRepresentativeSignatureActionState("arrival");
-  signaturePersonDateNode.textContent =
-    formatSignatureTimestamp(getSignatureValidationDate(person, "arrival", "personnel")) || "-";
-  signatureRepresentantDateNode.textContent =
-    formatSignatureTimestamp(getSignatureValidationDate(person, "arrival", "representant")) || "-";
-
-  const complementMovements = isComplement ? fallbackMovements : new Map();
-
-  body.innerHTML = sortedEffects.length
-    ? `${sortedEffects
-        .map(
-          (effect) => {
-            const movement = getEffectMovementLabel(
-              person,
-              effect,
-              isComplement ? complementMovements : null
-            );
-            const movementBadge = movement
-              ? `<span class="movement-badge movement-badge--${getMovementBadgeVariant(movement)}">${movement}</span>`
-              : "";
-            const rowClass = movement
-              ? ` class="arrival-effect-row arrival-effect-row--${getMovementRowVariant(movement)}"`
-              : "";
-            const actionCell = !isPdfMode
-              ? `<span class="document-effect-actions">
-                  <button type="button" class="table-link js-doc-edit-effect" data-person-id="${escapeHtml(person.id || "")}" data-effect-id="${escapeHtml(effect.id || "")}">MODIFIER</button>
-                  <button type="button" class="table-link js-doc-delete-effect" data-person-id="${escapeHtml(person.id || "")}" data-effect-id="${escapeHtml(effect.id || "")}">SUPPRIMER</button>
-                </span>`
-              : "-";
-            return `<tr${rowClass}>
-            <td>${effect.typeEffet || ""}</td>
-            <td>${getEffectDisplayDesignation(effect) || "-"}</td>
-            <td class="movement-cell">${movementBadge}</td>
-            <td>${effect.numeroIdentification || "-"}</td>
-            <td>${formatDate(effect.dateRemise) || "-"}</td>
-            <td>${formatAmountWithEuro(getEffectUnitValue(effect))}</td>
-            <td class="document-effects-action-col">${actionCell}</td>
-          </tr>`;
-          }
-        )
-        .join("")}
-        <tr class="table-total-row">
-          <td colspan="${isPdfMode ? "5" : "6"}">TOTAL DES EFFETS REMIS</td>
-          <td>${formatAmountWithEuro(totalValue)}</td>
-        </tr>`
-    : buildEmptyTableRow(body, "AUCUN EFFET A AFFICHER", 7);
-
-  renderArrivalCostsTable(costsHead, costsBody);
-  totalEffectsNode.textContent = String(activeEffects.length);
-  totalValueNode.textContent = formatAmountWithEuro(totalValue);
-  bindDocumentEffectActions();
-  updateSortableHeaders("arrivalEffects");
-  syncDocumentMobileSignatureLink("arrival", person.id, "personnel");
-  syncDocumentMobileSignatureLink("arrival", person.id, "representant");
+function buildProjectRealHoursReport(projectId){
+  const tasks = (state.tasks || []).filter(t=>t.projectId===projectId && t.start && t.end);
+  return buildRealHoursReportForTasks(tasks);
 }
 
-function renderArrivalCostsTable(headNode, bodyNode) {
-  renderDocumentCostsTable(headNode, bodyNode);
+function buildGroupedProjectsRealHoursReport(projectIds){
+  const idSet = new Set((projectIds || []).map(normId).filter(Boolean));
+  const tasks = (state.tasks || []).filter(t=>idSet.has(t.projectId) && t.start && t.end);
+  return buildRealHoursReportForTasks(tasks);
 }
 
-function getArrivalCostTypes() {
-  const types = Array.isArray(state.data?.listes?.typesEffets) ? state.data.listes.typesEffets : [];
-  return types
-    .map(normalizeText)
-    .filter(Boolean)
-    .filter((value, index, array) => array.indexOf(value) === index);
+function buildMasterRealHoursReport(){
+  const tasks = (filteredTasks() || []).filter(t=>t.start && t.end);
+  return buildRealHoursReportForTasks(tasks);
 }
 
-function getArrivalCostCauses() {
-  return [...EFFECT_STATUS_CAUSES];
-}
-
-function getArrivalCostDesignation(typeEffet) {
-  return normalizeText(typeEffet) === "CLE CES" ? "CES-PG" : "";
-}
-
-function renderDocumentCostsTable(headNode, bodyNode) {
-  const causes = getArrivalCostCauses();
-  const effectTypes = getArrivalCostTypes();
-
-  headNode.innerHTML = `<tr>
-    <th>TYPE D'EFFET</th>
-    ${causes.map((cause) => `<th>${escapeHtml(cause)}</th>`).join("")}
-  </tr>`;
-
-  if (!effectTypes.length) {
-    bodyNode.innerHTML = buildEmptyTableRow(bodyNode, "AUCUN COUT A AFFICHER", causes.length + 1);
-    return;
-  }
-
-  bodyNode.innerHTML = effectTypes
-    .map(
-      (typeEffet) => `<tr>
-        <td>${escapeHtml(typeEffet)}</td>
-        ${causes
-          .map((cause) => `<td>${formatAmountWithEuro(getReplacementCostValue(typeEffet, cause, getArrivalCostDesignation(typeEffet)))}</td>`)
-          .join("")}
-      </tr>`
-    )
-    .join("");
-}
-
-function renderExitDocument(personId) {
-  const person = state.data?.personnes?.find((entry) => entry.id === personId) || null;
-  const dateNode = document.getElementById("exit-doc-date");
-  const referenceNode = document.getElementById("exit-doc-reference");
-  const nomNode = document.getElementById("exit-person-nom");
-  const prenomNode = document.getElementById("exit-person-prenom");
-  const fonctionNode = document.getElementById("exit-person-fonction");
-  const typePersonnelNode = document.getElementById("exit-person-type-personnel");
-  const typeContratNode = document.getElementById("exit-person-type-contrat");
-  const sitesNode = document.getElementById("exit-person-sites");
-  const dateEntreeNode = document.getElementById("exit-person-date-entree");
-  const dateSortiePrevueNode = document.getElementById("exit-person-date-sortie-prevue");
-  const dateSortieReelleNode = document.getElementById("exit-person-date-sortie-reelle");
-  const body = document.getElementById("exit-effects-body");
-  const totalEffectsNode = document.getElementById("exit-total-effects");
-  const totalReturnedNode = document.getElementById("exit-total-returned");
-  const totalChargeableNode = document.getElementById("exit-total-chargeable");
-  const totalValueNode = document.getElementById("exit-total-value");
-  const signatureNameNode = document.getElementById("exit-signature-person-name");
-  const signaturePersonDateNode = document.getElementById("exit-signature-person-date");
-  const signatureRepresentantDateNode = document.getElementById("exit-signature-representant-date");
-  const representantNameInput = document.getElementById("exit-signature-representant-name-input");
-  const representantFunctionInput = document.getElementById("exit-signature-representant-function-input");
-  const representantNameNode = document.getElementById("exit-signature-representant-name");
-  const representantFunctionNode = document.getElementById("exit-signature-representant-function");
-  const costsHead = document.getElementById("exit-costs-head");
-  const costsBody = document.getElementById("exit-costs-body");
-
-  if (
-    !dateNode ||
-    !referenceNode ||
-    !nomNode ||
-    !prenomNode ||
-    !fonctionNode ||
-    !typePersonnelNode ||
-    !typeContratNode ||
-    !sitesNode ||
-    !dateEntreeNode ||
-    !dateSortiePrevueNode ||
-    !dateSortieReelleNode ||
-    !body ||
-    !totalEffectsNode ||
-    !totalReturnedNode ||
-    !totalChargeableNode ||
-    !totalValueNode ||
-    !signatureNameNode ||
-    !signaturePersonDateNode ||
-    !signatureRepresentantDateNode ||
-    !representantNameInput ||
-    !representantFunctionInput ||
-    !representantNameNode ||
-    !representantFunctionNode ||
-    !costsHead ||
-    !costsBody
-  ) {
-    return;
-  }
-
-  if (!person) {
-    dateNode.textContent = formatDateTimeForDocument("");
-    referenceNode.textContent = "-";
-    nomNode.textContent = "-";
-    prenomNode.textContent = "-";
-    fonctionNode.textContent = "-";
-    typePersonnelNode.textContent = "-";
-    typeContratNode.textContent = "-";
-    sitesNode.textContent = "-";
-    dateEntreeNode.textContent = "-";
-    dateSortiePrevueNode.textContent = "-";
-    dateSortieReelleNode.textContent = "-";
-    body.innerHTML = buildEmptyTableRow(body, "AUCUN EFFET A AFFICHER", 10);
-    totalEffectsNode.textContent = "0";
-    totalReturnedNode.textContent = "0";
-    totalChargeableNode.textContent = "0";
-    totalValueNode.textContent = "0,00 €";
-    signatureNameNode.textContent = "-";
-    signaturePersonDateNode.textContent = "-";
-    signatureRepresentantDateNode.textContent = "-";
-    populateRepresentativeSelect(representantNameInput, "");
-    representantFunctionInput.value = "";
-    representantNameNode.textContent = "-";
-    representantFunctionNode.textContent = "-";
-    renderDocumentCostsTable(costsHead, costsBody);
-    updateRepresentativeSignatureActionState("exit");
-    syncDocumentMobileSignatureLink("exit", "", "personnel");
-    syncDocumentMobileSignatureLink("exit", "", "representant");
-    return;
-  }
-
-  const effects = (person.effetsConfies || []).filter((effect) => {
-    const hasType = Boolean(normalizeText(effect?.typeEffet));
-    const hasDesignation = Boolean(normalizeText(getEffectDisplayDesignation(effect)));
-    const hasId = Boolean(normalizeText(effect?.numeroIdentification));
-    const hasDateRemise = Boolean(String(effect?.dateRemise || "").trim());
-    const hasDateRetour = Boolean(String(effect?.dateRetour || "").trim());
-    const hasStatus = Boolean(normalizeText(getEffectStatus(person, effect)));
-    const hasAmount = getEffectReplacementCost(person, effect) > 0;
-    return hasType || hasDesignation || hasId || hasDateRemise || hasDateRetour || hasStatus || hasAmount;
-  });
-  const isPdfMode = isPdfRenderMode();
-  const sortedEffects = sortEffectsForTable(person, effects, "exitEffects");
-  const totalReturned = effects.filter((effect) => getEffectStatus(person, effect) === "RESTITUE").length;
-  const chargeableEffects = effects.filter((effect) => isEffectChargeable(person, effect));
-  const totalValue = chargeableEffects.reduce((sum, effect) => sum + getEffectReplacementCost(person, effect), 0);
-  const todayIso = getTodayIsoDate();
-
-  dateNode.textContent = formatDateTimeForDocument(new Date().toISOString());
-  referenceNode.textContent = `SOR-${person.id || "-"}`;
-  nomNode.textContent = person.nom || "-";
-  prenomNode.textContent = person.prenom || "-";
-  fonctionNode.textContent = person.fonction || "-";
-  typePersonnelNode.textContent = person.typePersonnel || "-";
-  typeContratNode.textContent = person.typeContrat || "-";
-  sitesNode.textContent = getPersonSiteLabel(person) || "-";
-  dateEntreeNode.textContent = formatDate(person.dateEntree) || "-";
-  dateSortiePrevueNode.textContent = formatDate(person.dateSortiePrevue) || "-";
-  dateSortieReelleNode.textContent = formatDate(person.dateSortieReelle) || "-";
-  signatureNameNode.textContent = `${person.nom || ""} ${person.prenom || ""}`.trim() || "-";
-  const exitRepresentative = getRepresentativeInfo(person, "exit");
-  populateRepresentativeSelect(representantNameInput, exitRepresentative.id);
-  representantFunctionInput.value = exitRepresentative.fonction;
-  representantNameNode.textContent = exitRepresentative.nom || "-";
-  representantFunctionNode.textContent = exitRepresentative.fonction || "-";
-  updateRepresentativeSignatureActionState("exit");
-  signaturePersonDateNode.textContent =
-    formatSignatureTimestamp(getSignatureValidationDate(person, "exit", "personnel")) || "-";
-  signatureRepresentantDateNode.textContent =
-    formatSignatureTimestamp(getSignatureValidationDate(person, "exit", "representant")) || "-";
-
-  body.innerHTML = sortedEffects.length
-    ? `${sortedEffects
-        .map(
-          (effect) => {
-            const movement = getEffectMovementLabel(person, effect);
-            const movementBadge = movement
-              ? `<span class="movement-badge movement-badge--${getMovementBadgeVariant(movement)}">${movement}</span>`
-              : "";
-            const currentStatus = normalizeText(getEffectStatus(person, effect));
-            const retourDateIso = normalizeDateString(effect.dateRetour || "");
-            const canToggleReturnToday =
-              !["PERDU", "HS", "VOL"].includes(currentStatus) &&
-              (!retourDateIso || retourDateIso === todayIso);
-            const actionCell = !isPdfMode
-              ? `<span class="document-effect-actions">
-                  <button type="button" class="table-link js-doc-edit-effect" data-person-id="${escapeHtml(person.id || "")}" data-effect-id="${escapeHtml(effect.id || "")}">MODIFIER</button>
-                  <button type="button" class="table-link js-doc-delete-effect" data-person-id="${escapeHtml(person.id || "")}" data-effect-id="${escapeHtml(effect.id || "")}">SUPPRIMER</button>
-                </span>`
-              : "-";
-            return `<tr>
-            <td>${effect.typeEffet || ""}</td>
-            <td>${getEffectDisplayDesignation(effect)}</td>
-            <td>${effect.numeroIdentification || ""}</td>
-            <td>${formatDate(effect.dateRemise)}</td>
-            <td>${formatDate(effect.dateRetour)}</td>
-            <td>${getEffectStatus(person, effect)}</td>
-            <td class="movement-cell">${movementBadge}</td>
-            <td class="movement-cell">${
-              !isPdfMode && canToggleReturnToday
-                ? `<label class="return-today-toggle"><input type="checkbox" class="js-exit-return-today" data-effect-id="${escapeHtml(effect.id || "")}" ${retourDateIso === todayIso ? "checked" : ""} /><span>RENDU</span></label>`
-                : "-"
-            }</td>
-            <td>${formatAmountWithEuro(getEffectReplacementCost(person, effect))}</td>
-            <td class="document-effects-action-col">${actionCell}</td>
-          </tr>`;
-          }
-        )
-        .join("")}
-        <tr class="table-total-row">
-          <td colspan="${isPdfMode ? "7" : "9"}">TOTAL FACTURABLE DES EFFETS</td>
-          <td>${formatAmountWithEuro(totalValue)}</td>
-        </tr>`
-    : buildEmptyTableRow(body, "AUCUN EFFET A AFFICHER", 10);
-
-  totalEffectsNode.textContent = String(effects.length);
-  totalReturnedNode.textContent = String(totalReturned);
-  totalChargeableNode.textContent = String(chargeableEffects.length);
-  totalValueNode.textContent = formatAmountWithEuro(totalValue);
-  renderDocumentCostsTable(costsHead, costsBody);
-  bindExitReturnTodayToggles();
-  bindDocumentEffectActions();
-  updateSortableHeaders("exitEffects");
-  syncDocumentMobileSignatureLink("exit", person.id, "personnel");
-  syncDocumentMobileSignatureLink("exit", person.id, "representant");
-}
-
-function bindDocumentEffectActions() {
-  const page = document.body.dataset.page || "";
-  const bodyId =
-    page === "arrival-document"
-      ? "arrival-effects-body"
-      : page === "exit-document"
-        ? "exit-effects-body"
-        : "";
-  if (!bodyId) {
-    return;
-  }
-  const body = document.getElementById(bodyId);
-  if (!body || body.dataset.effectActionsBound === "true") {
-    return;
-  }
-
-  body.addEventListener("click", async (event) => {
-    const target = event.target;
-    if (!(target instanceof HTMLElement)) {
-      return;
-    }
-
-    const editButton = target.closest(".js-doc-edit-effect");
-    if (editButton instanceof HTMLElement) {
-      const personId = String(editButton.dataset.personId || "");
-      const effectId = String(editButton.dataset.effectId || "");
-      openPersonSheetEffectEditor(personId, effectId);
-      return;
-    }
-
-    const deleteButton = target.closest(".js-doc-delete-effect");
-    if (deleteButton instanceof HTMLElement) {
-      const personId = String(deleteButton.dataset.personId || "");
-      const effectId = String(deleteButton.dataset.effectId || "");
-      if (!personId || !effectId) {
-        return;
-      }
-      await deleteEffect(personId, effectId);
-    }
-  });
-
-  body.dataset.effectActionsBound = "true";
-}
-
-function bindExitReturnTodayToggles() {
-  const body = document.getElementById("exit-effects-body");
-  if (!body) {
-    return;
-  }
-  if (body.dataset.returnBound === "true") {
-    return;
-  }
-  body.addEventListener("change", (event) => {
-    const target = event.target;
-    if (!(target instanceof HTMLInputElement) || !target.classList.contains("js-exit-return-today")) {
-      return;
-    }
-    const person = getCurrentPerson();
-    if (!person) {
-      return;
-    }
-    const effectId = String(target.dataset.effectId || "");
-    const effect = (person.effetsConfies || []).find((entry) => String(entry.id || "") === effectId);
-    if (!effect) {
-      return;
-    }
-    effect.dateRetour = target.checked ? getTodayIsoDate() : "";
-    markDirty();
-    renderPage();
-    renderExitDocument(person.id);
-    renderPersonSheet(person.id);
-    showActionStatus("update", target.checked ? "EFFET MARQUE RENDU CE JOUR" : "RETOUR DU JOUR ANNULE");
-  });
-  body.dataset.returnBound = "true";
-}
-
-function getAvailableReferenceSites(person) {
-  if (!person || !state.data?.listes?.sites) {
-    return [];
-  }
-
-  if (personUsesAllSites(person)) {
-    const baseSites = (state.data.listes.sites || []).map(normalizeText).filter(Boolean);
-    return Array.from(new Set([ALL_SITES_VALUE, ...baseSites.filter((site) => site !== ALL_SITES_VALUE)]));
-  }
-
-  return getPersonSites(person).filter((site) => normalizeText(site) !== ALL_SITES_VALUE);
-}
-
-function getSelectedEffectReferenceSite() {
-  const field = document.querySelector('#effect-form [name="referenceSite"]');
-  return normalizeText(field?.value);
-}
-
-function referenceSiteFromEffect(effect) {
-  if (effect?.siteReference) {
-    return normalizeText(effect.siteReference);
-  }
-  if (effect?.referenceEffetId) {
-    const reference = findReferenceById(effect.referenceEffetId);
-    return normalizeText(reference?.site);
-  }
-  return "";
-}
-
-function getDefaultEffectSiteReference(person, effect) {
-  if (!typeUsesSiteField(effect?.typeEffet)) {
-    return "";
-  }
-  const referenceSite = referenceSiteFromEffect(effect);
-  if (referenceSite) {
-    return referenceSite;
-  }
-  const personSites = getPersonSites(person);
-  if (personSites.includes(ALL_SITES_VALUE)) {
-    return ALL_SITES_VALUE;
-  }
-  if (personSites.length === 1) {
-    return personSites[0];
-  }
-  return "";
-}
-
-function getReferenceSitesForType(typeEffet) {
-  const normalizedTypeEffet = normalizeText(typeEffet);
-  if (!normalizedTypeEffet || !Array.isArray(state.data?.listes?.referencesEffets)) {
-    return [];
-  }
-
-  const sites = state.data.listes.referencesEffets
-    .filter((reference) => {
-      if (normalizeText(reference.typeEffet) !== getReferenceCatalogType(normalizedTypeEffet)) {
-        return false;
-      }
-      if (normalizedTypeEffet === "CLE CES" && !isCesKeyDesignation(reference.designation)) {
-        return false;
-      }
-      if (normalizedTypeEffet === "CLE" && isCesKeyDesignation(reference.designation)) {
-        return false;
-      }
-      return true;
-    })
-    .flatMap((reference) => getReferenceSites(reference))
-    .map(normalizeText)
-    .filter(Boolean);
-
-  return Array.from(new Set(sites)).filter((site) => site !== ALL_SITES_VALUE);
-}
-
-function hydrateEffectReferenceSiteSelect(person, selectedSite = "", typeEffet = "") {
-  const select = document.querySelector('#effect-form [name="referenceSite"]');
-  if (!select) {
-    return;
-  }
-
-  const normalizedType = normalizeText(
-    typeEffet || document.querySelector('#effect-form [name="typeEffet"]')?.value
-  );
-  const baseOption = '<option value="">SELECTIONNER</option>';
-  if (!typeUsesSiteField(normalizedType)) {
-    select.innerHTML = baseOption;
-    select.value = "";
-    return;
-  }
-
-  let sites = getAvailableReferenceSites(person);
-  if (typeUsesReferenceCatalog(normalizedType)) {
-    sites = getReferenceSitesForType(normalizedType);
-  }
-  if (normalizedType === "CARTE TURBOSELF") {
-    sites = Array.from(new Set([ALL_SITES_VALUE, ...sites.filter((site) => site !== ALL_SITES_VALUE)]));
-  }
-  const options = sites.map((site) => `<option value="${site}">${site}</option>`).join("");
-  select.innerHTML = `${baseOption}${options}`;
-  const nextValue = normalizeText(selectedSite || (sites.length === 1 ? sites[0] : ""));
-  select.value = nextValue;
-}
-
-let referenceMultiPickerOutsideCloseBound = false;
-
-function closeReferenceMultiPicker() {
-  const picker = document.getElementById("effect-reference-multi-picker");
-  if (!picker) {
-    return;
-  }
-  picker.classList.remove("is-open");
-  const trigger = picker.querySelector(".reference-multi-picker__trigger");
-  if (trigger) {
-    trigger.setAttribute("aria-expanded", "false");
-  }
-}
-
-function bindReferenceMultiPickerOutsideClose() {
-  if (referenceMultiPickerOutsideCloseBound) {
-    return;
-  }
-  document.addEventListener("pointerdown", (event) => {
-    const picker = document.getElementById("effect-reference-multi-picker");
-    if (!picker || picker.classList.contains("is-hidden")) {
-      return;
-    }
-    if (picker.contains(event.target)) {
-      return;
-    }
-    closeReferenceMultiPicker();
-  });
-  referenceMultiPickerOutsideCloseBound = true;
-}
-
-function buildReferenceMultiPicker(select) {
-  const field = document.getElementById("effect-reference-field");
-  if (!field) {
-    return null;
-  }
-  let picker = document.getElementById("effect-reference-multi-picker");
-  if (!picker) {
-    picker = document.createElement("div");
-    picker.id = "effect-reference-multi-picker";
-    picker.className = "reference-multi-picker is-hidden";
-    picker.innerHTML = `
-      <button type="button" class="reference-multi-picker__trigger" aria-expanded="false">
-        SELECTIONNER
-      </button>
-      <div class="reference-multi-picker__menu"></div>
-    `;
-    field.appendChild(picker);
-    const trigger = picker.querySelector(".reference-multi-picker__trigger");
-    trigger?.addEventListener("click", () => {
-      const willOpen = !picker.classList.contains("is-open");
-      picker.classList.toggle("is-open", willOpen);
-      trigger.setAttribute("aria-expanded", willOpen ? "true" : "false");
-    });
-    picker.addEventListener("change", (event) => {
-      const checkbox = event.target;
-      if (!(checkbox instanceof HTMLInputElement) || checkbox.type !== "checkbox") {
-        return;
-      }
-      const option = Array.from(select.options).find((entry) => entry.value === checkbox.value);
-      if (option) {
-        option.selected = checkbox.checked;
-      }
-      syncReferenceMultiPickerFromSelect(select);
-      select.dispatchEvent(new Event("change", { bubbles: true }));
-    });
-  }
-  bindReferenceMultiPickerOutsideClose();
-  return picker;
-}
-
-function syncReferenceMultiPickerFromSelect(select) {
-  const picker = buildReferenceMultiPicker(select);
-  if (!picker) {
-    return;
-  }
-
-  const isMultiKeyMode = select.multiple;
-  picker.classList.toggle("is-hidden", !isMultiKeyMode);
-  if (!isMultiKeyMode) {
-    closeReferenceMultiPicker();
-    return;
-  }
-
-  const menu = picker.querySelector(".reference-multi-picker__menu");
-  const trigger = picker.querySelector(".reference-multi-picker__trigger");
-  if (!menu || !trigger) {
-    return;
-  }
-
-  const options = Array.from(select.options).filter((option) => String(option.value || "").trim());
-  if (!options.length) {
-    menu.innerHTML = '<div class="reference-multi-picker__empty">AUCUNE CLE DISPONIBLE</div>';
-    trigger.textContent = "AUCUNE CLE DISPONIBLE";
-    return;
-  }
-
-  menu.innerHTML = options
-    .map((option) => {
-      const optionLabel = escapeHtml(String(option.textContent || ""));
-      const optionValue = escapeHtml(String(option.value || ""));
-      const checked = option.selected ? ' checked="checked"' : "";
-      return `<label class="reference-multi-picker__item"><input type="checkbox" value="${optionValue}"${checked} />${optionLabel}</label>`;
-    })
-    .join("");
-
-  const selectedLabels = options.filter((option) => option.selected).map((option) => normalizeText(option.textContent));
-  if (!selectedLabels.length) {
-    trigger.textContent = "SELECTIONNER";
-  } else if (selectedLabels.length === 1) {
-    trigger.textContent = selectedLabels[0];
-  } else {
-    trigger.textContent = `${selectedLabels.length} CLES SELECTIONNEES`;
-  }
-}
-function setEffectReferenceSelectMode(typeEffet = "") {
-  const select = document.getElementById("effect-reference-select");
-  if (!select) {
-    return;
-  }
-  const isMultiKeyMode = normalizeText(typeEffet) === "CLE";
-  select.multiple = isMultiKeyMode;
-  if (isMultiKeyMode) {
-    select.setAttribute("multiple", "multiple");
-  } else {
-    select.removeAttribute("multiple");
-  }
-  select.size = 0;
-  select.removeAttribute("size");
-  select.classList.toggle("is-multiple", isMultiKeyMode);
-  select.classList.toggle("is-hidden-for-multi", isMultiKeyMode);
-  syncReferenceMultiPickerFromSelect(select);
-}
-
-function hydrateReferenceSelect(siteSource, typeEffet = "", selectedId = "", referenceSite = "") {
-  const select = document.getElementById("effect-reference-select");
-  if (!select || !state.data?.listes?.referencesEffets) {
-    return;
-  }
-  select.multiple = false;
-  select.removeAttribute("multiple");
-  select.size = 0;
-  select.removeAttribute("size");
-
-  void siteSource;
-  const normalizedTypeEffet = normalizeText(typeEffet);
-  const isMultiKeyMode = normalizedTypeEffet === "CLE";
-  setEffectReferenceSelectMode(normalizedTypeEffet);
-  const baseOption = isMultiKeyMode ? "" : '<option value="">SELECTIONNER</option>';
-  if (!typeUsesReferenceCatalog(normalizedTypeEffet)) {
-    select.innerHTML = baseOption;
-    select.value = "";
-    return;
-  }
-  const normalizedReferenceSite = normalizeText(referenceSite);
-  const visibleSiteCount = getReferenceSitesForType(normalizedTypeEffet).length;
-  const options = state.data.listes.referencesEffets
-    .filter((reference) => {
-      if (normalizedReferenceSite && !referenceHasSite(reference, normalizedReferenceSite)) {
-        return false;
-      }
-      if (
-        normalizedTypeEffet &&
-        normalizeText(reference.typeEffet) !== getReferenceCatalogType(normalizedTypeEffet)
-      ) {
-        return false;
-      }
-      if (normalizedTypeEffet === "CLE CES" && !isCesKeyDesignation(reference.designation)) {
-        return false;
-      }
-      if (normalizedTypeEffet === "CLE" && isCesKeyDesignation(reference.designation)) {
-        return false;
-      }
-      return true;
-    })
-    .sort((left, right) => {
-      const leftLabel = `${normalizeText(left.designation)} ${normalizeText(getReferenceSiteLabel(left))}`;
-      const rightLabel = `${normalizeText(right.designation)} ${normalizeText(getReferenceSiteLabel(right))}`;
-      return leftLabel.localeCompare(rightLabel, "fr");
-    })
-    .map((reference) => {
-      const label =
-        !normalizedReferenceSite && visibleSiteCount > 1
-          ? `${reference.designation} - ${getReferenceSiteLabel(reference)}`
-          : reference.designation;
-      return `<option value="${reference.id}">${label}</option>`;
-    })
-    .join("");
-  const fallbackOption = `<option value="">${
-    normalizedReferenceSite ? "AUCUNE CLE POUR CE SITE" : "AUCUNE CLE DISPONIBLE"
-  }</option>`;
-  select.innerHTML = options ? `${baseOption}${options}` : fallbackOption;
-  const selectedIds = (Array.isArray(selectedId) ? selectedId : [selectedId])
-    .map((value) => String(value || "").trim())
-    .filter(Boolean);
-  if (isMultiKeyMode) {
-    const selectedSet = new Set(selectedIds);
-    Array.from(select.options).forEach((option) => {
-      option.selected = selectedSet.has(option.value);
-    });
-  } else if (selectedIds.length && options.includes(`value="${selectedIds[0]}"`)) {
-    select.value = selectedIds[0];
-  } else {
-    select.value = "";
-  }
-  syncReferenceMultiPickerFromSelect(select);
-}
-
-function ensureReferenceExists(site, typeEffet, designation, existingId) {
-  if (
-    existingId ||
-    !site ||
-    !state.data?.listes?.referencesEffets ||
-    !typeUsesReferenceCatalog(typeEffet)
-  ) {
-    return;
-  }
-
-  const exists = state.data.listes.referencesEffets.some(
-    (reference) =>
-      reference.site === site &&
-      reference.typeEffet === getReferenceCatalogType(typeEffet) &&
-      reference.designation === designation
-  );
-
-  if (!exists) {
-    state.data.listes.referencesEffets.push({
-      id: getNextId("REF", state.data.listes.referencesEffets),
-      site,
-      typeEffet: getReferenceCatalogType(typeEffet),
-      designation,
-    });
-    sortReferenceEffects();
-  }
-}
-
-function findReferenceById(referenceId) {
-  return state.data?.listes?.referencesEffets?.find((reference) => reference.id === referenceId) || null;
-}
-
-function getCurrentPerson() {
-  return state.data?.personnes?.find((person) => person.id === getCurrentPersonId()) || null;
-}
-
-function getTodayIsoDate() {
-  const currentDate = new Date();
-  const year = currentDate.getFullYear();
-  const month = String(currentDate.getMonth() + 1).padStart(2, "0");
-  const day = String(currentDate.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function getDossierStatus(person) {
-  if (person.dateSortieReelle) return "SORTI";
-  if (person.dateSortiePrevue) return "SORTIE PREVUE";
-  return "EN POSTE";
-}
-
-function isPastDate(value) {
-  if (!value) {
-    return false;
-  }
-  const today = new Date();
-  const todayOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-  const target = new Date(`${value}T00:00:00`);
-  return Number.isFinite(target.getTime()) && target < todayOnly;
-}
-
-function getOverdueExitAlertMeta(person) {
-  if (person?.dateSortiePrevue && !person?.dateSortieReelle && isPastDate(person.dateSortiePrevue)) {
-    return {
-      type: "dateSortiePrevue",
-      message: `ALERTE : DATE DE SORTIE PREVUE DEPASSEE (${formatDate(person.dateSortiePrevue)})`,
-    };
-  }
-  if (person?.dateSortieReelle && isPastDate(person.dateSortieReelle)) {
-    return {
-      type: "dateSortieReelle",
-      message: `ALERTE : DATE DE SORTIE REELLE DEPASSEE (${formatDate(person.dateSortieReelle)})`,
-    };
-  }
-  return { type: "", message: "" };
-}
-
-function getOverdueExitMessage(person) {
-  return getOverdueExitAlertMeta(person).message;
-}
-
-function hasOverdueExit(person) {
-  return Boolean(getOverdueExitAlertMeta(person).message);
-}
-
-function isExitDue(person) {
-  const today = getTodayIsoDate();
-  if (person?.dateSortieReelle && String(person.dateSortieReelle) <= today) {
-    return true;
-  }
-  if (person?.dateSortiePrevue && isPastDate(person.dateSortiePrevue)) {
-    return true;
-  }
-  return false;
-}
-
-function getEffectStatus(person, effect) {
-  if (effect.dateRetour) return "RESTITUE";
-
-  const manualStatus = normalizeText(effect.statutManuel);
-  if (manualStatus === "CASSE" || manualStatus === "DETRUIT") return "HS";
-  if (["PERDU", "HS", "VOL"].includes(manualStatus)) return manualStatus;
-  if (isExitDue(person)) return "NON RENDU";
-  return manualStatus || "ACTIF";
-}
-
-function getEffectDisplayDesignation(effect) {
-  return typeUsesReferenceCatalog(effect?.typeEffet) ? effect?.designation || "" : "";
-}
-
-function getEffectDisplaySite(effect) {
-  if (effect?.siteReference) {
-    return effect.siteReference;
-  }
-  if (effect?.referenceEffetId) {
-    const reference = findReferenceById(effect.referenceEffetId);
-    return getReferenceSiteLabel(reference) || normalizeText(reference?.site);
-  }
-  return "";
-}
-
-function getStatusClass(status) {
-  const normalizedStatus = normalizeText(status).replace(/\s+/g, "-").toLowerCase();
-  return `status-pill status-pill--${normalizedStatus}`;
-}
-
-function getAllEffects(persons) {
-  return persons.flatMap((person) =>
-    (person.effetsConfies || []).map((effect) => ({ person, effect }))
-  );
-}
-
-function isCurrentAssignedEffect(person, effect) {
-  const status = normalizeText(getEffectStatus(person, effect));
-  return !["RESTITUE", "PERDU", "HS", "DETRUIT", "VOL"].includes(status);
-}
-
-function getCurrentAssignedEffects(person) {
-  return (person?.effetsConfies || []).filter((effect) => isCurrentAssignedEffect(person, effect));
-}
-
-function getEffectChartCategory(person, effect) {
-  const status = normalizeText(getEffectStatus(person, effect));
-  if (status === "NON RENDU") {
-    return "nonRendu";
-  }
-  if (status === "RESTITUE") {
-    return "restitue";
-  }
-  if (status === "PERDU") {
-    return "perdu";
-  }
-  if (status === "VOL") {
-    return "vole";
-  }
-  if (status === "HS") {
-    return "hs";
-  }
-  return "actif";
-}
-
-function getNextId(prefix, items) {
-  const max = items.reduce((highest, item) => {
-    const digits = Number.parseInt(String(item.id || "").replace(prefix, ""), 10);
-    return Number.isNaN(digits) ? highest : Math.max(highest, digits);
-  }, 0);
-
-  return `${prefix}${String(max + 1).padStart(4, "0")}`;
-}
-
-function formatDate(value) {
-  if (!value) return "";
-  const [year, month, day] = value.split("-");
-  if (!year || !month || !day) return value;
-  return `${day}/${month}/${year}`;
-}
-
-function formatTime(value) {
-  if (!value) {
-    return "";
-  }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return "";
-  }
-  return date.toLocaleTimeString("fr-FR", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function formatDateForDocument(value) {
-  return formatDate(value) || formatDate(getTodayIsoDate());
-}
-
-function formatDateTimeForDocument(value) {
-  const date = value ? new Date(value) : new Date();
-  if (Number.isNaN(date.getTime())) {
-    return formatDateForDocument("");
-  }
-  return date.toLocaleString("fr-FR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function renderReferenceBases() {
-  state.referenceRenderContext = buildReferenceRenderContext();
-  renderSimpleReferenceList("sites", state.referenceRenderContext);
-  renderSimpleReferenceList("typesPersonnel", state.referenceRenderContext);
-  renderSimpleReferenceList("typesContrats", state.referenceRenderContext);
-  renderSimpleReferenceList("fonctions", state.referenceRenderContext);
-  renderSimpleReferenceList("typesEffets", state.referenceRenderContext);
-  renderRepresentativesTable(state.referenceRenderContext);
-  renderReferenceEffectsTable(state.referenceRenderContext);
-  renderReplacementCostsTable();
-  renderReferenceCounts();
-  renderMobileSignatureSettings();
-}
-
-function renderMobileSignatureSettings() {
-  const input = document.querySelector('#mobile-signature-settings-form [name="mobileSignatureBaseUrl"]');
-  const statusNode = document.getElementById("mobile-signature-settings-status");
-  if (!(input instanceof HTMLInputElement)) {
-    return;
-  }
-
-  const configured = getConfiguredMobileSignatureBaseUrl();
-  input.value = configured;
-  if (!statusNode) {
-    return;
-  }
-
-  const setStatusWithUrl = (prefix, url) => {
-    const safeUrl = escapeHtml(url);
-    statusNode.innerHTML = `${prefix} : <a href="${safeUrl}" target="_blank" rel="noopener">${safeUrl}</a>`;
+function filterRealHoursReportExternal(rep, includeExternal=true){
+  if(includeExternal) return rep;
+  const internalKinds = new Set(["INTERNE","RSG","RI"]);
+  const detailRows = (rep.detailRows || []).filter(r=> internalKinds.has(String(r.interv || "").toUpperCase()));
+  const internalByNameRows = Array.isArray(rep.internalByNameRows) ? rep.internalByNameRows : [];
+  const internalTotalMinutes = internalByNameRows.reduce((s, row)=> s + (Number(row?.[1]) || 0), 0);
+  return {
+    summaryRows: (rep.summaryRows || []).map(r=>{
+      const label = String(r?.label || "");
+      if(label.toUpperCase() === "EXTERNE") return {...r, mins: 0};
+      return r;
+    }),
+    externalVendors: [],
+    detailRows,
+    totalMinutes: internalTotalMinutes,
+    internalByNameRows,
+    externalByNameRows: [],
+    internalTotalMinutes,
+    externalTotalMinutes: 0
   };
-
-  if (configured) {
-    setStatusWithUrl("URL PUBLIQUE ACTIVE", configured);
-    return;
-  }
-
-  const currentOrigin = normalizeHttpUrl(window.location.origin || "");
-  if (currentOrigin && !isLikelyLocalUrl(currentOrigin)) {
-    setStatusWithUrl("MODE AUTO HEBERGE", currentOrigin);
-    return;
-  }
-
-  const autoBase = normalizeHttpUrl(state.mobileSignatureNetworkInfo?.preferredUrl || "");
-  if (autoBase) {
-    setStatusWithUrl("MODE AUTO RESEAU LOCAL", autoBase);
-    return;
-  }
-
-  statusNode.textContent = "MODE AUTO RESEAU LOCAL (URL PUBLIQUE NON DEFINIE)";
 }
 
-function buildReferenceRenderContext() {
-  const persons = state.data?.personnes || [];
-  const references = state.data?.listes?.referencesEffets || [];
-  const effects = getAllEffects(persons);
-  const context = {
-    simpleUsage: {
-      typesPersonnel: new Map(),
-      typesContrats: new Map(),
-      fonctions: new Map(),
-      typesEffets: new Map(),
-    },
-    representativeUsage: new Map(),
-    referenceEffectUsage: new Map(),
-  };
-
-  const increment = (map, key, amount = 1) => {
-    const normalizedKey = normalizeText(key);
-    if (!normalizedKey) {
-      return;
-    }
-    map.set(normalizedKey, (map.get(normalizedKey) || 0) + amount);
-  };
-
-  persons.forEach((person) => {
-    increment(context.simpleUsage.typesPersonnel, person.typePersonnel);
-    increment(context.simpleUsage.typesContrats, person.typeContrat);
-    increment(context.simpleUsage.fonctions, person.fonction);
-
-    ["arrival", "exit"].forEach((docType) => {
-      const representativeId = String(person?.representants?.[docType]?.id || "");
-      if (representativeId) {
-        context.representativeUsage.set(
-          representativeId,
-          (context.representativeUsage.get(representativeId) || 0) + 1
-        );
-      }
-    });
-  });
-
-  references.forEach((reference) => {
-    increment(context.simpleUsage.typesEffets, reference.typeEffet);
-  });
-
-  effects.forEach(({ effect }) => {
-    increment(context.simpleUsage.typesEffets, effect.typeEffet);
-    const referenceId = String(effect.referenceEffetId || "");
-    if (referenceId) {
-      context.referenceEffectUsage.set(
-        referenceId,
-        (context.referenceEffectUsage.get(referenceId) || 0) + 1
-      );
-    }
-  });
-
-  return context;
-}
-
-function renderRepresentativesTable(renderContext = null) {
-  const body = document.getElementById("reference-representantsSignataires-body");
-  const form = document.getElementById("representative-signatory-form");
-  if (!body || !form || !state.data?.listes?.representantsSignataires) {
-    return;
-  }
-
-  const submitButton = form.querySelector('button[type="submit"]');
-  if (submitButton) {
-    submitButton.textContent = state.editingRepresentativeId
-      ? "ENREGISTRER LA MODIFICATION"
-      : "ENREGISTRER LE REPRESENTANT";
-  }
-
-  const representatives = state.data.listes.representantsSignataires.slice();
-  if (!representatives.length) {
-    body.innerHTML = buildEmptyTableRow(body, "AUCUN REPRESENTANT", 4);
-    return;
-  }
-
-  const rowsHtml = representatives
-    .map((representative) => {
-      const usage = renderContext?.representativeUsage?.get(representative.id) || 0;
-      return `<tr class="js-representative-row" data-representative-id="${representative.id}">
-        <td>${escapeHtml(representative.nom || "-")}</td>
-        <td>${escapeHtml(representative.fonction || "-")}</td>
-        <td>${usage}</td>
-        <td>
-          <button type="button" class="table-link js-edit-representative" data-representative-id="${representative.id}">MODIFIER</button>
-          <button type="button" class="table-link js-delete-representative" data-representative-id="${representative.id}">SUPPRIMER</button>
-        </td>
-      </tr>`;
-    });
-
-  renderTableRowsProgressively(body, rowsHtml, buildEmptyTableRow(body, "AUCUN REPRESENTANT", 4), 24);
-
-  bindRepresentativeActions();
-}
-
-function renderSimpleReferenceList(listName, renderContext = null) {
-  const body = document.getElementById(`reference-${listName}-body`);
-  if (!body || !state.data?.listes?.[listName]) {
-    return;
-  }
-
-  const values = state.data.listes[listName];
-  if (!values.length) {
-    body.innerHTML = buildEmptyTableRow(body, "AUCUNE VALEUR", 2);
-    return;
-  }
-
-  const rowsHtml = values
-    .map((value) => {
-      const usage =
-        listName === "sites"
-          ? getSimpleReferenceUsage(listName, value)
-          : renderContext?.simpleUsage?.[listName]?.get(normalizeText(value)) || 0;
-      return `<tr class="js-reference-item-row" data-list-name="${listName}" data-value="${escapeHtml(value)}">
-        <td>${escapeHtml(value)}</td>
-        <td>
-          <button type="button" class="table-link js-edit-reference-item" data-list-name="${listName}" data-value="${escapeHtml(value)}">MODIFIER</button>
-          <button type="button" class="table-link js-delete-reference-item" data-list-name="${listName}" data-value="${escapeHtml(value)}">SUPPRIMER</button>
-          <span class="usage-pill">${usage}</span>
-        </td>
-      </tr>`;
-    });
-
-  renderTableRowsProgressively(body, rowsHtml, buildEmptyTableRow(body, "AUCUNE VALEUR", 2), 30);
-
-  bindReferenceListActions();
-}
-
-function renderReferenceEffectsTable(renderContext = null) {
-  const body = document.getElementById("reference-effects-table-body");
-  if (!body || !state.data?.listes?.referencesEffets) {
-    return;
-  }
-
-  const filterForm = document.getElementById("reference-filter-form");
-  const filterSearch = normalizeText(filterForm?.elements?.filterReferenceSearch?.value);
-  const filterSite = normalizeText(filterForm?.elements?.filterReferenceSite?.value);
-  const filterTypeEffet = normalizeText(filterForm?.elements?.filterReferenceTypeEffet?.value);
-  const references = state.data.listes.referencesEffets.filter((reference) => {
-    if (filterSite && !referenceHasSite(reference, filterSite)) {
-      return false;
-    }
-    if (filterTypeEffet && normalizeText(reference.typeEffet) !== filterTypeEffet) {
-      return false;
-    }
-    if (filterSearch) {
-      const text = [reference.site, reference.typeEffet, reference.designation]
-        .map(normalizeText)
-        .join(" ");
-      if (!text.includes(filterSearch)) {
-        return false;
-      }
-    }
-    return true;
-  });
-  const sortedReferences = sortReferencesForTable(references, "referenceEffects", renderContext);
-  if (!references.length) {
-    body.innerHTML = buildEmptyTableRow(body, "AUCUNE REFERENCE", 5);
-    return;
-  }
-
-  const rowsHtml = sortedReferences
-    .map((reference) => {
-      const usage = renderContext?.referenceEffectUsage?.get(String(reference.id || "")) || 0;
-      return `<tr class="js-reference-effect-row" data-reference-id="${reference.id}">
-        <td>${escapeHtml(getReferenceSiteLabel(reference))}</td>
-        <td>${escapeHtml(reference.typeEffet)}</td>
-        <td>${escapeHtml(reference.designation)}</td>
-        <td>${usage}</td>
-        <td>
-          <button type="button" class="table-link js-edit-reference-effect" data-reference-id="${reference.id}">MODIFIER</button>
-          <button type="button" class="table-link js-delete-reference-effect" data-reference-id="${reference.id}">SUPPRIMER</button>
-        </td>
-      </tr>`;
-    });
-
-  renderTableRowsProgressively(body, rowsHtml, buildEmptyTableRow(body, "AUCUNE REFERENCE", 5), 24);
-  updateSortableHeaders("referenceEffects");
-
-  bindReferenceEffectActions();
-}
-
-function renderReplacementCostsTable() {
-  const body = document.getElementById("replacement-costs-body");
-  if (!body || !state.data?.listes?.coutsRemplacement) {
-    return;
-  }
-
-  const entries = state.data.listes.coutsRemplacement
-    .slice()
-    .sort((left, right) => {
-      const leftLabel = `${normalizeText(left.typeEffet)} ${normalizeText(left.cause)}`;
-      const rightLabel = `${normalizeText(right.typeEffet)} ${normalizeText(right.cause)}`;
-      return leftLabel.localeCompare(rightLabel, "fr");
-    });
-
-  if (!entries.length) {
-    body.innerHTML = buildEmptyTableRow(body, "AUCUN COUT", 4);
-    return;
-  }
-
-  const rowsHtml = entries
-    .map((entry) => {
-      const key = getReplacementCostKey(entry.typeEffet, entry.cause);
-      return `<tr class="js-replacement-cost-row" data-cost-key="${key}">
-        <td>${escapeHtml(entry.typeEffet)}</td>
-        <td>${escapeHtml(entry.cause)}</td>
-        <td>${formatAmountWithEuro(entry.montant)}</td>
-        <td>
-          <button type="button" class="table-link js-edit-replacement-cost" data-cost-key="${key}">MODIFIER</button>
-        </td>
-      </tr>`;
-    });
-
-  renderTableRowsProgressively(body, rowsHtml, buildEmptyTableRow(body, "AUCUN COUT", 4), 24);
-
-  bindReplacementCostActions();
-}
-
-function renderTableRowsProgressively(body, rowsHtml, emptyMarkup = "", batchSize = 40) {
-  if (!body) {
-    return;
-  }
-
-  const token = `${Date.now()}-${Math.random()}`;
-  body.dataset.renderToken = token;
-
-  if (!rowsHtml.length) {
-    body.innerHTML = emptyMarkup;
-    return;
-  }
-
-  body.innerHTML = "";
-
-  if (rowsHtml.length <= batchSize) {
-    body.innerHTML = rowsHtml.join("");
-    return;
-  }
-
-  let index = 0;
-
-  const appendBatch = () => {
-    if (body.dataset.renderToken !== token) {
-      return;
-    }
-
-    body.insertAdjacentHTML("beforeend", rowsHtml.slice(index, index + batchSize).join(""));
-    index += batchSize;
-
-    if (index < rowsHtml.length) {
-      window.requestAnimationFrame(appendBatch);
-    }
-  };
-
-  window.requestAnimationFrame(appendBatch);
-}
-
-function syncSelectOptions(select, values, emptyLabel = "TOUS") {
-  if (!(select instanceof HTMLSelectElement)) {
-    return;
-  }
-
-  const signature = JSON.stringify([emptyLabel, ...values]);
-  if (select.dataset.optionsSignature === signature) {
-    return;
-  }
-
-  const currentValue = select.value;
-  select.innerHTML = [`<option value="">${escapeHtml(emptyLabel)}</option>`]
-    .concat(values.map((entry) => `<option value="${escapeHtml(entry)}">${escapeHtml(entry)}</option>`))
-    .join("");
-  select.value = currentValue;
-  select.dataset.optionsSignature = signature;
-}
-
-function renderReferenceCounts() {
-  const realSitesCount = (state.data?.listes?.sites || []).filter(
-    (site) => normalizeText(site) !== ALL_SITES_VALUE
-  ).length;
-  const mapping = {
-    "reference-count-sites": realSitesCount,
-    "reference-count-typesPersonnel": state.data?.listes?.typesPersonnel?.length || 0,
-    "reference-count-typesContrats": state.data?.listes?.typesContrats?.length || 0,
-    "reference-count-fonctions": state.data?.listes?.fonctions?.length || 0,
-    "reference-count-typesEffets": state.data?.listes?.typesEffets?.length || 0,
-    "reference-count-referencesEffets": state.data?.listes?.referencesEffets?.length || 0,
-    "reference-count-coutsRemplacement": state.data?.listes?.coutsRemplacement?.length || 0,
-    "reference-count-representantsSignataires": state.data?.listes?.representantsSignataires?.length || 0,
-  };
-
-  Object.entries(mapping).forEach(([id, value]) => {
-    const node = document.getElementById(id);
-    if (node) {
-      setKpiCountAnimated(node, Number(value) || 0);
-    }
-  });
-}
-
-function bindRepresentativeActions() {
-  const body = document.getElementById("reference-representantsSignataires-body");
-  if (!body || body.dataset.bound === "true") {
-    return;
-  }
-
-  body.addEventListener("click", (event) => {
-    const target = event.target;
-    if (!(target instanceof HTMLElement)) {
-      return;
-    }
-
-    const deleteButton = target.closest(".js-delete-representative");
-    if (deleteButton instanceof HTMLElement) {
-      event.preventDefault();
-      event.stopPropagation();
-      deleteRepresentativeSignatory(deleteButton.dataset.representativeId || "");
-      return;
-    }
-
-    const editButton = target.closest(".js-edit-representative");
-    if (editButton instanceof HTMLElement) {
-      event.preventDefault();
-      event.stopPropagation();
-      startEditRepresentativeSignatory(editButton.dataset.representativeId || "");
-      return;
-    }
-
-    const row = target.closest(".js-representative-row");
-    if (row instanceof HTMLElement) {
-      startEditRepresentativeSignatory(row.dataset.representativeId || "");
-    }
-  });
-
-  body.dataset.bound = "true";
-}
-
-function startEditRepresentativeSignatory(representativeId) {
-  const representative = findRepresentativeById(representativeId);
-  const form = document.getElementById("representative-signatory-form");
-  if (!representative || !form) {
-    return;
-  }
-
-  state.editingRepresentativeId = representativeId;
-  form.elements.representativeName.value = representative.nom || "";
-  form.elements.representativeFunction.value = representative.fonction || "";
-  const submitButton = form.querySelector('button[type="submit"]');
-  if (submitButton) {
-    submitButton.textContent = "ENREGISTRER LA MODIFICATION";
-  }
-  form.scrollIntoView({ behavior: "smooth", block: "center" });
-  showDataStatus(`REPRESENTANT EN COURS DE MODIFICATION : ${representative.nom || representative.fonction}`);
-}
-
-function deleteRepresentativeSignatory(representativeId) {
-  if (!state.data?.listes?.representantsSignataires) {
-    return;
-  }
-
-  const representative = findRepresentativeById(representativeId);
-  if (!representative) {
-    return;
-  }
-
-  const usage = getRepresentativeUsage(representativeId);
-  if (usage > 0) {
-    showDataStatus("SUPPRESSION BLOQUEE - REPRESENTANT DEJA UTILISE");
-    window.alert("SUPPRESSION IMPOSSIBLE : REPRESENTANT DEJA UTILISE");
-    return;
-  }
-
-  if (!window.confirm(`SUPPRIMER DEFINITIVEMENT : ${representative.nom || representative.fonction} ?`)) {
-    return;
-  }
-
-  pushUndoSnapshot("SUPPRESSION REPRESENTANT");
-  state.data.listes.representantsSignataires = state.data.listes.representantsSignataires.filter(
-    (entry) => entry.id !== representativeId
-  );
-  if (state.editingRepresentativeId === representativeId) {
-    state.editingRepresentativeId = "";
-    const form = document.getElementById("representative-signatory-form");
-    if (form) {
-      form.reset();
-    }
-  }
-  markDirty();
-  renderPage();
-  showActionStatus("delete", `REPRESENTANT SUPPRIME : ${representative.nom || representative.fonction}`);
-}
-
-function bindReferenceListActions() {
-  const bodyIds = [
-    "reference-sites-body",
-    "reference-typesPersonnel-body",
-    "reference-typesContrats-body",
-    "reference-fonctions-body",
-    "reference-typesEffets-body",
+function buildRealHoursReportInnerHTML(rep, title, reportMode="master", includeExternal=true){
+  const report = filterRealHoursReportExternal(rep, includeExternal);
+  const summary = report.summaryRows.map(r=>
+    `<tr class="report-internal-priority"><td>${r.label}</td><td style="text-align:right">${formatHoursMinutes(r.mins)}</td></tr>`
+  ).join("");
+  const vendors = report.externalVendors.length
+    ? report.externalVendors.map(([name, mins])=>
+        `<tr><td>${attrEscape(name)}</td><td style="text-align:right">${formatHoursMinutes(mins)}</td></tr>`
+      ).join("")
+    : `<tr><td colspan="2" class="text-muted">Aucun détail externe.</td></tr>`;
+  const details = report.detailRows.length
+    ? report.detailRows.map(r=>
+        `<tr><td>${r.num}</td><td>${attrEscape(r.task)}</td><td>${attrEscape(r.interv)}</td><td style="text-align:right">${formatHoursMinutes(r.mins)}</td></tr>`
+      ).join("")
+    : `<tr><td colspan="4" class="text-muted">Aucune heure réelle saisie.</td></tr>`;
+  const detailTotalMinutes = report.detailRows.reduce((s, r)=> s + (Number(r.mins) || 0), 0);
+  const totalsByNameRows = [
+    ...report.internalByNameRows.map(([name, mins])=>({
+      kind:"Interne",
+      name,
+      mins
+    })),
+    ...report.externalByNameRows.map(([name, mins])=>({
+      kind:"Externe",
+      name,
+      mins
+    }))
   ];
+  const totalsByNameHtml = totalsByNameRows.length
+    ? totalsByNameRows.map(r=>
+      `<tr><td>${r.kind}</td><td>${attrEscape(r.name)}</td><td style="text-align:right">${formatHoursMinutes(r.mins)}</td></tr>`
+    ).join("")
+    : `<tr><td colspan="3" class="text-muted">Aucune donnée.</td></tr>`;
 
-  bodyIds.forEach((bodyId) => {
-    const body = document.getElementById(bodyId);
-    if (!body || body.dataset.bound === "true") {
-      return;
+  const vendorsBlock = includeExternal
+    ? `<div>
+        <div class="report-subtitle">Détail Externe (prestataires)</div>
+        <table class="report-table">
+          <thead><tr><th>Prestataire</th><th>Heures</th></tr></thead>
+          <tbody>${vendors}</tbody>
+        </table>
+      </div>`
+    : "";
+
+  const totalsSubtitle = includeExternal
+    ? "Totaux internes / externes par intervenant (nom)"
+    : "Totaux internes par intervenant (nom)";
+
+  return `
+    <div class="row row-compact" style="justify-content:space-between;align-items:center;margin-bottom:6px;">\n      <div class="card-title">${attrEscape(title || "Analyse heures réelles")}</div>\n    </div>
+    <div class="report-grid-two"${includeExternal ? "" : ' style="display:block"'}>
+      <div>
+        <div class="report-subtitle">Synthèse par intervenant</div>
+        <table class="report-table report-table-summary">
+          <thead><tr><th>Intervenant</th><th>Heures</th></tr></thead>
+          <tbody>${summary}</tbody>
+          <tfoot><tr><th>Total</th><th style="text-align:right">${formatHoursMinutes(report.internalTotalMinutes)}</th></tr></tfoot>
+        </table>
+      </div>
+      ${vendorsBlock}
+    </div>
+    <div class="report-subtitle">Détail tâche + intervenant</div>
+    <table class="report-table">
+      <thead><tr><th>N</th><th>Tâche</th><th>Intervenant</th><th>Heures</th></tr></thead>
+      <tbody>${details}</tbody>
+      <tfoot><tr><th colspan="3">Total</th><th style="text-align:right">${formatHoursMinutes(detailTotalMinutes)}</th></tr></tfoot>
+    </table>
+    <div class="report-subtitle" style="margin-top:8px">${totalsSubtitle}</div>
+    <table class="report-table">
+      <thead><tr><th>Catégorie</th><th>Nom intervenant</th><th>Heures</th></tr></thead>
+      <tbody>${totalsByNameHtml}</tbody>
+      <tfoot>
+        <tr><th colspan="2">Total interne</th><th style="text-align:right">${formatHoursMinutes(report.internalTotalMinutes)}</th></tr>
+        ${includeExternal ? `<tr><th colspan="2">Total externe</th><th style="text-align:right">${formatHoursMinutes(report.externalTotalMinutes)}</th></tr>` : ""}
+        <tr><th colspan="2">Total heures réelles</th><th style="text-align:right">${formatHoursMinutes(report.totalMinutes)}</th></tr>
+      </tfoot>
+    </table>
+  `;
+}
+
+function buildProjectRealHoursReportInnerHTML(projectId, includeExternal=true, title="Analyse heures réelles (projet)"){
+  const rep = buildProjectRealHoursReport(projectId);
+  return buildRealHoursReportInnerHTML(rep, title, "project", includeExternal);
+}
+
+function buildGroupedProjectsRealHoursReportInnerHTML(projectIds, includeExternal=true, title="Analyse heures réelles (chantiers regroupés)"){
+  const rep = buildGroupedProjectsRealHoursReport(projectIds);
+  return buildRealHoursReportInnerHTML(rep, title, "project", includeExternal);
+}
+
+function buildProjectRepartitionExportInnerHTML(projectId, includeExternal=true, title="Répartition Interne / Externe / RSG / RI (projet)"){
+  const rep = filterRealHoursReportExternal(buildProjectRealHoursReport(projectId), includeExternal);
+  const totalMinutes = Number(rep.totalMinutes) || 0;
+  const rowsHtml = (rep.summaryRows || []).map((r)=>{
+    const label = String(r?.label || "");
+    const mins = Number(r?.mins) || 0;
+    const part = totalMinutes > 0 ? ((mins / totalMinutes) * 100) : 0;
+    const partTxt = `${part.toFixed(1).replace(".", ",")} %`;
+    return `<tr><td>${attrEscape(label)}</td><td style="text-align:right">${formatHoursMinutes(mins)}</td><td style="text-align:right">${partTxt}</td></tr>`;
+  }).join("") || `<tr><td colspan="3" style="text-align:center;color:#64748b;">Aucune donnée</td></tr>`;
+  const total = formatHoursMinutes(rep.totalMinutes || 0);
+  return `
+    <div class="card-title">${attrEscape(title)}</div>
+    <table class="report-table report-table-summary" style="margin-top:6px">
+      <thead><tr><th>Catégorie</th><th>Heures</th><th>Part</th></tr></thead>
+      <tbody>${rowsHtml}</tbody>
+      <tfoot><tr><th>Total</th><th style="text-align:right">${total}</th><th style="text-align:right">100,0 %</th></tr></tfoot>
+    </table>
+  `;
+}
+
+function buildGroupedProjectsRepartitionExportInnerHTML(projectIds, includeExternal=true, title="Répartition Interne / Externe / RSG / RI (chantiers regroupés)"){
+  const rep = filterRealHoursReportExternal(buildGroupedProjectsRealHoursReport(projectIds), includeExternal);
+  const totalMinutes = Number(rep.totalMinutes) || 0;
+  const rowsHtml = (rep.summaryRows || []).map((r)=>{
+    const label = String(r?.label || "");
+    const mins = Number(r?.mins) || 0;
+    const part = totalMinutes > 0 ? ((mins / totalMinutes) * 100) : 0;
+    const partTxt = `${part.toFixed(1).replace(".", ",")} %`;
+    return `<tr><td>${attrEscape(label)}</td><td style="text-align:right">${formatHoursMinutes(mins)}</td><td style="text-align:right">${partTxt}</td></tr>`;
+  }).join("") || `<tr><td colspan="3" style="text-align:center;color:#64748b;">Aucune donnée</td></tr>`;
+  const total = formatHoursMinutes(rep.totalMinutes || 0);
+  return `
+    <div class="card-title">${attrEscape(title)}</div>
+    <table class="report-table report-table-summary" style="margin-top:6px">
+      <thead><tr><th>Catégorie</th><th>Heures</th><th>Part</th></tr></thead>
+      <tbody>${rowsHtml}</tbody>
+      <tfoot><tr><th>Total</th><th style="text-align:right">${total}</th><th style="text-align:right">100,0 %</th></tr></tfoot>
+    </table>
+  `;
+}
+
+function buildMasterRepartitionExportInnerHTML(title="Répartition Interne / Externe / RSG / RI (tableau maître)"){
+  const rep = filterRealHoursReportExternal(buildMasterRealHoursReport(), true);
+  const totalMinutes = Number(rep.totalMinutes) || 0;
+  const rowsHtml = (rep.summaryRows || []).map((r)=>{
+    const label = String(r?.label || "");
+    const mins = Number(r?.mins) || 0;
+    const part = totalMinutes > 0 ? ((mins / totalMinutes) * 100) : 0;
+    const partTxt = `${part.toFixed(1).replace(".", ",")} %`;
+    return `<tr><td>${attrEscape(label)}</td><td style="text-align:right">${formatHoursMinutes(mins)}</td><td style="text-align:right">${partTxt}</td></tr>`;
+  }).join("") || `<tr><td colspan="3" style="text-align:center;color:#64748b;">Aucune donnée</td></tr>`;
+  const total = formatHoursMinutes(rep.totalMinutes || 0);
+  return `
+    <div class="card-title">${attrEscape(title)}</div>
+    <table class="report-table report-table-summary" style="margin-top:6px">
+      <thead><tr><th>Catégorie</th><th>Heures</th><th>Part</th></tr></thead>
+      <tbody>${rowsHtml}</tbody>
+      <tfoot><tr><th>Total</th><th style="text-align:right">${total}</th><th style="text-align:right">100,0 %</th></tr></tfoot>
+    </table>
+  `;
+}
+
+function buildMasterRealHoursReportInnerHTML(includeExternal=true){
+  const rep = buildMasterRealHoursReport();
+  return buildRealHoursReportInnerHTML(rep, "Analyse heures réelles (tableau maître)", "master", includeExternal);
+}
+
+function buildProjectRealHoursReportHTML(projectId, includeExternal=true){
+  return `<div class="card print-block report-hours-card">${buildProjectRealHoursReportInnerHTML(projectId, includeExternal)}</div>`;
+}
+function buildMasterRealHoursReportHTML(includeExternal=true){
+  return `<div class="card print-block report-hours-card">${buildMasterRealHoursReportInnerHTML(includeExternal)}</div>`;
+}
+
+
+
+function cleanupPrint(){
+
+  document.body.classList.remove("print-mode");
+  document.body.classList.remove("print-gantt-master");
+  document.body.classList.remove("print-gantt-project");
+  document.body.classList.remove("print-hours-report");
+
+  const container = document.getElementById("printInjection");
+
+  if(container) container.innerHTML = "";
+
+}
+
+
+
+if(typeof window !== "undefined"){
+
+  window.onafterprint = cleanupPrint;
+
+}
+
+function buildMasterFiltersLabel(){
+  const labels = [];
+  const exportSites = (ganttExportContext==="project") ? [] : getSelectedExportSites();
+  const allSites = (ganttExportContext==="project") ? [] : getAllSitesList();
+  if(allSites.length){
+    if(exportSites.length === 0 || exportSites.length === allSites.length){
+      labels.push("Sites: Tous");
+    }else{
+      labels.push(`Sites: ${exportSites.join(", ")}`);
     }
+  }else{
+    const site = (el("filterSite")?.value || "").trim();
+    if(site) labels.push(`Site: ${site}`);
+  }
+  const projId = el("filterProject")?.value || "";
+  if(projId){
+    const p = state.projects.find(x=>x.id===projId);
+    if(p) labels.push(`Projet: ${p.name || "Sans nom"}`);
+  }
+  const statusId = el("filterStatus")?.value || "";
+  if(statusId){
+    const s = STATUSES.find(x=>x.v===statusId);
+    labels.push(`Statut: ${(s?.label || statusId)}`);
+  }
+  const q = (el("filterSearch")?.value || "").trim();
+  if(q) labels.push(`Recherche: "${q}"`);
+  const startAfter = el("filterStartAfter")?.value || "";
+  if(startAfter) labels.push(`Début après: ${formatDate(startAfter)}`);
+  const endBefore = el("filterEndBefore")?.value || "";
+  if(endBefore) labels.push(`Fin avant: ${formatDate(endBefore)}`);
 
-    body.addEventListener("click", (event) => {
-      const target = event.target;
-      if (!(target instanceof HTMLElement)) {
-        return;
+  const rangeType = el("ganttExportRangeType")?.value || "";
+  const rangeYear = el("ganttExportRangeYear")?.value || "";
+  const rangeStart = el("ganttExportRangeStart")?.value || "";
+  const rangeEnd = el("ganttExportRangeEnd")?.value || "";
+  if(rangeType){
+    if(rangeType === "all") labels.push("Période: Toutes les dates");
+    else if(rangeType === "civil") labels.push(`Période: Année civile ${rangeYear || ""}`.trim());
+    else if(rangeType === "school"){
+      const y = parseInt(rangeYear || "", 10);
+      const label = isNaN(y) ? "" : `${y}-${y+1}`;
+      labels.push(`Période: Année scolaire ${label || rangeYear || ""}`.trim());
+    }
+    else if(rangeType === "custom"){
+      if(rangeStart || rangeEnd){
+        const s = rangeStart ? formatDate(rangeStart) : "—";
+        const e = rangeEnd ? formatDate(rangeEnd) : "—";
+        labels.push(`Période: ${s} → ${e}`);
       }
+    }
+  }
+  return labels.length ? labels.join(" • ") : "Aucun";
+}
 
-      const startEdit = (listName, value) => {
-        const form = document.querySelector(`.js-reference-list-form[data-list-name="${listName}"]`);
-        const input = form?.querySelector('input[name="value"]');
-        if (!form || !input) {
-          return;
-        }
-        state.editingSimpleReference = { listName, originalValue: value };
-        input.value = value;
-        const submitButton = form.querySelector('button[type="submit"]');
-        if (submitButton) {
-          submitButton.textContent = "ENREGISTRER LA MODIFICATION";
-        }
-        input.focus();
-        input.select();
-        showDataStatus(`BASE EN COURS DE MODIFICATION : ${value}`);
-      };
 
-      const deleteButton = target.closest(".js-delete-reference-item");
-      if (deleteButton instanceof HTMLElement) {
-        event.preventDefault();
-        event.stopPropagation();
-        deleteSimpleReference(
-          deleteButton.dataset.listName || "",
-          normalizeText(deleteButton.dataset.value)
-        );
-        return;
-      }
 
-      const editButton = target.closest(".js-edit-reference-item");
-      if (editButton instanceof HTMLElement) {
-        event.preventDefault();
-        event.stopPropagation();
-        startEdit(editButton.dataset.listName || "", normalizeText(editButton.dataset.value));
-        return;
-      }
 
-      const row = target.closest(".js-reference-item-row");
-      if (row instanceof HTMLElement) {
-        startEdit(row.dataset.listName || "", normalizeText(row.dataset.value));
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function buildProjectGanttPdfStaticTable(rangeStart, rangeEnd, tasksAllOverride=null){
+  const tasksAll = (tasksAllOverride || []).filter(t=>t.start && t.end);
+  const tasks = (rangeStart && rangeEnd) ? tasksAll.filter(t=>{
+    const s = new Date(t.start+"T00:00:00");
+    const e = new Date(t.end+"T00:00:00");
+    return e >= rangeStart && s <= rangeEnd;
+  }) : tasksAll;
+
+  if(tasks.length===0){
+    return "<div style='padding:10px;font-size:12px;'>Aucune tâche dans cette période.</div>";
+  }
+
+  tasks.sort((a,b)=>{
+    const oa=(taskOrderMap[a.id]||9999)-(taskOrderMap[b.id]||9999);
+    if(oa!==0) return oa;
+    const sa=Date.parse(a.start||"9999-12-31"), sb=Date.parse(b.start||"9999-12-31");
+    if(sa!==sb) return sa-sb;
+    return taskTitle(a).localeCompare(taskTitle(b),"fr",{sensitivity:"base"});
+  });
+
+  const displayStart = startOfWeek(rangeStart || tasks.map(t=>new Date(t.start+"T00:00:00")).reduce((a,b)=>a<b?a:b));
+  const displayEnd = endOfWeek(rangeEnd || tasks.map(t=>new Date(t.end+"T00:00:00")).reduce((a,b)=>a>b?a:b));
+
+  const weeks=[];
+  for(let w=startOfWeek(displayStart); w<=addDays(startOfWeek(displayEnd),0); w=addDays(w,7)) weeks.push(new Date(w));
+
+  let html = "<table class='pdf-gantt-table'><thead><tr>";
+  html += "<th class='c-task'>Tâche</th><th class='c-vendor'>Prestataire</th><th class='c-status'>Statut</th>";
+  weeks.forEach((w)=>{
+    const info=isoWeekInfo(w);
+    html += `<th class='c-week'>${info.week}<div class='wk-date'>${formatShortDateTwoLinesHTML(w)}</div></th>`;
+  });
+  html += "</tr></thead><tbody>";
+
+  tasks.forEach((t)=>{
+    const statuses = parseStatuses(t.status).map(v=>v.toUpperCase());
+    const mainStatus = statuses[0] || "";
+    const color = ownerColor(t.owner);
+    const p = state?.projects?.find(x=>x.id===t.projectId);
+    const sub = (p?.subproject || "").trim();
+    const taskDesc = (t.roomNumber || "").trim();
+    const label = [sub, taskDesc].filter(Boolean).join(" - ") || (taskTitle(t) || "-");
+
+    const vendorText = (()=>{
+      const typ = ownerType(t.owner);
+      if(t.vendor) return t.vendor;
+      if(typ === "interne") return "INTERNE";
+      if(typ === "rsg") return "RSG";
+      if(typ === "ri") return "RI";
+      if(typ === "externe") return "Prestataire non renseigné";
+      return "-";
+    })();
+
+    html += "<tr>";
+    html += `<td class='c-task'>${attrEscape(label)}</td>`;
+    html += `<td class='c-vendor'>${attrEscape(vendorText)}</td>`;
+    html += `<td class='c-status'>${attrEscape(statusLabels(mainStatus))}</td>`;
+
+    weeks.forEach((w)=>{
+      const sDate=new Date(t.start+"T00:00:00");
+      const eDate=new Date(t.end+"T00:00:00");
+      const geo=barGeometry(sDate,eDate,w);
+      if(geo.days>0){
+        html += `<td class='c-week'><div class='pdf-bar-wrap'><div class='pdf-bar' style='width:${geo.width}%;margin-left:${geo.offset}%;background:${color};border-color:${color};'></div></div></td>`;
+      }else{
+        html += "<td class='c-week'></td>";
       }
     });
 
-    body.dataset.bound = "true";
-  });
-}
-
-function bindReferenceEffectActions() {
-  const body = document.getElementById("reference-effects-table-body");
-  if (!body || body.dataset.bound === "true") {
-    return;
-  }
-
-  body.addEventListener("click", (event) => {
-    const target = event.target;
-    if (!(target instanceof HTMLElement)) {
-      return;
-    }
-
-    const deleteButton = target.closest(".js-delete-reference-effect");
-    if (deleteButton instanceof HTMLElement) {
-      event.preventDefault();
-      event.stopPropagation();
-      deleteReferenceEffect(deleteButton.dataset.referenceId || "");
-      return;
-    }
-
-    const editButton = target.closest(".js-edit-reference-effect");
-    if (editButton instanceof HTMLElement) {
-      event.preventDefault();
-      event.stopPropagation();
-      startEditReferenceEffect(editButton.dataset.referenceId || "");
-      return;
-    }
-
-    const row = target.closest(".js-reference-effect-row");
-    if (row instanceof HTMLElement) {
-      startEditReferenceEffect(row.dataset.referenceId || "");
-    }
+    html += "</tr>";
   });
 
-  body.dataset.bound = "true";
+  html += "</tbody></table>";
+  return html;
 }
 
-function startEditReplacementCost(costKey) {
-  const form = document.getElementById("replacement-cost-form");
-  if (!form || !state.data?.listes?.coutsRemplacement) {
-    return;
-  }
 
-  const entry = state.data.listes.coutsRemplacement.find(
-    (item) => getReplacementCostKey(item.typeEffet, item.cause) === costKey
-  );
-  if (!entry) {
-    return;
-  }
-
-  state.editingReplacementCostKey = costKey;
-  form.elements.costTypeEffet.value = entry.typeEffet || "";
-  form.elements.costCauseRemplacement.value = entry.cause || "";
-  form.elements.costMontant.value = formatAmountWithEuro(entry.montant);
-  const submitButton = form.querySelector('button[type="submit"]');
-  if (submitButton) {
-    submitButton.textContent = "ENREGISTRER LA MODIFICATION";
-  }
-  form.scrollIntoView({ behavior: "smooth", block: "center" });
-  showDataStatus(`COUT EN COURS DE MODIFICATION : ${entry.typeEffet} / ${entry.cause}`);
-}
-
-function bindReplacementCostActions() {
-  const body = document.getElementById("replacement-costs-body");
-  if (!body || body.dataset.bound === "true") {
-    return;
-  }
-
-  body.addEventListener("click", (event) => {
-    const target = event.target;
-    if (!(target instanceof HTMLElement)) {
-      return;
-    }
-
-    const editButton = target.closest(".js-edit-replacement-cost");
-    if (editButton instanceof HTMLElement) {
-      event.preventDefault();
-      event.stopPropagation();
-      startEditReplacementCost(editButton.dataset.costKey || "");
-      return;
-    }
-
-    const row = target.closest(".js-replacement-cost-row");
-    if (row instanceof HTMLElement) {
-      startEditReplacementCost(row.dataset.costKey || "");
-    }
-  });
-
-  body.dataset.bound = "true";
-}
-
-function deleteSimpleReference(listName, value) {
-  const list = state.data?.listes?.[listName];
-  if (!Array.isArray(list)) {
-    return;
-  }
-
-  const usage = getSimpleReferenceUsage(listName, value);
-  if (usage > 0) {
-    showDataStatus("SUPPRESSION BLOQUEE - VALEUR DEJA UTILISEE");
-    window.alert("SUPPRESSION IMPOSSIBLE : VALEUR DEJA UTILISEE");
-    return;
-  }
-
-  const confirmDelete = window.confirm(`SUPPRIMER DEFINITIVEMENT : ${value} ?`);
-  if (!confirmDelete) {
-    return;
-  }
-
-  pushUndoSnapshot("SUPPRESSION BASE");
-  state.data.listes[listName] = list.filter((entry) => normalizeText(entry) !== value);
-  if (
-    state.editingSimpleReference &&
-    state.editingSimpleReference.listName === listName &&
-    normalizeText(state.editingSimpleReference.originalValue) === value
-  ) {
-    state.editingSimpleReference = null;
-  }
-  markDirty();
-  hydrateStaticLists();
-  renderPage();
-  showActionStatus("delete", `BASE SUPPRIMEE : ${value}`);
-}
-
-function deleteReferenceEffect(referenceId) {
-  if (!state.data?.listes?.referencesEffets) {
-    return;
-  }
-
-  const usage = getReferenceEffectUsage(referenceId);
-  if (usage > 0) {
-    showDataStatus("SUPPRESSION BLOQUEE - REFERENCE DEJA UTILISEE");
-    window.alert("SUPPRESSION IMPOSSIBLE : REFERENCE DEJA UTILISEE");
-    return;
-  }
-
-  const reference = findReferenceById(referenceId);
-  const confirmDelete = window.confirm(
-    `SUPPRIMER DEFINITIVEMENT : ${reference?.designation || referenceId} ?`
-  );
-  if (!confirmDelete) {
-    return;
-  }
-  pushUndoSnapshot("SUPPRESSION REFERENCE");
-  state.data.listes.referencesEffets = state.data.listes.referencesEffets.filter(
-    (entry) => entry.id !== referenceId
-  );
-  if (state.editingReferenceId === referenceId) {
-    state.editingReferenceId = "";
-    resetReferenceEffectForm();
-  }
-  markDirty();
-  renderPage();
-  showActionStatus("delete", `REFERENCE SUPPRIMEE : ${reference?.designation || referenceId}`);
-}
-
-function startEditReferenceEffect(referenceId) {
-  const reference = findReferenceById(referenceId);
-  const form = document.getElementById("reference-effect-form");
-  if (!reference || !form) {
-    return;
-  }
-
-  state.editingReferenceId = referenceId;
-  form.elements.referenceSite.value = getReferenceSites(reference)[0] || "";
-  form.elements.referenceTypeEffet.value = reference.typeEffet || "";
-  form.elements.referenceDesignation.value = reference.designation || "";
-  renderReferenceSitesSelector(getReferenceSites(reference));
-  updateReferenceEffectFormMode(reference.typeEffet || "");
-  const submitButton = form.querySelector('button[type="submit"]');
-  if (submitButton) {
-    submitButton.textContent = "ENREGISTRER LA MODIFICATION";
-  }
-  form.scrollIntoView({ behavior: "smooth", block: "center" });
-  showDataStatus(`REFERENCE EN COURS DE MODIFICATION : ${reference.designation}`);
-}
-
-function resetReferenceEffectForm() {
-  const form = document.getElementById("reference-effect-form");
-  if (!form) {
-    return;
-  }
-  form.reset();
-  renderReferenceSitesSelector([]);
-  updateReferenceEffectFormMode("");
-}
-
-function getSimpleReferenceUsage(listName, value) {
-  const normalizedValue = normalizeText(value);
-  const persons = state.data?.personnes || [];
-  const references = state.data?.listes?.referencesEffets || [];
-
-  if (listName === "sites") {
-    return (
-      persons.filter((person) => personHasSite(person, normalizedValue)).length +
-      references.filter((reference) => referenceHasSite(reference, normalizedValue)).length
-    );
-  }
-  if (listName === "typesPersonnel") {
-    return persons.filter((person) => normalizeText(person.typePersonnel) === normalizedValue).length;
-  }
-  if (listName === "typesContrats") {
-    return persons.filter((person) => normalizeText(person.typeContrat) === normalizedValue).length;
-  }
-  if (listName === "fonctions") {
-    return persons.filter((person) => normalizeText(person.fonction) === normalizedValue).length;
-  }
-  if (listName === "typesEffets") {
-    return (
-      references.filter((reference) => normalizeText(reference.typeEffet) === normalizedValue).length +
-      getAllEffects(persons).filter(({ effect }) => normalizeText(effect.typeEffet) === normalizedValue).length
-    );
-  }
-  return 0;
-}
-
-function getReferenceEffectUsage(referenceId) {
-  return getAllEffects(state.data?.personnes || []).filter(
-    ({ effect }) => String(effect.referenceEffetId || "") === String(referenceId)
-  ).length;
-}
-
-function cascadeSimpleReferenceRename(listName, oldValue, newValue) {
-  const oldNormalized = normalizeText(oldValue);
-  const nextValue = normalizeText(newValue);
-
-  if (listName === "sites") {
-    (state.data.personnes || []).forEach((person) => {
-      person.sitesAffectation = normalizeSites(
-        getPersonSites(person).map((site) =>
-          normalizeText(site) === oldNormalized ? nextValue : normalizeText(site)
-        )
-      );
-      person.site = getPersonSiteLabel(person);
-    });
-    (state.data.listes.referencesEffets || []).forEach((reference) => {
-      reference.sitesAffectation = normalizeSites(
-        getReferenceSites(reference).map((site) =>
-          normalizeText(site) === oldNormalized ? nextValue : normalizeText(site)
-        )
-      );
-      reference.site = getReferenceSiteLabel(reference);
-    });
-  }
-
-  if (listName === "typesPersonnel") {
-    (state.data.personnes || []).forEach((person) => {
-      if (normalizeText(person.typePersonnel) === oldNormalized) {
-        person.typePersonnel = nextValue;
-      }
-    });
-  }
-
-  if (listName === "typesContrats") {
-    (state.data.personnes || []).forEach((person) => {
-      if (normalizeText(person.typeContrat) === oldNormalized) {
-        person.typeContrat = nextValue;
-      }
-    });
-  }
-
-  if (listName === "fonctions") {
-    (state.data.personnes || []).forEach((person) => {
-      if (normalizeText(person.fonction) === oldNormalized) {
-        person.fonction = nextValue;
-      }
-    });
-  }
-
-  if (listName === "typesEffets") {
-    (state.data.listes.referencesEffets || []).forEach((reference) => {
-      if (normalizeText(reference.typeEffet) === oldNormalized) {
-        reference.typeEffet = nextValue;
-      }
-    });
-    (state.data.personnes || []).forEach((person) => {
-      (person.effetsConfies || []).forEach((effect) => {
-        if (normalizeText(effect.typeEffet) === oldNormalized) {
-          effect.typeEffet = nextValue;
-        }
-      });
-    });
-  }
-}
-
-function cascadeReferenceEffectUpdate(previous, nextReference) {
-  (state.data.personnes || []).forEach((person) => {
-    (person.effetsConfies || []).forEach((effect) => {
-      if (String(effect.referenceEffetId || "") === String(previous.id)) {
-        effect.typeEffet = nextReference.typeEffet;
-        effect.designation = nextReference.designation;
-      }
-    });
-  });
-}
-
-function sortListValues(values) {
-  values.sort((a, b) => normalizeText(a).localeCompare(normalizeText(b), "fr"));
-}
-
-function sortReferenceEffects() {
-  if (!state.data?.listes?.referencesEffets) {
-    return;
-  }
-  state.data.listes.referencesEffets.sort((a, b) => {
-    const left = `${normalizeText(getReferenceSiteLabel(a))} ${normalizeText(a.typeEffet)} ${normalizeText(a.designation)}`;
-    const right = `${normalizeText(getReferenceSiteLabel(b))} ${normalizeText(b.typeEffet)} ${normalizeText(b.designation)}`;
-    return left.localeCompare(right, "fr");
-  });
-}
-
-function escapeHtml(value) {
-  return String(value || "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
-function tryCloseCurrentWindow() {
-  try {
-    window.close();
-  } catch (error) {
-    // ignore close errors
-  }
-  if (window.closed) {
-    return;
-  }
-  try {
-    window.open("", "_self");
-    window.close();
-  } catch (error) {
-    // ignore close errors
-  }
-  if (window.closed) {
-    return;
-  }
-  if (window.history.length > 1) {
-    try {
-      window.history.back();
-    } catch (error) {
-      // ignore history errors
-    }
-  }
-  if (window.closed) {
-    return;
-  }
-  try {
-    if (document.body.dataset.page === "mobile-signature") {
-      window.location.replace("about:blank");
-      return;
-    }
-    const currentUrl = new URL(window.location.href);
-    const fallbackPath = currentUrl.pathname.replace(/[^/]*$/, "index.html");
-    const fallbackUrl = `${currentUrl.origin}${fallbackPath}`;
-    if (window.location.href !== fallbackUrl) {
-      window.location.replace(fallbackUrl);
-    }
-  } catch (error) {
-    // ignore redirect errors
-  }
-}
-
-function scheduleCloseAttempts() {
-  tryCloseCurrentWindow();
-  [250, 800, 1600].forEach((delay) => {
-    window.setTimeout(() => {
-      if (!window.closed) {
-        tryCloseCurrentWindow();
-      }
-    }, delay);
-  });
-}
-
-async function saveDataToFile(options = {}) {
-  if (!state.data) {
-    showDataStatus("AUCUNE DONNEE A SAUVEGARDER");
-    return;
-  }
-
-  const isEventCall =
-    options &&
-    typeof options === "object" &&
-    typeof options.preventDefault === "function";
-  const resolvedOptions = isEventCall ? {} : options;
-
-  const {
-    silent = false,
-    reloadAfter = true,
-    successText = "data.json MIS A JOUR",
-    alertText = "",
-    closeAfterAlert = false,
-    promptDownload = !silent,
-  } = resolvedOptions;
-
-  const downloadDataJson = () => {
-    try {
-      const blob = new Blob([JSON.stringify(state.data, null, 2)], {
-        type: "application/json;charset=utf-8",
-      });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = "data.json";
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.setTimeout(() => URL.revokeObjectURL(url), 800);
-    } catch (error) {
-      console.error(error);
-      window.alert("TELECHARGEMENT DE data.json IMPOSSIBLE");
-    }
-  };
-
-  try {
-    const mode = getDataBackendMode();
-    const shouldMirrorToSupabase = mode === "LOCAL_API" && isSupabaseConfigured();
-    let saveStatusText = successText;
-    let saveAlertText = alertText || "data.json A ETE MIS A JOUR";
-    let saveSource = "LOCAL";
-    if (mode === "SUPABASE") {
-      await saveSupabaseStateData(state.data);
-      saveStatusText = "DONNEES SUPABASE SAUVEGARDEES";
-      saveAlertText = alertText || "DONNEES SUPABASE MISES A JOUR";
-      saveSource = "SUPABASE";
-    } else if (mode === "LOCAL_API") {
-      const response = await fetch("/api/save", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(state.data),
-      });
-
-      if (!response.ok) {
-        throw new Error("Sauvegarde locale impossible");
-      }
-      if (shouldMirrorToSupabase) {
-        await saveSupabaseStateData(state.data);
-        saveStatusText = "DONNEES LOCALES ET SUPABASE SAUVEGARDEES";
-        saveAlertText = alertText || "DONNEES LOCALES ET SUPABASE MISES A JOUR";
-        saveSource = "LOCAL + SUPABASE";
-      }
-    } else {
-      throw new Error("SUPABASE NON CONFIGURE");
-    }
-
-    clearWorkingData();
-    state.isDirty = false;
-    clearUndoStack();
-    renderDirtyState();
-    state.lastSaveInfo = {
-      at: getCurrentSignatureTimestamp(),
-      source: saveSource,
-    };
-    const saveConfirmation = `SAUVEGARDEE LE ${formatCurrentUiTimestamp()} - SOURCE: ${saveSource}`;
-    showDataStatus(saveConfirmation);
-    if (!silent) {
-      window.alert(saveAlertText);
-      pulseSaveButtons();
-      if (promptDownload && saveSource === "LOCAL" && document.body.dataset.page !== "mobile-signature") {
-        downloadDataJson();
-      }
-      if (closeAfterAlert) {
-        scheduleCloseAttempts();
-      }
-    } else {
-      pulseSaveButtons();
-    }
-    if (reloadAfter) {
-      await reloadData(mode === "SUPABASE" ? "RELECTURE DES DONNEES SUPABASE..." : "RELECTURE DE data.json...");
-    }
-  } catch (error) {
-    console.error(error);
-    showDataStatus("SAUVEGARDE IMPOSSIBLE");
-    if (!silent) {
-      window.alert("SAUVEGARDE IMPOSSIBLE");
-    }
-  }
-}
-
-function resetUiWithoutData() {
-  const targets = [
-    { id: "overview-table-body", colspan: 13 },
-    { id: "global-table-body", colspan: 13 },
-    { id: "sheet-effects-body", colspan: 11 },
-    { id: "reference-sites-body", colspan: 2 },
-    { id: "reference-typesPersonnel-body", colspan: 2 },
-    { id: "reference-typesContrats-body", colspan: 2 },
-    { id: "reference-fonctions-body", colspan: 2 },
-    { id: "reference-typesEffets-body", colspan: 2 },
-    { id: "reference-effects-table-body", colspan: 5 },
-    { id: "replacement-costs-body", colspan: 4 },
-  ];
-
-  targets.forEach(({ id, colspan }) => {
-    const node = document.getElementById(id);
-    if (node) {
-      node.innerHTML = buildEmptyTableRow(node, "DONNEES NON DISPONIBLES", colspan);
-    }
-  });
-
-  [
-    "kpi-personnes-en-poste",
-    "kpi-effets-confies",
-    "kpi-effets-non-rendus",
-    "reference-count-sites",
-    "reference-count-typesPersonnel",
-    "reference-count-typesContrats",
-    "reference-count-fonctions",
-    "reference-count-typesEffets",
-    "reference-count-referencesEffets",
-    "reference-count-coutsRemplacement",
-    "reference-count-representantsSignataires",
-  ].forEach((id) => {
-    const node = document.getElementById(id);
-    if (node) node.textContent = "0";
-  });
-
-  renderPersonSheet("");
-}
-
-function showDataStatus(text) {
-  const node = document.getElementById("data-status");
-  if (node) {
-    node.textContent = text;
-    node.classList.remove(
-      "data-status--create",
-      "data-status--update",
-      "data-status--delete",
-      "data-status--warning",
-      "data-status--neutral"
-    );
-    node.classList.add("data-status--neutral");
-  }
-}
-
-function showActionStatus(type, text) {
-  const node = document.getElementById("data-status");
-  if (!node) {
-    return;
-  }
-
-  if (state.statusTimerId) {
-    window.clearTimeout(state.statusTimerId);
-    state.statusTimerId = 0;
-  }
-
-  node.textContent = text;
-  node.classList.remove(
-    "data-status--create",
-    "data-status--update",
-    "data-status--delete",
-    "data-status--warning",
-    "data-status--neutral"
-  );
-  node.classList.add(`data-status--${type}`);
-
-  state.statusTimerId = window.setTimeout(() => {
-    showDataStatus(text);
-    state.statusTimerId = 0;
-  }, 3200);
-}
-
-function loadWorkingData() {
-  try {
-    const raw = window.sessionStorage.getItem(WORKING_DATA_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch (error) {
-    console.error(error);
-    return null;
-  }
-}
-
-function cloneData(value) {
-  return JSON.parse(JSON.stringify(value));
-}
-
-function pushUndoSnapshot(label) {
-  if (!state.data) {
-    return;
-  }
-  state.undoStack.push({
-    label,
-    data: cloneData(state.data),
-  });
-  if (state.undoStack.length > MAX_UNDO_STACK) {
-    state.undoStack.shift();
-  }
-}
-
-function clearUndoStack() {
-  state.undoStack = [];
-}
-
-function undoLastChange() {
-  const lastSnapshot = state.undoStack.pop();
-  if (!lastSnapshot) {
-    showDataStatus("AUCUNE ANNULATION DISPONIBLE");
-    return;
-  }
-
-  state.data = cloneData(lastSnapshot.data);
-  state.editingEffectId = "";
-  state.editingReferenceId = "";
-  state.editingReplacementCostKey = "";
-  state.editingSimpleReference = null;
-  migrateDataModel();
-  state.isDirty = true;
-  saveWorkingData();
-  renderPage();
-  showDataStatus(`ANNULATION : ${lastSnapshot.label}`);
-}
-
-function saveWorkingData() {
-  if (!state.data) {
-    return;
-  }
-  try {
-    window.sessionStorage.setItem(WORKING_DATA_KEY, JSON.stringify(state.data));
-  } catch (error) {
-    console.error(error);
-  }
-}
-
-function clearWorkingData() {
-  try {
-    window.sessionStorage.removeItem(WORKING_DATA_KEY);
-  } catch (error) {
-    console.error(error);
-  }
-}
-
-function bindAutoSaveOnNavigation() {
-  if (state.autoSaveNavigationBound) {
-    return;
-  }
-
-  document.addEventListener(
-    "click",
-    (event) => {
-      const target = event.target;
-      if (!(target instanceof Element)) {
-        return;
-      }
-      const anchor = target.closest("a[href]");
-      if (!(anchor instanceof HTMLAnchorElement)) {
-        return;
-      }
-      if (anchor.target === "_blank" || anchor.hasAttribute("download")) {
-        return;
-      }
-      const rawHref = String(anchor.getAttribute("href") || "").trim();
-      if (!rawHref || rawHref.startsWith("#") || rawHref.toLowerCase().startsWith("javascript:")) {
-        return;
-      }
-      const nextUrl = new URL(anchor.href, window.location.href);
-      const currentUrl = new URL(window.location.href);
-      const samePage =
-        nextUrl.origin === currentUrl.origin &&
-        nextUrl.pathname === currentUrl.pathname &&
-        nextUrl.search === currentUrl.search;
-      if (samePage) {
-        return;
-      }
-      capturePendingEditsBeforeNavigation();
-      if (!state.isDirty) {
-        return;
-      }
-      event.preventDefault();
-      navigateWithAutoSave(nextUrl.href);
-    },
-    true
-  );
-
-  state.autoSaveNavigationBound = true;
-}
-
-function bindGlobalShortcuts() {
-  if (state.shortcutsBound) {
-    return;
-  }
-
-  document.addEventListener("keydown", (event) => {
-    if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "z") {
-      return;
-    }
-
-    const target = event.target;
-    if (
-      target instanceof HTMLElement &&
-      (target.tagName === "TEXTAREA" ||
-        target.isContentEditable ||
-        (target.tagName === "INPUT" &&
-          !["checkbox", "radio", "button", "submit"].includes(
-            String(target.getAttribute("type") || "").toLowerCase()
-          )))
-    ) {
-      return;
-    }
-
-    event.preventDefault();
-    undoLastChange();
-  });
-
-  state.shortcutsBound = true;
-}
-
-function bindHistoryNavigation() {
-  if (window.__dashboardHistoryBound) {
-    return;
-  }
-
-  window.addEventListener("popstate", () => {
-    applyActiveNav();
-    if (!state.data) {
-      return;
-    }
-    renderPage();
-  });
-
-  window.__dashboardHistoryBound = true;
-}
-
-function markDirty() {
-  const page = String(document.body?.dataset?.page || "");
-  if (page === "arrival-document" || page === "exit-document") {
-    const docType = page === "exit-document" ? "exit" : "arrival";
-    clearPdfAttentionDismissed(getCurrentPersonId(), docType);
-  }
-  state.isDirty = true;
-  saveWorkingData();
-  renderDirtyState();
-  scheduleBackgroundAutoSave();
-}
-
-function renderDirtyState() {
-  const node = document.getElementById("dirty-status");
-  if (node) {
-    node.hidden = false;
-    node.textContent = state.isDirty ? "MODIFICATIONS NON SAUVEGARDEES" : "DONNEES SAUVEGARDEES";
-    node.classList.toggle("is-saved", !state.isDirty);
-  }
-
-  document.querySelectorAll(".js-save-data").forEach((button) => {
-    if (!(button instanceof HTMLButtonElement)) {
-      return;
-    }
-    button.classList.toggle("button--primary", state.isDirty);
-    button.classList.toggle("button--secondary", !state.isDirty);
-    button.title = state.isDirty ? "SAUVEGARDER LES MODIFICATIONS" : "AUCUNE MODIFICATION EN ATTENTE";
-  });
-}
-
-loadData();
 
