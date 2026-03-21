@@ -12,7 +12,7 @@ Date de mise a jour: 18/03/2026
 
 - Interdiction de creer des snapshots dans le repo `Dotations`.
 - Les snapshots doivent etre uniquement hors repo, dans:
-  `C:\Users\sebastien.duc\CLOUD\02_ARCHIVAGE PERSONNEL\DASHBOARDS\GESTION DES ACCÈS & EFFETS SENSIBLES HEBERGE\SNAPSHOTS_HORS_REPO`.
+  `C:\Users\sebastien.duc\CLOUD\02_ARCHIVAGE PERSONNEL\DASHBOARDS\GESTION DES ACCÈS & EFFETS SENSIBLES\SNAPSHOTS_HORS_REPO`.
 
 ## 3) REGLES DE TRAVAIL
 
@@ -33,3 +33,4 @@ Date de mise a jour: 18/03/2026
 - Si l'utilisateur ecrit `go commit`, le commit local est lance automatiquement.
 - Apres commit, reponse imposee: `COMMIT TERMINE - TU PEUX PUSH`.
 - Le push est fait par l'utilisateur, pas par l'assistant.
+
