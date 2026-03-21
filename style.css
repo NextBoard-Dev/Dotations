@@ -3470,6 +3470,40 @@ body[data-pdf-mode="true"] .signature-box__meta-value--pdf {
   }
 }
 
+@keyframes btnClickAck {
+  0% {
+    transform: translateY(0) scale(1);
+    filter: brightness(1);
+    box-shadow: 0 0 0 0 rgba(63, 97, 112, 0);
+  }
+  40% {
+    transform: translateY(1px) scale(0.95);
+    filter: brightness(0.96);
+    box-shadow: 0 0 0 3px rgba(63, 97, 112, 0.26);
+  }
+  100% {
+    transform: translateY(0) scale(1);
+    filter: brightness(1);
+    box-shadow: 0 0 0 0 rgba(63, 97, 112, 0);
+  }
+}
+
+button.btn-click-ack,
+.button.btn-click-ack,
+.btn.btn-click-ack,
+.tab.btn-click-ack,
+.sidebar__link.btn-click-ack {
+  animation: btnClickAck 0.22s cubic-bezier(0.2, 0.8, 0.2, 1) 1;
+}
+
+.page-header__actions .button.btn-click-ack,
+.sidebar .button.btn-click-ack,
+.sidebar .sidebar__link.btn-click-ack {
+  animation: btnClickAck 0.24s cubic-bezier(0.2, 0.8, 0.2, 1) 1 !important;
+  transform-origin: center center !important;
+  filter: brightness(0.94) saturate(1.04) !important;
+}
+
 
 
 

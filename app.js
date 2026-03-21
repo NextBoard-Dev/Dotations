@@ -115,8 +115,34 @@ function pulseSaveButtons() {
     }, 520);
   });
 }
+
+function bindGlobalButtonClickFeedback() {
+  const selector = "button, .button, .btn, .sidebar__link, .tab";
+  document.addEventListener(
+    "click",
+    (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      const button = target ? target.closest(selector) : null;
+      if (!button) {
+        return;
+      }
+      if (button.hasAttribute("disabled") || button.classList.contains("is-disabled")) {
+        return;
+      }
+      button.classList.remove("btn-click-ack");
+      void button.offsetWidth;
+      button.classList.add("btn-click-ack");
+      window.setTimeout(() => {
+        button.classList.remove("btn-click-ack");
+      }, 190);
+    },
+    true
+  );
+}
+
 redirectToLocalServerIfNeeded();
 applyPdfModeFromQuery();
+bindGlobalButtonClickFeedback();
 
 function normalizeText(value) {
   return String(value || "")
