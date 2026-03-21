@@ -702,7 +702,12 @@ function readSelectedSites(form, prefix) {
 }
 
 function redirectToLocalServerIfNeeded() {
-  return;
+  if (window.location.protocol !== "file:") {
+    return;
+  }
+
+  const fileName = window.location.pathname.split("/").pop() || "index.html";
+  window.location.replace(`http://127.0.0.1:8123/${fileName}${window.location.search || ""}`);
 }
 
 function getStoredNavigationContext() {
