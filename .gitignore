@@ -1,0 +1,3 @@
+# Ne jamais versionner les snapshots locaux
+snapshots_ok/
+LATEST_MAJOR_SNAPSHOT.txt
