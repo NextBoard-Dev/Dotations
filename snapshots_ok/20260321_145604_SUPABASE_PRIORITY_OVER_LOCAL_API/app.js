@@ -212,11 +212,11 @@ function isSupabaseConfigured() {
 }
 
 function getDataBackendMode() {
-  if (isSupabaseConfigured()) {
-    return "SUPABASE";
-  }
   if (isLocalRuntime()) {
     return "LOCAL_API";
+  }
+  if (isSupabaseConfigured()) {
+    return "SUPABASE";
   }
   return "HOSTED_NO_BACKEND";
 }
