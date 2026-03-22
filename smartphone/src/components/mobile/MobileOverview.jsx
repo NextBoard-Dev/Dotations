@@ -13,6 +13,7 @@ function statusColor(s) {
 
 export default function MobileOverview({ persons, effets, onSelectPerson }) {
   const [search, setSearch] = useState("");
+  const todayIso = new Date().toISOString().slice(0, 10);
 
   const filtered = persons.filter(p => {
     if (!search) return true;
@@ -25,6 +26,56 @@ export default function MobileOverview({ persons, effets, onSelectPerson }) {
   const totalEffets = effets.length;
   const nonRendus = effets.filter(e => ["NON RENDU", "PERDU", "VOLE"].includes(e.statut)).length;
   const enPoste = persons.filter(p => p.statutDossier !== "SORTI").length;
+  const alerts = persons.flatMap((p) => {
+    const personAlerts = [];
+    const sortiePrevue = String(p.dateSortiePrevue || "");
+    const sortieReelle = String(p.dateSortieReelle || "");
+    if (sortiePrevue && !sortieReelle && sortiePrevue < todayIso) {
+      personAlerts.push({ key: `${p.id}-late`, personId: p.id, type: "dateSortiePrevue", text: `${p.nom} ${p.prenom} : SORTIE PREVUE DEPASSEE` });
+    }
+    if (sortieReelle && sortieReelle <= todayIso) {
+      personAlerts.push({ key: `${p.id}-out`, personId: p.id, type: "dateSortieReelle", text: `${p.nom} ${p.prenom} : PERSONNE SORTIE` });
+    }
+    const nonRendusCount = effets.filter((e) => e.personId === p.id && ["NON RENDU", "PERDU", "VOLE"].includes(e.statut)).length;
+    if (nonRendusCount > 0) {
+      personAlerts.push({ key: `${p.id}-nr`, personId: p.id, type: "dateSortiePrevue", text: `${p.nom} ${p.prenom} : ${nonRendusCount} EFFET(S) NON RENDU(S)` });
+    }
+    return personAlerts;
+  });
+  const visibleAlerts = alerts.slice(0, 3);
+
+  const alertStyle = (type) => {
+    if (type === "dateSortieReelle") {
+      return {
+        bg: "linear-gradient(90deg, rgba(239, 147, 147, 0.18) 0%, rgba(226, 111, 111, 0.08) 100%)",
+        color: "#8f2d2d",
+        border: "rgba(208, 86, 86, 0.3)",
+        borderLeft: "rgba(198, 45, 45, 0.95)",
+      };
+    }
+    return {
+      bg: "linear-gradient(90deg, rgba(248, 223, 160, 0.22) 0%, rgba(246, 205, 120, 0.08) 100%)",
+      color: "#8b5a1d",
+      border: "rgba(223, 173, 67, 0.3)",
+      borderLeft: "rgba(224, 157, 24, 0.9)",
+    };
+  };
+
+  const alertIcon = (type) => (type === "dateSortieReelle" ? "✕" : "!");
+  const alertIconStyle = (type) => {
+    if (type === "dateSortieReelle") {
+      return {
+        background: "linear-gradient(180deg, #ef6a6a 0%, #ce3535 100%)",
+        color: "#ffffff",
+        boxShadow: "0 4px 10px rgba(206, 53, 53, 0.28)",
+      };
+    }
+    return {
+      background: "linear-gradient(180deg, #f3cf64 0%, #e39a33 100%)",
+      color: "#7a3218",
+      boxShadow: "0 4px 10px rgba(227, 154, 51, 0.24)",
+    };
+  };
 
   return (
     <div style={{ padding: "12px 12px 0" }}>
@@ -41,6 +92,41 @@ export default function MobileOverview({ persons, effets, onSelectPerson }) {
           </div>
         ))}
       </div>
+
+      {/* Alerts (compact) */}
+      {alerts.length > 0 && (
+        <div style={{ ...card, padding: "8px 10px", marginBottom: 8 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 5 }}>
+            <span style={{ fontSize: 9, color: "#4a6170", letterSpacing: "0.08em", fontWeight: 700 }}>ALERTES</span>
+            <span style={{ fontSize: 9, color: "#8e4d1e", fontWeight: 700 }}>{alerts.length}</span>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            {visibleAlerts.map((a) => {
+              const s = alertStyle(a.type);
+              const iconS = alertIconStyle(a.type);
+              const person = persons.find((p) => p.id === a.personId);
+              return (
+                <button
+                  key={a.key}
+                  onClick={() => person && onSelectPerson(person)}
+                  style={{ width: "100%", textAlign: "left", padding: "5px 8px", borderRadius: 8, border: `1px solid ${s.border}`, borderLeft: `3px solid ${s.borderLeft}`, background: s.bg, color: s.color, fontSize: 10, cursor: "pointer" }}
+                  title={a.text}
+                >
+                  <span style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                    <span style={{ width: 18, height: 18, borderRadius: "50%", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800, lineHeight: 1, flex: "0 0 auto", ...iconS }}>
+                      {alertIcon(a.type)}
+                    </span>
+                    <span style={{ minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{a.text}</span>
+                  </span>
+                </button>
+              );
+            })}
+            {alerts.length > visibleAlerts.length && (
+              <div style={{ fontSize: 9, color: "#556d79", textAlign: "right" }}>+{alerts.length - visibleAlerts.length} alerte(s)</div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Search */}
       <div style={{ ...card, padding: "8px 10px", marginBottom: 8 }}>
