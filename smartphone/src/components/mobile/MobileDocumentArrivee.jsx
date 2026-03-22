@@ -32,6 +32,11 @@ export default function MobileDocumentArrivee({ persons, effets, selectedPerson,
     setSignatures(sigs);
   };
 
+  const handleSignatureSaved = async () => {
+    await loadSignatures();
+    if (onDataChange) await onDataChange();
+  };
+
   const personEffets = selectedPerson ? effets.filter(e => e.personId === selectedPerson.id && e.statut === "ACTIF") : [];
   const totalValeur = personEffets.reduce((s, e) => s + (Number(e.coutRemplacement) || 0), 0);
   const costByType = new Map();
@@ -190,7 +195,7 @@ export default function MobileDocumentArrivee({ persons, effets, selectedPerson,
             existingSignature={getSig("personnel")}
             signataireName={`${selectedPerson.nom || ""} ${selectedPerson.prenom || ""}`.trim()}
             signataireFunction={selectedPerson.fonction || ""}
-            onSaved={loadSignatures}
+            onSaved={handleSignatureSaved}
           />
           <div style={{ ...card, marginBottom: 8 }}>
             <div style={{ fontSize: 10, color: "#3f5662", letterSpacing: "0.08em", marginBottom: 6, fontWeight: 600 }}>CHOIX REPRESENTANT SIGNATAIRE</div>
@@ -213,7 +218,7 @@ export default function MobileDocumentArrivee({ persons, effets, selectedPerson,
             existingSignature={getSig("representant")}
             signataireName={representantName}
             signataireFunction={representantFunction}
-            onSaved={loadSignatures}
+            onSaved={handleSignatureSaved}
           />
           <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
             {["personnel", "representant"].map(s => {

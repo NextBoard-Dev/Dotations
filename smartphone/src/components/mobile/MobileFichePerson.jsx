@@ -23,6 +23,7 @@ export default function MobileFichePerson({ persons, effets, selectedPerson, onS
   const fonctionsRef = Array.isArray(bases.fonctions) && bases.fonctions.length ? bases.fonctions : FONCTIONS;
   const typesPersonnelRef = Array.isArray(bases.typesPersonnel) && bases.typesPersonnel.length ? bases.typesPersonnel : TYPES_PERSONNEL;
   const typesContratsRef = Array.isArray(bases.typesContrats) && bases.typesContrats.length ? bases.typesContrats : TYPES_CONTRAT;
+  const sitesRef = Array.isArray(bases.sites) ? bases.sites : [];
 
   useEffect(() => {
     if (selectedPerson) {
@@ -89,6 +90,17 @@ export default function MobileFichePerson({ persons, effets, selectedPerson, onS
     return "EN POSTE";
   };
 
+  const toggleSite = (site) => {
+    setForm((prev) => {
+      const current = Array.isArray(prev.sites) ? prev.sites : [];
+      const exists = current.includes(site);
+      return {
+        ...prev,
+        sites: exists ? current.filter((s) => s !== site) : [...current, site],
+      };
+    });
+  };
+
   return (
     <div style={{ padding: "12px 12px 0" }}>
       <MobilePersonSearch persons={persons} selectedPerson={selectedPerson} onSelectPerson={p => { onSelectPerson(p); setActiveSection("infos"); }} />
@@ -139,6 +151,39 @@ export default function MobileFichePerson({ persons, effets, selectedPerson, onS
                 <option value="">SELECTIONNER</option>
                 {typesContratsRef.map(t => <option key={t} value={t}>{t}</option>)}
               </select>
+            </div>
+          </div>
+          <div style={fieldStyle}>
+            <span style={labelStyle}>SITES (SELECTION MULTIPLE)</span>
+            <div style={{ border: "1px solid rgba(173,190,199,0.98)", borderRadius: 9, background: "#fffdfa", padding: "8px" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                {sitesRef.map((site) => {
+                  const checked = (form.sites || []).includes(site);
+                  return (
+                    <button
+                      key={site}
+                      type="button"
+                      onClick={() => toggleSite(site)}
+                      style={{
+                        minHeight: 32,
+                        padding: "6px 8px",
+                        borderRadius: 8,
+                        border: "1px solid rgba(63,97,112,0.25)",
+                        background: checked ? "rgba(63,97,112,0.22)" : "rgba(63,97,112,0.08)",
+                        color: checked ? "#213b48" : "#3f5662",
+                        fontSize: 10,
+                        textAlign: "left",
+                        cursor: "pointer",
+                      }}
+                    >
+                      {checked ? "✓ " : ""}{site}
+                    </button>
+                  );
+                })}
+                {sitesRef.length === 0 && (
+                  <span style={{ fontSize: 10, color: "#556d79" }}>AUCUN SITE DISPONIBLE</span>
+                )}
+              </div>
             </div>
           </div>
           <div style={fieldStyle}>

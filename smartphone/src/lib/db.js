@@ -70,6 +70,10 @@ function cleanDate(value) {
   return v || "";
 }
 
+function getTodayIsoDate() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 function ensureArray(value) {
   return Array.isArray(value) ? value : [];
 }
@@ -173,6 +177,25 @@ function defaultLegacySignatures() {
       representant: { image: "", validatedAt: "", signataireName: "", signataireFunction: "" },
     },
   };
+}
+
+function isLegacyDocFullySigned(person, docType) {
+  const personnelDate = cleanDate(person?.signatures?.[docType]?.personnel?.validatedAt);
+  const representantDate = cleanDate(person?.signatures?.[docType]?.representant?.validatedAt);
+  return Boolean(personnelDate && representantDate);
+}
+
+function applySignedDocumentCompletion(person, docType) {
+  if (!person || !isLegacyDocFullySigned(person, docType)) return false;
+  if (docType === "arrival" && !cleanDate(person.dateEntree)) {
+    person.dateEntree = getTodayIsoDate();
+    return true;
+  }
+  if (docType === "exit" && !cleanDate(person.dateSortieReelle)) {
+    person.dateSortieReelle = getTodayIsoDate();
+    return true;
+  }
+  return false;
 }
 
 async function getAppStateRow() {
@@ -375,6 +398,25 @@ async function tryLegacyData() {
     return { payload, persons, effets: listLegacyEffetsFromPayload(payload) };
   } catch {
     return null;
+  }
+}
+
+async function applySqlPersonCompletionFromSignatures(personId, docType) {
+  const normalizedDocType = toString(docType).trim();
+  if (!personId || (normalizedDocType !== "arrival" && normalizedDocType !== "exit")) return;
+
+  const signatures = await sqlSignature.filter({ personId: toString(personId), docType: normalizedDocType });
+  const isSigned = (signer) => signatures.some((s) => s.signer === signer && cleanDate(s.signedAt));
+  if (!isSigned("personnel") || !isSigned("representant")) return;
+
+  const persons = await sqlPerson.filter({ id: toString(personId) });
+  const person = Array.isArray(persons) ? persons[0] : null;
+  if (!person) return;
+
+  if (normalizedDocType === "arrival" && !cleanDate(person.dateEntree)) {
+    await sqlPerson.update(personId, { dateEntree: getTodayIsoDate() });
+  } else if (normalizedDocType === "exit" && !cleanDate(person.dateSortieReelle)) {
+    await sqlPerson.update(personId, { dateSortieReelle: getTodayIsoDate() });
   }
 }
 
@@ -594,10 +636,13 @@ export const db = {
           signataireFunction: toString(data?.signataireFunction).trim(),
         };
         person.signatures = sigRoot;
+        applySignedDocumentCompletion(person, docType);
         await saveAppStatePayload(payload);
         return normalizeLegacySignature(personId, docType, signer, sigRoot[docType][signer]);
       }
-      return sqlSignature.create(data);
+      const created = await sqlSignature.create(data);
+      await applySqlPersonCompletionFromSignatures(data?.personId, data?.docType);
+      return created;
     },
     async update(id, data) {
       ensureWritable('mise a jour signature');
@@ -618,10 +663,13 @@ export const db = {
           signataireFunction: Object.prototype.hasOwnProperty.call(data || {}, "signataireFunction") ? toString(data.signataireFunction).trim() : toString(prev.signataireFunction).trim(),
         };
         person.signatures = sigRoot;
+        applySignedDocumentCompletion(person, docType);
         await saveAppStatePayload(payload);
         return normalizeLegacySignature(personId, docType, signer, sigRoot[docType][signer]);
       }
-      return sqlSignature.update(id, data);
+      const updated = await sqlSignature.update(id, data);
+      await applySqlPersonCompletionFromSignatures(updated?.personId, updated?.docType);
+      return updated;
     },
     async delete(id) {
       ensureWritable('suppression signature');
