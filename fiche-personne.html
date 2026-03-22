@@ -66,15 +66,13 @@
                 <div class="search-input-wrap">
                   <span class="field__icon" aria-hidden="true"></span>
                   <input
-                    type="search"
+                    type="text"
                     id="person-picker-search"
-                    name="search"
-                    list="person-picker-list"
+                    name="person-picker-search"
                     placeholder="NOM, PRENOM, SITE, EFFET, COMMENTAIRE..."
-                    autocomplete="off"
+                    autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
                   />
                 </div>
-                <datalist id="person-picker-list"></datalist>
                 <div class="picker-suggestions" id="person-picker-suggestions" hidden></div>
               </label>
 

@@ -6145,11 +6145,16 @@ function renderPersonPicker() {
   const picker = document.getElementById("person-picker-search");
   const pickerList = document.getElementById("person-picker-list");
   const suggestionBox = document.getElementById("person-picker-suggestions");
-  if (!picker || !pickerList || !state.data?.personnes) {
+  if (!picker || !state.data?.personnes) {
     return;
   }
 
   const currentPersonId = getCurrentPersonId();
+  picker.setAttribute("autocomplete", "off");
+  picker.setAttribute("autocorrect", "off");
+  picker.setAttribute("autocapitalize", "off");
+  picker.setAttribute("spellcheck", "false");
+  picker.removeAttribute("list");
   const selectedPerson = currentPersonId
     ? state.data.personnes.find((person) => person.id === currentPersonId) || null
     : null;
@@ -6171,7 +6176,9 @@ function renderPersonPicker() {
 
   if (useSuggestionBox) {
     picker.removeAttribute("list");
-    pickerList.innerHTML = "";
+    if (pickerList) {
+      pickerList.innerHTML = "";
+    }
   } else {
     picker.setAttribute("list", "person-picker-list");
     pickerList.innerHTML = options;
