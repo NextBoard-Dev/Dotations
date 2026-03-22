@@ -1,0 +1,9 @@
+{
+  "name": "Suivi Dotations Mobile",
+  "short_name": "Dotations",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f2f5f7",
+  "theme_color": "#3f6478",
+  "icons": []
+}

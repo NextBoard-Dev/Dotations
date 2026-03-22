@@ -1,0 +1,170 @@
+import React, { useState, useEffect } from "react";
+import { db } from "@/lib/db";
+import MobilePersonSearch from "./MobilePersonSearch";
+import MobileSignatureCanvas from "./MobileSignatureCanvas";
+import MobileEffetsList from "./MobileEffetsList";
+
+const card = { background: "rgba(244,241,234,0.98)", border: "1px solid rgba(173,190,199,0.98)", borderRadius: 11, padding: "12px", marginBottom: 8, boxShadow: "0 4px 12px rgba(31,49,59,0.10)" };
+const docField = { display: "flex", flexDirection: "column", gap: 3, marginBottom: 8 };
+const docLabel = { fontSize: 9, color: "#4a6170", letterSpacing: "0.08em" };
+const docValue = { padding: "7px 12px", borderRadius: 9, background: "rgba(251,250,247,0.98)", border: "1px solid rgba(152,177,190,0.9)", fontSize: 12, color: "#0f1e26", minHeight: 32, display: "flex", alignItems: "center" };
+
+export default function MobileDocumentArrivee({ persons, effets, selectedPerson, onSelectPerson, setSaveStatus, onDataChange, representatives = [] }) {
+  const [signatures, setSignatures] = useState([]);
+  const [activeSection, setActiveSection] = useState("identite");
+  const [representantId, setRepresentantId] = useState("");
+
+  useEffect(() => {
+    if (selectedPerson) loadSignatures();
+  }, [selectedPerson]);
+
+  useEffect(() => {
+    setRepresentantId("");
+  }, [selectedPerson?.id]);
+
+  const loadSignatures = async () => {
+    const sigs = await db.Signature.filter({ personId: selectedPerson.id, docType: "arrival" });
+    setSignatures(sigs);
+  };
+
+  const personEffets = selectedPerson ? effets.filter(e => e.personId === selectedPerson.id && e.statut === "ACTIF") : [];
+  const totalValeur = personEffets.reduce((s, e) => s + (Number(e.coutRemplacement) || 0), 0);
+
+  const getSig = (signer) => signatures.find(s => s.signer === signer);
+  const representant = (representatives || []).find((p) => p.id === representantId) || null;
+  const representantName = representant ? `${representant.nom || ""}`.trim() : "";
+  const representantFunction = representant?.fonction || "";
+
+  const fmt = (d) => d ? new Date(d).toLocaleDateString("fr-FR") : "—";
+
+  return (
+    <div style={{ padding: "12px 12px 0" }}>
+      <MobilePersonSearch persons={persons} selectedPerson={selectedPerson} onSelectPerson={onSelectPerson} />
+
+      {/* Section tabs */}
+      <div style={{ display: "flex", gap: 4, marginBottom: 8, overflowX: "auto" }}>
+        {[["identite", "IDENTITE"], ["effets", `EFFETS (${personEffets.length})`], ["signatures", "SIGNATURES"]].map(([id, lbl]) => (
+          <button key={id} onClick={() => setActiveSection(id)} style={{ flex: "0 0 auto", padding: "7px 12px", borderRadius: 8, border: "1px solid rgba(63,97,112,0.25)", background: activeSection === id ? "rgba(63,97,112,0.22)" : "rgba(63,97,112,0.08)", color: activeSection === id ? "#213b48" : "#3f5662", fontSize: 10, fontWeight: activeSection === id ? 700 : 400, cursor: "pointer", whiteSpace: "nowrap" }}>
+            {lbl}
+          </button>
+        ))}
+      </div>
+
+      {!selectedPerson && (
+        <div style={{ ...card, textAlign: "center", color: "#3f5662", fontSize: 11 }}>SELECTIONNEZ UNE PERSONNE</div>
+      )}
+
+      {selectedPerson && activeSection === "identite" && (
+        <div style={card}>
+          <div style={{ marginBottom: 10, paddingBottom: 8, borderBottom: "1px solid rgba(173,190,199,0.5)" }}>
+            <div style={{ fontSize: 9, color: "#556d79", letterSpacing: "0.12em" }}>DOCUMENT D'ARRIVEE</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "#14242c" }}>ATTESTATION DE REMISE DES EFFETS</div>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 10px" }}>
+            {[
+              ["NOM", selectedPerson.nom],
+              ["PRENOM", selectedPerson.prenom],
+              ["FONCTION", selectedPerson.fonction],
+              ["TYPE PERSONNEL", selectedPerson.typePersonnel],
+              ["TYPE CONTRAT", selectedPerson.typeContrat],
+              ["DATE D'ARRIVEE", fmt(selectedPerson.dateEntree)],
+              ["SORTIE PREVUE", fmt(selectedPerson.dateSortiePrevue)],
+              ["SITES", (selectedPerson.sites || []).join(", ")],
+            ].map(([lbl, val]) => (
+              <div key={lbl} style={docField}>
+                <span style={docLabel}>{lbl}</span>
+                <div style={docValue}>{val || "—"}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 8, padding: "8px", background: "rgba(221,231,235,0.6)", borderRadius: 9 }}>
+            <div>
+              <div style={{ fontSize: 9, color: "#4a6170" }}>EFFETS REMIS</div>
+              <div style={{ fontSize: 22, fontWeight: 700 }}>{personEffets.length}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 9, color: "#4a6170" }}>VALEUR TOTALE</div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: "#9b5a2a" }}>{totalValeur.toFixed(2)} €</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {selectedPerson && activeSection === "effets" && (
+        <div>
+          <div style={{ ...card, padding: "8px 12px", marginBottom: 6 }}>
+            <div style={{ fontSize: 10, color: "#3f5662", fontWeight: 600 }}>EFFETS REMIS A L'ARRIVEE (statut ACTIF)</div>
+          </div>
+          {personEffets.length === 0 ? (
+            <div style={{ ...card, textAlign: "center", color: "#3f5662", fontSize: 11 }}>AUCUN EFFET ACTIF</div>
+          ) : (
+            personEffets.map(e => (
+              <div key={e.id} style={{ ...card, padding: "10px 12px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                  <span style={{ fontWeight: 700, fontSize: 12 }}>{e.typeEffet}</span>
+                  {e.coutRemplacement && <span style={{ fontSize: 11, color: "#9b5a2a", fontWeight: 600 }}>{Number(e.coutRemplacement).toFixed(2)} €</span>}
+                </div>
+                <div style={{ fontSize: 11, color: "#213b48" }}>{e.designation || "—"}</div>
+                {e.numeroIdentification && <div style={{ fontSize: 10, color: "#556d79" }}>N° {e.numeroIdentification}</div>}
+                {e.dateRemise && <div style={{ fontSize: 10, color: "#556d79" }}>Remis le {fmt(e.dateRemise)}</div>}
+              </div>
+            ))
+          )}
+        </div>
+      )}
+
+      {selectedPerson && activeSection === "signatures" && (
+        <div>
+          <MobileSignatureCanvas
+            personId={selectedPerson.id}
+            docType="arrival"
+            signer="personnel"
+            signerLabel="SIGNATURE DU PERSONNEL"
+            existingSignature={getSig("personnel")}
+            signataireName={`${selectedPerson.nom || ""} ${selectedPerson.prenom || ""}`.trim()}
+            signataireFunction={selectedPerson.fonction || ""}
+            onSaved={loadSignatures}
+          />
+          <div style={{ ...card, marginBottom: 8 }}>
+            <div style={{ fontSize: 10, color: "#3f5662", letterSpacing: "0.08em", marginBottom: 6, fontWeight: 600 }}>CHOIX REPRESENTANT SIGNATAIRE</div>
+            <select
+              value={representantId}
+              onChange={(e) => setRepresentantId(e.target.value)}
+              style={{ width: "100%", padding: "8px 10px", borderRadius: 9, border: "1px solid rgba(152,177,190,0.9)", background: "rgba(251,250,247,0.98)", fontSize: 11, color: "#0f1e26" }}
+            >
+              <option value="">SELECTIONNER UN REPRESENTANT</option>
+              {(representatives || []).map((p) => (
+                <option key={p.id} value={p.id}>{`${p.nom || ""}`.trim()}{p.fonction ? ` - ${p.fonction}` : ""}</option>
+              ))}
+            </select>
+          </div>
+          <MobileSignatureCanvas
+            personId={selectedPerson.id}
+            docType="arrival"
+            signer="representant"
+            signerLabel="SIGNATURE DU REPRESENTANT DE L'ETABLISSEMENT"
+            existingSignature={getSig("representant")}
+            signataireName={representantName}
+            signataireFunction={representantFunction}
+            onSaved={loadSignatures}
+          />
+          <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+            {["personnel", "representant"].map(s => {
+              const sig = getSig(s);
+              const expectedName = s === "personnel"
+                ? `${selectedPerson.nom || ""} ${selectedPerson.prenom || ""}`.trim()
+                : representantName;
+              const shownName = sig?.signataireName || expectedName || (s === "personnel" ? "PERSONNEL" : "REPRESENTANT");
+              return (
+                <div key={s} style={{ flex: 1, padding: "6px 8px", borderRadius: 8, background: sig ? "rgba(111,157,120,0.16)" : "rgba(217,137,106,0.12)", border: `1px solid ${sig ? "rgba(111,157,120,0.35)" : "rgba(217,137,106,0.3)"}`, fontSize: 9, color: sig ? "#2e6a44" : "#8f4a32", textAlign: "center" }}>
+                  {shownName}<br />
+                  {sig ? `✓ ${new Date(sig.signedAt).toLocaleDateString("fr-FR")}` : "NON SIGNE"}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
