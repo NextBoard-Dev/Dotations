@@ -2649,20 +2649,41 @@ function bindArchiveFilterForm() {
   if (!form) {
     return;
   }
+
+  const fillArchiveSearchFromCurrentPerson = () => {
+    const searchField = form.elements.archiveSearch;
+    if (!searchField || String(searchField.value || "").trim()) {
+      return;
+    }
+    const person = getCurrentPerson();
+    if (!person) {
+      return;
+    }
+    const label = [person.nom, person.prenom].map(normalizeText).filter(Boolean).join(" ");
+    if (label) {
+      searchField.value = label;
+    }
+  };
+
   const applyArchiveReset = () => {
     form.reset();
     window.setTimeout(() => {
+      fillArchiveSearchFromCurrentPerson();
       renderDocumentsArchivePage();
     }, 0);
   };
+
   form.oninput = () => {
     renderDocumentsArchivePage();
   };
+
   form.onreset = () => {
     window.setTimeout(() => {
+      fillArchiveSearchFromCurrentPerson();
       renderDocumentsArchivePage();
     }, 0);
   };
+
   const searchField = form.elements.archiveSearch;
   if (searchField) {
     searchField.addEventListener("search", () => {
@@ -2671,6 +2692,8 @@ function bindArchiveFilterForm() {
       }
     });
   }
+
+  fillArchiveSearchFromCurrentPerson();
 }
 
 function bindAddPersonForm() {
@@ -5252,7 +5275,17 @@ function renderDocumentsArchivePage() {
   }
 
   const filterForm = document.getElementById("documents-archives-filter-form");
-  const search = normalizeText(filterForm?.elements?.archiveSearch?.value);
+  const archiveSearchField = filterForm?.elements?.archiveSearch;
+  if (archiveSearchField && !String(archiveSearchField.value || "").trim()) {
+    const currentPerson = getCurrentPerson();
+    if (currentPerson) {
+      archiveSearchField.value = [currentPerson.nom, currentPerson.prenom]
+        .map(normalizeText)
+        .filter(Boolean)
+        .join(" ");
+    }
+  }
+  const search = normalizeText(archiveSearchField?.value);
   const typeDocument = normalizeText(filterForm?.elements?.archiveTypeDocument?.value);
   const site = normalizeText(filterForm?.elements?.archiveSite?.value);
   const statutSignature = normalizeText(filterForm?.elements?.archiveStatutSignature?.value);
