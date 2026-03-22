@@ -2618,6 +2618,26 @@ function clearSearchInputsOnInitialLoad() {
       if (!(field instanceof HTMLInputElement)) {
         return;
       }
+      if (field.id === "person-picker-search" && document.body?.dataset?.page === "overview") {
+        const selectedPerson = getCurrentPerson();
+        if (selectedPerson) {
+          const label = getPersonPickerLabel(selectedPerson);
+          field.value = label;
+          field.defaultValue = label;
+          field.setAttribute("autocomplete", "off");
+          return;
+        }
+      }
+      if (field.name === "archiveSearch" && document.body?.dataset?.page === "documents-archives") {
+        const selectedPerson = getCurrentPerson();
+        if (selectedPerson) {
+          const label = getPersonPickerLabel(selectedPerson);
+          field.value = label;
+          field.defaultValue = label;
+          field.setAttribute("autocomplete", "off");
+          return;
+        }
+      }
       field.value = "";
       field.defaultValue = "";
       field.setAttribute("autocomplete", "off");
