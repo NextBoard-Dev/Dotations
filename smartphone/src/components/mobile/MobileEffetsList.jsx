@@ -37,7 +37,7 @@ export default function MobileEffetsList({ effets, onEdit }) {
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
               {e.numeroIdentification && <span style={{ fontSize: 9, color: "#3f5662" }}>N° {e.numeroIdentification}</span>}
               {e.dateRemise && <span style={{ fontSize: 9, color: "#3f5662" }}>Remis le {e.dateRemise}</span>}
-              {e.coutRemplacement && <span style={{ fontSize: 9, color: "#9b5a2a", fontWeight: 600 }}>{Number(e.coutRemplacement).toFixed(2)} €</span>}
+              {Number(e.coutRemplacement) > 0 && <span style={{ fontSize: 9, color: "#9b5a2a", fontWeight: 600 }}>{Number(e.coutRemplacement).toFixed(2)} €</span>}
             </div>
             {e.commentaire && <div style={{ fontSize: 9, color: "#556d79", marginTop: 3, fontStyle: "italic" }}>{e.commentaire}</div>}
           </button>
