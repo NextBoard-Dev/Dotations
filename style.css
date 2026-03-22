@@ -310,7 +310,7 @@ body[data-page="exit-document"] .document-top-fixed {
   box-shadow: none;
   backface-visibility: hidden;
   transform: translateZ(0);
-  contain: paint;
+  contain: layout style;
   isolation: isolate;
 }
 
@@ -1576,13 +1576,6 @@ body[data-page="reference-bases"] .table-wrap--reference-large {
   border-radius: 16px;
   background: #fff;
   box-shadow: 0 14px 30px rgba(38, 63, 77, 0.18);
-}
-
-body[data-page="arrival-document"] .picker-suggestions,
-body[data-page="exit-document"] .picker-suggestions {
-  position: static;
-  width: min(420px, 100%);
-  margin-top: 6px;
 }
 
 .picker-suggestions__item {
