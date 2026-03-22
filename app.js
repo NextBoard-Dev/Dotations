@@ -25,6 +25,7 @@ const state = {
   mobileSignaturePollTimerId: 0,
   mobileSignatureNetworkInfo: null,
   autoSaveNavigationBound: false,
+  searchClearBrowserEventsBound: false,
   autoSaveInFlightPromise: null,
   autoSaveTimerId: 0,
   tableSorts: {
@@ -746,6 +747,7 @@ function restoreNavigationContext() {
     ...DEFAULT_FILTERS,
     ...((context && context.filters) || {}),
   };
+  state.filters.search = "";
 
   if (personIdInQuery) {
     saveNavigationContext({ personId: personIdInQuery, filters: state.filters });
@@ -1241,6 +1243,8 @@ async function loadData() {
   bindPdfModalCleanup();
   reorderOverviewSearchBlock();
   restoreNavigationContext();
+  clearSearchInputsOnInitialLoad();
+  bindSearchClearOnBrowserEvents();
   applyActiveNav();
   bindHistoryNavigation();
   bindAutoSaveOnNavigation();
@@ -1275,6 +1279,7 @@ async function loadData() {
     applyMeta();
     hydrateStaticLists();
     renderPage();
+    clearSearchInputsOnInitialLoad();
     showDataStatus("DONNEES EN COURS REPRISES - SAUVEGARDER POUR LES RENDRE DEFINITIVES");
     scheduleBackgroundAutoSave();
     return;
@@ -1332,6 +1337,7 @@ async function reloadData(statusText = "RECHARGEMENT DES DONNEES...") {
     applyMeta();
     hydrateStaticLists();
     renderPage();
+    clearSearchInputsOnInitialLoad();
     showDataStatus(
       getDataBackendMode() === "SUPABASE" ? "DONNEES SUPABASE CHARGEES" : "DONNEES LOCALES CHARGEES"
     );
@@ -2583,6 +2589,7 @@ function applyFiltersToForm(form) {
     field.value = value || "";
   };
   assign("search", filters.search);
+  assign("person-picker-search", filters.search);
   assign("site", filters.site);
   assign("typePersonnel", filters.typePersonnel);
   assign("typeContrat", filters.typeContrat);
@@ -2591,6 +2598,51 @@ function applyFiltersToForm(form) {
   assign("typeEffet", filters.typeEffet);
 }
 
+function clearFormSearchFields(form) {
+  if (!(form instanceof HTMLFormElement)) {
+    return;
+  }
+  form
+    .querySelectorAll("input[type=\"search\"], input[name*=\"search\" i], input[id*=\"search\" i]")
+    .forEach((field) => {
+      if (field instanceof HTMLInputElement) {
+        field.value = "";
+      }
+    });
+}
+
+function clearSearchInputsOnInitialLoad() {
+  document
+    .querySelectorAll("input[type=\"search\"], input[name*=\"search\" i], input[id*=\"search\" i]")
+    .forEach((field) => {
+      if (!(field instanceof HTMLInputElement)) {
+        return;
+      }
+      field.value = "";
+      field.defaultValue = "";
+      field.setAttribute("autocomplete", "off");
+    });
+}
+
+function bindSearchClearOnBrowserEvents() {
+  if (state.searchClearBrowserEventsBound) {
+    return;
+  }
+  const applyClear = () => {
+    window.setTimeout(() => {
+      clearSearchInputsOnInitialLoad();
+    }, 0);
+    window.setTimeout(() => {
+      clearSearchInputsOnInitialLoad();
+    }, 180);
+    window.setTimeout(() => {
+      clearSearchInputsOnInitialLoad();
+    }, 700);
+  };
+  window.addEventListener("load", applyClear);
+  window.addEventListener("pageshow", applyClear);
+  state.searchClearBrowserEventsBound = true;
+}
 function bindFilterForms() {
   document.querySelectorAll(".js-filter-form").forEach((form) => {
     applyFiltersToForm(form);
@@ -2600,6 +2652,7 @@ function bindFilterForms() {
       state.urgentMode = false;
       saveNavigationContext({ filters: state.filters, personId: "", urgentMode: false });
       setCurrentPersonId("", "replace");
+      clearFormSearchFields(form);
       applyFiltersToForm(form);
       updateUrgencyModeUi();
       renderPage();
@@ -2607,7 +2660,7 @@ function bindFilterForms() {
 
     form.oninput = (event) => {
       const target = event?.target instanceof HTMLElement ? event.target : null;
-      const searchField = form.elements.search;
+      const searchField = form.elements.search || form.elements["person-picker-search"];
       const searchClearedByField =
         target &&
         searchField &&
@@ -2626,12 +2679,13 @@ function bindFilterForms() {
     };
 
     form.onreset = () => {
+      clearFormSearchFields(form);
       window.setTimeout(() => {
         applyFullReset();
       }, 0);
     };
 
-    const searchField = form.elements.search;
+    const searchField = form.elements.search || form.elements["person-picker-search"];
     if (searchField) {
       searchField.addEventListener("search", () => {
         if (!String(searchField.value || "").trim()) {
@@ -2641,6 +2695,7 @@ function bindFilterForms() {
     }
   });
 }
+
 function syncFilterFormsFromState() {
   document.querySelectorAll(".js-filter-form").forEach((form) => applyFiltersToForm(form));
 }
@@ -2650,25 +2705,10 @@ function bindArchiveFilterForm() {
     return;
   }
 
-  const fillArchiveSearchFromCurrentPerson = () => {
-    const searchField = form.elements.archiveSearch;
-    if (!searchField || String(searchField.value || "").trim()) {
-      return;
-    }
-    const person = getCurrentPerson();
-    if (!person) {
-      return;
-    }
-    const label = [person.nom, person.prenom].map(normalizeText).filter(Boolean).join(" ");
-    if (label) {
-      searchField.value = label;
-    }
-  };
-
   const applyArchiveReset = () => {
+    clearFormSearchFields(form);
     form.reset();
     window.setTimeout(() => {
-      fillArchiveSearchFromCurrentPerson();
       renderDocumentsArchivePage();
     }, 0);
   };
@@ -2678,22 +2718,21 @@ function bindArchiveFilterForm() {
   };
 
   form.onreset = () => {
+    clearFormSearchFields(form);
     window.setTimeout(() => {
-      fillArchiveSearchFromCurrentPerson();
       renderDocumentsArchivePage();
     }, 0);
   };
 
   const searchField = form.elements.archiveSearch;
   if (searchField) {
+    searchField.value = "";
     searchField.addEventListener("search", () => {
       if (!String(searchField.value || "").trim()) {
         applyArchiveReset();
       }
     });
   }
-
-  fillArchiveSearchFromCurrentPerson();
 }
 
 function bindAddPersonForm() {
@@ -4276,6 +4315,7 @@ function bindReferenceFilters() {
     return;
   }
   const applyReferenceReset = () => {
+    clearFormSearchFields(form);
     form.reset();
     window.setTimeout(() => {
       renderReferenceEffectsTable();
@@ -4287,6 +4327,7 @@ function bindReferenceFilters() {
   };
 
   form.onreset = () => {
+    clearFormSearchFields(form);
     window.setTimeout(() => {
       renderReferenceEffectsTable();
     }, 0);
@@ -4334,7 +4375,7 @@ function bindMobileSignatureSettingsForm() {
 function readFilters(form) {
   const formData = new FormData(form);
   return {
-    search: normalizeText(formData.get("search")),
+    search: normalizeText(formData.get("search") || formData.get("person-picker-search")),
     site: normalizeText(formData.get("site")),
     typePersonnel: normalizeText(formData.get("typePersonnel")),
     typeContrat: normalizeText(formData.get("typeContrat")),
@@ -5276,15 +5317,6 @@ function renderDocumentsArchivePage() {
 
   const filterForm = document.getElementById("documents-archives-filter-form");
   const archiveSearchField = filterForm?.elements?.archiveSearch;
-  if (archiveSearchField && !String(archiveSearchField.value || "").trim()) {
-    const currentPerson = getCurrentPerson();
-    if (currentPerson) {
-      archiveSearchField.value = [currentPerson.nom, currentPerson.prenom]
-        .map(normalizeText)
-        .filter(Boolean)
-        .join(" ");
-    }
-  }
   const search = normalizeText(archiveSearchField?.value);
   const typeDocument = normalizeText(filterForm?.elements?.archiveTypeDocument?.value);
   const site = normalizeText(filterForm?.elements?.archiveSite?.value);
@@ -9193,6 +9225,8 @@ function renderDirtyState() {
 
 loadData();
   const getSheetTargetPersonId = () => state.currentSheetPersonId || getCurrentPersonId();
+
+
 
 
 
