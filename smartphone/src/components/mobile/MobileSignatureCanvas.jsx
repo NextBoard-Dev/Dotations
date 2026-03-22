@@ -1,7 +1,7 @@
 import React, { useRef, useState, useEffect } from "react";
 import { db } from "@/lib/db";
 
-export default function MobileSignatureCanvas({ personId, docType, signer, signerLabel, existingSignature, onSaved, signataireName = "", signataireFunction = "" }) {
+export default function MobileSignatureCanvas({ personId, docType, signer, signerLabel, existingSignature, onSaved, signataireName = "", signataireFunction = "", signataireId = "" }) {
   const canvasRef = useRef(null);
   const [drawing, setDrawing] = useState(false);
   const [signed, setSigned] = useState(false);
@@ -135,6 +135,7 @@ export default function MobileSignatureCanvas({ personId, docType, signer, signe
       const payload = {
         signatureData: data,
         signedAt,
+        signataireId: signataireId || null,
         signataireName: signataireName || null,
         signataireFunction: signataireFunction || null,
       };

@@ -52,13 +52,31 @@ export default function MobileDocumentSortie({ persons, effets, selectedPerson, 
   };
 
   const getSig = (signer) => signatures.find(s => s.signer === signer);
+  const personnelSig = getSig("personnel");
+  const representantSig = getSig("representant");
+  const isDocumentSigned = Boolean(personnelSig?.signedAt && representantSig?.signedAt);
+  const documentDateIso = isDocumentSigned
+    ? [personnelSig?.signedAt, representantSig?.signedAt].filter(Boolean).sort().slice(-1)[0]
+    : new Date().toISOString();
   const representant = (representatives || []).find((p) => p.id === representantId) || null;
   const representantName = representant ? `${representant.nom || ""}`.trim() : "";
   const representantFunction = representant?.fonction || "";
   const fmt = (d) => d ? new Date(d).toLocaleDateString("fr-FR") : "—";
+  const todayIso = () => new Date().toISOString().slice(0, 10);
 
   const toggleRendu = (id) => {
-    setLocalEffets(prev => prev.map(e => e.id === id ? { ...e, _rendus: !e._rendus, statut: !e._rendus ? "RESTITUE" : "ACTIF" } : e));
+    setLocalEffets(prev =>
+      prev.map((e) => {
+        if (e.id !== id) return e;
+        const nextRendu = !e._rendus;
+        return {
+          ...e,
+          _rendus: nextRendu,
+          statut: nextRendu ? "RESTITUE" : "ACTIF",
+          dateRetour: nextRendu ? (e.dateRetour || todayIso()) : "",
+        };
+      })
+    );
   };
 
   const totalEffets = localEffets.length;
@@ -99,7 +117,10 @@ export default function MobileDocumentSortie({ persons, effets, selectedPerson, 
     setSaveStatus("saving");
     try {
       for (const e of localEffets) {
-        await db.Effet.update(e.id, { statut: e.statut });
+        await db.Effet.update(e.id, {
+          statut: e.statut,
+          dateRetour: e.statut === "RESTITUE" ? (e.dateRetour || todayIso()) : "",
+        });
       }
       setSaveStatus("saved");
       setMsg("MODIFICATIONS SAUVEGARDEES");
@@ -143,6 +164,7 @@ export default function MobileDocumentSortie({ persons, effets, selectedPerson, 
               ["PRENOM", selectedPerson.prenom],
               ["FONCTION", selectedPerson.fonction],
               ["TYPE PERSONNEL", selectedPerson.typePersonnel],
+              ["DATE DU DOCUMENT", fmt(documentDateIso)],
               ["DATE D'ENTREE", fmt(selectedPerson.dateEntree)],
               ["SORTIE PREVUE", fmt(selectedPerson.dateSortiePrevue)],
               ["SORTIE REELLE", fmt(selectedPerson.dateSortieReelle)],
@@ -190,7 +212,21 @@ export default function MobileDocumentSortie({ persons, effets, selectedPerson, 
                   {/* Statut select */}
                   <select
                     value={e.statut}
-                    onChange={ev => setLocalEffets(prev => prev.map(x => x.id === e.id ? { ...x, statut: ev.target.value } : x))}
+                    onChange={(ev) => {
+                      const nextStatut = ev.target.value;
+                      setLocalEffets((prev) =>
+                        prev.map((x) =>
+                          x.id === e.id
+                            ? {
+                                ...x,
+                                statut: nextStatut,
+                                _rendus: nextStatut === "RESTITUE",
+                                dateRetour: nextStatut === "RESTITUE" ? (x.dateRetour || todayIso()) : "",
+                              }
+                            : x
+                        )
+                      );
+                    }}
                     style={{ width: "100%", padding: "6px 8px", borderRadius: 7, border: "1px solid rgba(173,190,199,0.98)", background: "#fffdfa", fontSize: 11, color: "#0f1e26" }}
                   >
                     {["ACTIF", "RESTITUE", "NON RENDU", "PERDU", "HS", "VOLE", "DETRUIT"].map(s => <option key={s} value={s}>{s}</option>)}
@@ -209,6 +245,15 @@ export default function MobileDocumentSortie({ persons, effets, selectedPerson, 
 
       {selectedPerson && activeSection === "signatures" && (
         <div>
+          <div style={{ ...card, padding: "10px 12px", marginBottom: 8 }}>
+            <div style={{ fontSize: 10, color: "#3f5662", letterSpacing: "0.08em", marginBottom: 4, fontWeight: 600 }}>DATE DU DOCUMENT</div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "#14242c" }}>{fmt(documentDateIso)}</div>
+              <span style={{ fontSize: 9, padding: "2px 8px", borderRadius: 99, background: isDocumentSigned ? "rgba(111,157,120,0.2)" : "rgba(217,137,106,0.2)", color: isDocumentSigned ? "#2e6a44" : "#8f4a32", border: `1px solid ${isDocumentSigned ? "rgba(111,157,120,0.3)" : "rgba(217,137,106,0.3)"}` }}>
+                {isDocumentSigned ? "SIGNE" : "EN ATTENTE"}
+              </span>
+            </div>
+          </div>
           <div style={card}>
             <div style={{ fontSize: 11, color: "#14242c", fontWeight: 700, letterSpacing: "0.08em", marginBottom: 8 }}>CLAUSES DE RESTITUTION ET DE FACTURATION</div>
             <div style={{ fontSize: 11, color: "#213b48", marginBottom: 8 }}>
@@ -273,6 +318,7 @@ export default function MobileDocumentSortie({ persons, effets, selectedPerson, 
             signer="representant"
             signerLabel="SIGNATURE DU REPRESENTANT DE L'ETABLISSEMENT"
             existingSignature={getSig("representant")}
+            signataireId={representantId}
             signataireName={representantName}
             signataireFunction={representantFunction}
             onSaved={handleSignatureSaved}

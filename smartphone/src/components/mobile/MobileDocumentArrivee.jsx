@@ -68,6 +68,12 @@ export default function MobileDocumentArrivee({ persons, effets, selectedPerson,
   });
 
   const getSig = (signer) => signatures.find(s => s.signer === signer);
+  const personnelSig = getSig("personnel");
+  const representantSig = getSig("representant");
+  const isDocumentSigned = Boolean(personnelSig?.signedAt && representantSig?.signedAt);
+  const documentDateIso = isDocumentSigned
+    ? [personnelSig?.signedAt, representantSig?.signedAt].filter(Boolean).sort().slice(-1)[0]
+    : new Date().toISOString();
   const representant = (representatives || []).find((p) => p.id === representantId) || null;
   const representantName = representant ? `${representant.nom || ""}`.trim() : "";
   const representantFunction = representant?.fonction || "";
@@ -104,6 +110,7 @@ export default function MobileDocumentArrivee({ persons, effets, selectedPerson,
               ["FONCTION", selectedPerson.fonction],
               ["TYPE PERSONNEL", selectedPerson.typePersonnel],
               ["TYPE CONTRAT", selectedPerson.typeContrat],
+              ["DATE DU DOCUMENT", fmt(documentDateIso)],
               ["DATE D'ARRIVEE", fmt(selectedPerson.dateEntree)],
               ["SORTIE PREVUE", fmt(selectedPerson.dateSortiePrevue)],
               ["SITES", (selectedPerson.sites || []).join(", ")],
@@ -152,6 +159,15 @@ export default function MobileDocumentArrivee({ persons, effets, selectedPerson,
 
       {selectedPerson && activeSection === "signatures" && (
         <div>
+          <div style={{ ...card, padding: "10px 12px", marginBottom: 8 }}>
+            <div style={{ fontSize: 10, color: "#3f5662", letterSpacing: "0.08em", marginBottom: 4, fontWeight: 600 }}>DATE DU DOCUMENT</div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "#14242c" }}>{fmt(documentDateIso)}</div>
+              <span style={{ fontSize: 9, padding: "2px 8px", borderRadius: 99, background: isDocumentSigned ? "rgba(111,157,120,0.2)" : "rgba(217,137,106,0.2)", color: isDocumentSigned ? "#2e6a44" : "#8f4a32", border: `1px solid ${isDocumentSigned ? "rgba(111,157,120,0.3)" : "rgba(217,137,106,0.3)"}` }}>
+                {isDocumentSigned ? "SIGNE" : "EN ATTENTE"}
+              </span>
+            </div>
+          </div>
           <div style={card}>
             <div style={{ fontSize: 11, color: "#14242c", fontWeight: 700, letterSpacing: "0.08em", marginBottom: 8 }}>CLAUSES DE RESTITUTION ET DE FACTURATION</div>
             <div style={{ fontSize: 11, color: "#213b48", marginBottom: 8 }}>
@@ -216,6 +232,7 @@ export default function MobileDocumentArrivee({ persons, effets, selectedPerson,
             signer="representant"
             signerLabel="SIGNATURE DU REPRESENTANT DE L'ETABLISSEMENT"
             existingSignature={getSig("representant")}
+            signataireId={representantId}
             signataireName={representantName}
             signataireFunction={representantFunction}
             onSaved={handleSignatureSaved}

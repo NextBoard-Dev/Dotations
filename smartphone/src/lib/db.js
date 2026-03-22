@@ -311,6 +311,7 @@ function buildLegacySignatureId(personId, docType, signer) {
 function normalizeLegacySignature(personId, docType, signer, raw = {}) {
   const signatureData = toString(raw?.image);
   const signedAt = cleanDate(raw?.validatedAt);
+  const signataireId = toString(raw?.signataireId);
   const signataireName = toString(raw?.signataireName).trim();
   const signataireFunction = toString(raw?.signataireFunction).trim();
   return {
@@ -320,9 +321,31 @@ function normalizeLegacySignature(personId, docType, signer, raw = {}) {
     signer,
     signatureData,
     signedAt,
+    signataireId,
     signataireName,
     signataireFunction,
   };
+}
+
+function toSqlSignatureCreatePayload(data = {}) {
+  return {
+    personId: toString(data?.personId),
+    docType: toString(data?.docType),
+    signer: toString(data?.signer),
+    signatureData: toString(data?.signatureData),
+    signedAt: cleanDate(data?.signedAt),
+    signataireName: toString(data?.signataireName).trim(),
+    signataireFunction: toString(data?.signataireFunction).trim(),
+  };
+}
+
+function toSqlSignatureUpdatePayload(data = {}) {
+  const out = {};
+  if (Object.prototype.hasOwnProperty.call(data, "signatureData")) out.signatureData = toString(data.signatureData);
+  if (Object.prototype.hasOwnProperty.call(data, "signedAt")) out.signedAt = cleanDate(data.signedAt);
+  if (Object.prototype.hasOwnProperty.call(data, "signataireName")) out.signataireName = toString(data.signataireName).trim();
+  if (Object.prototype.hasOwnProperty.call(data, "signataireFunction")) out.signataireFunction = toString(data.signataireFunction).trim();
+  return out;
 }
 
 function extractLegacySignatures(payload = {}, filters = {}) {
@@ -632,15 +655,23 @@ export const db = {
           ...prev,
           image: toString(data?.signatureData),
           validatedAt: cleanDate(data?.signedAt) || new Date().toISOString(),
+          signataireId: toString(data?.signataireId),
           signataireName: toString(data?.signataireName).trim(),
           signataireFunction: toString(data?.signataireFunction).trim(),
         };
+        if (signer === "representant") {
+          if (!person.representants || typeof person.representants !== "object") person.representants = {};
+          if (!person.representants[docType] || typeof person.representants[docType] !== "object") person.representants[docType] = {};
+          person.representants[docType].id = toString(data?.signataireId);
+          person.representants[docType].nom = toString(data?.signataireName).trim();
+          person.representants[docType].fonction = toString(data?.signataireFunction).trim();
+        }
         person.signatures = sigRoot;
         applySignedDocumentCompletion(person, docType);
         await saveAppStatePayload(payload);
         return normalizeLegacySignature(personId, docType, signer, sigRoot[docType][signer]);
       }
-      const created = await sqlSignature.create(data);
+      const created = await sqlSignature.create(toSqlSignatureCreatePayload(data));
       await applySqlPersonCompletionFromSignatures(data?.personId, data?.docType);
       return created;
     },
@@ -659,15 +690,29 @@ export const db = {
           ...prev,
           image: Object.prototype.hasOwnProperty.call(data || {}, "signatureData") ? toString(data.signatureData) : toString(prev.image),
           validatedAt: Object.prototype.hasOwnProperty.call(data || {}, "signedAt") ? cleanDate(data.signedAt) : cleanDate(prev.validatedAt),
+          signataireId: Object.prototype.hasOwnProperty.call(data || {}, "signataireId") ? toString(data.signataireId) : toString(prev.signataireId),
           signataireName: Object.prototype.hasOwnProperty.call(data || {}, "signataireName") ? toString(data.signataireName).trim() : toString(prev.signataireName).trim(),
           signataireFunction: Object.prototype.hasOwnProperty.call(data || {}, "signataireFunction") ? toString(data.signataireFunction).trim() : toString(prev.signataireFunction).trim(),
         };
+        if (signer === "representant") {
+          if (!person.representants || typeof person.representants !== "object") person.representants = {};
+          if (!person.representants[docType] || typeof person.representants[docType] !== "object") person.representants[docType] = {};
+          person.representants[docType].id = Object.prototype.hasOwnProperty.call(data || {}, "signataireId")
+            ? toString(data.signataireId)
+            : toString(person.representants[docType].id);
+          person.representants[docType].nom = Object.prototype.hasOwnProperty.call(data || {}, "signataireName")
+            ? toString(data.signataireName).trim()
+            : toString(person.representants[docType].nom).trim();
+          person.representants[docType].fonction = Object.prototype.hasOwnProperty.call(data || {}, "signataireFunction")
+            ? toString(data.signataireFunction).trim()
+            : toString(person.representants[docType].fonction).trim();
+        }
         person.signatures = sigRoot;
         applySignedDocumentCompletion(person, docType);
         await saveAppStatePayload(payload);
         return normalizeLegacySignature(personId, docType, signer, sigRoot[docType][signer]);
       }
-      const updated = await sqlSignature.update(id, data);
+      const updated = await sqlSignature.update(id, toSqlSignatureUpdatePayload(data));
       await applySqlPersonCompletionFromSignatures(updated?.personId, updated?.docType);
       return updated;
     },
