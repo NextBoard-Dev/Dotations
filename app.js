@@ -26,6 +26,8 @@ const state = {
   mobileSignatureNetworkInfo: null,
   autoSaveNavigationBound: false,
   searchClearBrowserEventsBound: false,
+  dirtyFallbackBound: false,
+  saveButtonLatchedDirty: false,
   autoSaveInFlightPromise: null,
   autoSaveTimerId: 0,
   tableSorts: {
@@ -1251,6 +1253,7 @@ async function loadData() {
   bindGlobalShortcuts();
   bindLoadButton();
   bindSaveButtons();
+  bindDirtyFallbackTracking();
   bindPdfButtons();
   bindMobileSignatureButtons();
   bindOverviewUrgencyActions();
@@ -1831,8 +1834,52 @@ function bindLoadButton() {
 
 function bindSaveButtons() {
   document.querySelectorAll(".js-save-data").forEach((button) => {
-    button.onclick = saveDataToFile;
+    button.onclick = () => {
+      state.saveButtonLatchedDirty = false;
+      renderDirtyState();
+      return saveDataToFile();
+    };
   });
+}
+
+function bindDirtyFallbackTracking() {
+  if (state.dirtyFallbackBound) {
+    return;
+  }
+
+  const trackedSelectors = [
+    "#add-person-form",
+    "#person-sheet-form",
+    "#effect-form",
+    "#mobile-signature-settings-form",
+    "#representative-signatory-form",
+    "#reference-effect-form",
+    "#replacement-cost-form",
+    ".js-reference-list-form",
+  ];
+
+  const shouldTrack = (form) => trackedSelectors.some((selector) => form.matches(selector));
+
+  const handlePotentialChange = (event) => {
+    const target = event?.target;
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+    const form = target.closest("form");
+    if (!(form instanceof HTMLFormElement) || !shouldTrack(form)) {
+      return;
+    }
+    if (target instanceof HTMLButtonElement) {
+      return;
+    }
+    if (!state.isDirty) {
+      markDirty();
+    }
+  };
+
+  document.addEventListener("input", handlePotentialChange, true);
+  document.addEventListener("change", handlePotentialChange, true);
+  state.dirtyFallbackBound = true;
 }
 
 function bindPdfButtons() {
@@ -9228,6 +9275,7 @@ function bindHistoryNavigation() {
 
 function markDirty() {
   state.isDirty = true;
+  state.saveButtonLatchedDirty = true;
   saveWorkingData();
   renderDirtyState();
   scheduleBackgroundAutoSave();
@@ -9235,12 +9283,20 @@ function markDirty() {
 
 function renderDirtyState() {
   const node = document.getElementById("dirty-status");
-  if (!node) {
-    return;
+  if (node) {
+    node.hidden = false;
+    node.textContent = state.isDirty ? "MODIFICATIONS NON SAUVEGARDEES" : "DONNEES SAUVEGARDEES";
+    node.classList.toggle("is-saved", !state.isDirty);
   }
-  node.hidden = false;
-  node.textContent = state.isDirty ? "MODIFICATIONS NON SAUVEGARDEES" : "DONNEES SAUVEGARDEES";
-  node.classList.toggle("is-saved", !state.isDirty);
+
+  const saveButtonActive = Boolean(state.isDirty || state.saveButtonLatchedDirty);
+  document.querySelectorAll(".js-save-data").forEach((button) => {
+    if (!(button instanceof HTMLElement)) {
+      return;
+    }
+    button.classList.toggle("button--primary", saveButtonActive);
+    button.classList.toggle("button--secondary", !saveButtonActive);
+  });
 }
 
 loadData();
