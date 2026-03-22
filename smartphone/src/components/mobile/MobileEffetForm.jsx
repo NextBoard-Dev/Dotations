@@ -43,24 +43,35 @@ function MobileEffetForm({ personId, editingEffet, onSaved, onCancel, setSaveSta
     setSaving(true);
     setSaveStatus("saving");
     setError(null);
-    const data = { ...form, personId, coutRemplacement: form.coutRemplacement ? parseFloat(String(form.coutRemplacement).replace(",", ".")) : null };
-    if (editingEffet) {
-      await db.Effet.update(editingEffet.id, data);
-    } else {
-      await db.Effet.create(data);
+    try {
+      const data = { ...form, personId, coutRemplacement: form.coutRemplacement ? parseFloat(String(form.coutRemplacement).replace(",", ".")) : null };
+      if (editingEffet) {
+        await db.Effet.update(editingEffet.id, data);
+      } else {
+        await db.Effet.create(data);
+      }
+      setSaveStatus("saved");
+      onSaved();
+    } catch {
+      setSaveStatus("saved");
+      setError("SAUVEGARDE SUPABASE TEMPORAIREMENT BLOQUEE");
+    } finally {
+      setSaving(false);
     }
-    setSaveStatus("saved");
-    setSaving(false);
-    onSaved();
   };
 
   const handleDelete = async () => {
     if (!editingEffet) return;
     if (!window.confirm("Supprimer cet effet ?")) return;
-    setSaveStatus("saving");
-    await db.Effet.delete(editingEffet.id);
-    setSaveStatus("saved");
-    onSaved();
+    try {
+      setSaveStatus("saving");
+      await db.Effet.delete(editingEffet.id);
+      setSaveStatus("saved");
+      onSaved();
+    } catch {
+      setSaveStatus("saved");
+      setError("SAUVEGARDE SUPABASE TEMPORAIREMENT BLOQUEE");
+    }
   };
 
   return (
@@ -121,7 +132,7 @@ function MobileEffetForm({ personId, editingEffet, onSaved, onCancel, setSaveSta
       </div>
 
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-        <button onClick={handleSave} disabled={saving} style={{ flex: 1, minWidth: 100, padding: "9px 10px", borderRadius: 9, border: "none", background: "#3f6170", color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+        <button onClick={handleSave} disabled={saving} style={{ flex: 1, minWidth: 100, padding: "9px 10px", borderRadius: 9, border: "none", background: "#3f6170", color: "#fff", fontSize: 11, fontWeight: 700, cursor: saving ? "default" : "pointer", opacity: saving ? 0.6 : 1 }}>
           {editingEffet ? "MODIFIER" : "AJOUTER"}
         </button>
         <button onClick={onCancel} style={{ flex: 1, minWidth: 80, padding: "9px 10px", borderRadius: 9, border: "1px solid rgba(63,97,112,0.3)", background: "rgba(63,97,112,0.1)", color: "#213b48", fontSize: 11, cursor: "pointer" }}>

@@ -154,7 +154,7 @@ export default function MobileSignatureCanvas({ personId, docType, signer, signe
       setTimeout(() => setMsg(null), 2500);
       if (onSaved) await onSaved();
     } catch {
-      setMsg("ERREUR ENREGISTREMENT");
+      setMsg("SAUVEGARDE SUPABASE TEMPORAIREMENT BLOQUEE");
       setTimeout(() => setMsg(null), 2500);
     } finally {
       setSaving(false);

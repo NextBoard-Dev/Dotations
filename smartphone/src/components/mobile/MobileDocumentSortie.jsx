@@ -60,14 +60,21 @@ export default function MobileDocumentSortie({ persons, effets, selectedPerson, 
     if (!selectedPerson) return;
     setSaving(true);
     setSaveStatus("saving");
-    for (const e of localEffets) {
-      await db.Effet.update(e.id, { statut: e.statut });
+    try {
+      for (const e of localEffets) {
+        await db.Effet.update(e.id, { statut: e.statut });
+      }
+      setSaveStatus("saved");
+      setMsg("MODIFICATIONS SAUVEGARDEES");
+      onDataChange();
+      setTimeout(() => setMsg(null), 2500);
+    } catch {
+      setSaveStatus("saved");
+      setMsg("SAUVEGARDE SUPABASE TEMPORAIREMENT BLOQUEE");
+      setTimeout(() => setMsg(null), 2500);
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
-    setSaveStatus("saved");
-    setMsg("MODIFICATIONS SAUVEGARDEES");
-    onDataChange();
-    setTimeout(() => setMsg(null), 2500);
   };
 
   return (
@@ -156,7 +163,7 @@ export default function MobileDocumentSortie({ persons, effets, selectedPerson, 
             })
           )}
           {localEffets.length > 0 && (
-            <button onClick={handleSaveEffets} disabled={saving} style={{ width: "100%", padding: "11px", borderRadius: 9, border: "none", background: "#3f6170", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", marginTop: 4, marginBottom: 8 }}>
+            <button onClick={handleSaveEffets} disabled={saving} style={{ width: "100%", padding: "11px", borderRadius: 9, border: "none", background: "#3f6170", color: "#fff", fontSize: 12, fontWeight: 700, cursor: saving ? "default" : "pointer", marginTop: 4, marginBottom: 8, opacity: saving ? 0.6 : 1 }}>
               {saving ? "SAUVEGARDE..." : "SAUVEGARDER LES STATUTS"}
             </button>
           )}

@@ -4,7 +4,7 @@ const READ_ONLY_MODE = String(import.meta?.env?.VITE_SMARTPHONE_READONLY ?? "tru
 
 function ensureWritable(actionLabel = "operation") {
   if (!READ_ONLY_MODE) return;
-  throw new Error(`Mode lecture seule smartphone actif: ${actionLabel} bloque pour proteger Suivi des effets.`);
+  throw new Error(`Sauvegarde Supabase temporairement bloquee: ${actionLabel}.`);
 }
 
 function normalizeOrder(order) {

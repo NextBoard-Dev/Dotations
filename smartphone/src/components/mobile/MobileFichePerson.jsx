@@ -45,30 +45,42 @@ export default function MobileFichePerson({ persons, effets, selectedPerson, onS
   const handleSavePerson = async () => {
     setSaving(true);
     setSaveStatus("saving");
-    if (selectedPerson) {
-      await db.Person.update(selectedPerson.id, form);
-      setMsg("MODIFICATIONS ENREGISTREES");
-    } else {
-      const created = await db.Person.create(form);
-      onSelectPerson(created);
-      setMsg("PERSONNE AJOUTEE");
+    try {
+      if (selectedPerson) {
+        await db.Person.update(selectedPerson.id, form);
+        setMsg("MODIFICATIONS ENREGISTREES");
+      } else {
+        const created = await db.Person.create(form);
+        onSelectPerson(created);
+        setMsg("PERSONNE AJOUTEE");
+      }
+      setSaveStatus("saved");
+      onDataChange();
+    } catch {
+      setMsg("SAUVEGARDE SUPABASE TEMPORAIREMENT BLOQUEE");
+      setSaveStatus("saved");
+    } finally {
+      setSaving(false);
+      setTimeout(() => setMsg(null), 2500);
     }
-    setSaveStatus("saved");
-    setSaving(false);
-    onDataChange();
-    setTimeout(() => setMsg(null), 2500);
   };
 
   const handleDeletePerson = async () => {
     if (!selectedPerson) return;
     if (!window.confirm(`Supprimer ${selectedPerson.nom} ${selectedPerson.prenom} ?`)) return;
-    setSaveStatus("saving");
-    for (const e of personEffets) await db.Effet.delete(e.id);
-    await db.Person.delete(selectedPerson.id);
-    onSelectPerson(null);
-    setSaveStatus("saved");
-    onDataChange();
-    setForm({ nom: "", prenom: "", fonction: "", sites: [], typePersonnel: "", typeContrat: "", dateEntree: "", dateSortiePrevue: "", dateSortieReelle: "" });
+    try {
+      setSaveStatus("saving");
+      for (const e of personEffets) await db.Effet.delete(e.id);
+      await db.Person.delete(selectedPerson.id);
+      onSelectPerson(null);
+      setSaveStatus("saved");
+      onDataChange();
+      setForm({ nom: "", prenom: "", fonction: "", sites: [], typePersonnel: "", typeContrat: "", dateEntree: "", dateSortiePrevue: "", dateSortieReelle: "" });
+    } catch {
+      setSaveStatus("saved");
+      setMsg("SAUVEGARDE SUPABASE TEMPORAIREMENT BLOQUEE");
+      setTimeout(() => setMsg(null), 2500);
+    }
   };
 
   const computeStatut = () => {
