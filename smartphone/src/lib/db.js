@@ -227,6 +227,13 @@ async function getReferenceBases() {
   try {
     const payload = await getAppStatePayload();
     const listes = payload?.listes || {};
+    const coutsRemplacement = ensureArray(listes.coutsRemplacement)
+      .map((entry) => ({
+        typeEffet: toString(entry?.typeEffet).trim(),
+        cause: toString(entry?.cause).trim().toUpperCase(),
+        montant: Number(entry?.montant) || 0,
+      }))
+      .filter((entry) => entry.typeEffet);
     return {
       sites: normalizeStringArray(listes.sites),
       fonctions: normalizeStringArray(listes.fonctions),
@@ -234,6 +241,7 @@ async function getReferenceBases() {
       typesContrats: normalizeStringArray(listes.typesContrats),
       typesEffets: normalizeStringArray(listes.typesEffets),
       statutsObjetManuels: normalizeStringArray(listes.statutsObjetManuels),
+      coutsRemplacement,
       representantsSignataires: listRepresentantsSignatairesFromPayload(payload),
     };
   } catch {
@@ -244,6 +252,7 @@ async function getReferenceBases() {
       typesContrats: [],
       typesEffets: [],
       statutsObjetManuels: [],
+      coutsRemplacement: [],
       representantsSignataires: [],
     };
   }

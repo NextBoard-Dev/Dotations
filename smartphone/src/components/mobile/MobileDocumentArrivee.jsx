@@ -8,8 +8,13 @@ const card = { background: "rgba(244,241,234,0.98)", border: "1px solid rgba(173
 const docField = { display: "flex", flexDirection: "column", gap: 3, marginBottom: 8 };
 const docLabel = { fontSize: 9, color: "#4a6170", letterSpacing: "0.08em" };
 const docValue = { padding: "7px 12px", borderRadius: 9, background: "rgba(251,250,247,0.98)", border: "1px solid rgba(152,177,190,0.9)", fontSize: 12, color: "#0f1e26", minHeight: 32, display: "flex", alignItems: "center" };
+const eur = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-export default function MobileDocumentArrivee({ persons, effets, selectedPerson, onSelectPerson, setSaveStatus, onDataChange, representatives = [] }) {
+function normalizeLabel(value) {
+  return String(value || "").replace(/\s+/g, " ").trim().toUpperCase();
+}
+
+export default function MobileDocumentArrivee({ persons, effets, selectedPerson, onSelectPerson, setSaveStatus, onDataChange, representatives = [], pricingRules = [], effetTypes = [] }) {
   const [signatures, setSignatures] = useState([]);
   const [activeSection, setActiveSection] = useState("identite");
   const [representantId, setRepresentantId] = useState("");
@@ -29,6 +34,33 @@ export default function MobileDocumentArrivee({ persons, effets, selectedPerson,
 
   const personEffets = selectedPerson ? effets.filter(e => e.personId === selectedPerson.id && e.statut === "ACTIF") : [];
   const totalValeur = personEffets.reduce((s, e) => s + (Number(e.coutRemplacement) || 0), 0);
+  const costByType = new Map();
+  pricingRules.forEach((rule) => {
+    const type = normalizeLabel(rule.typeEffet);
+    if (!type) return;
+    const cause = normalizeLabel(rule.cause);
+    const amount = Number(rule.montant) || 0;
+    const current = costByType.get(type) || { hs: 0, perdu: 0, vol: 0, nonRendu: 0 };
+    if (cause === "HS") current.hs = amount;
+    if (cause === "PERTE" || cause === "PERDU") current.perdu = amount;
+    if (cause === "VOL") current.vol = amount;
+    if (cause === "NON RENDU") current.nonRendu = amount;
+    costByType.set(type, current);
+  });
+  const baseTypes = Array.from(new Set(
+    [...effetTypes.map((t) => normalizeLabel(t)), ...Array.from(costByType.keys())].filter(Boolean)
+  ));
+  const clauseRows = baseTypes.map((type) => {
+    const c = costByType.get(type) || { hs: 0, perdu: 0, vol: 0, nonRendu: 0 };
+    return {
+      id: type,
+      label: type,
+      hs: c.hs,
+      perdu: c.perdu,
+      vol: c.vol,
+      nonRendu: c.nonRendu,
+    };
+  });
 
   const getSig = (signer) => signatures.find(s => s.signer === signer);
   const representant = (representatives || []).find((p) => p.id === representantId) || null;
@@ -115,6 +147,41 @@ export default function MobileDocumentArrivee({ persons, effets, selectedPerson,
 
       {selectedPerson && activeSection === "signatures" && (
         <div>
+          <div style={card}>
+            <div style={{ fontSize: 11, color: "#14242c", fontWeight: 700, letterSpacing: "0.08em", marginBottom: 8 }}>CLAUSES DE RESTITUTION ET DE FACTURATION</div>
+            <div style={{ fontSize: 11, color: "#213b48", marginBottom: 8 }}>
+              En cas de perte, vol ou détérioration imputable à une faute de l’agent, l’établissement pourra engager toute procédure administrative ou judiciaire permettant d’obtenir réparation du préjudice subi.
+            </div>
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 520 }}>
+                <thead>
+                  <tr>
+                    <th style={{ textAlign: "left", fontSize: 10, color: "#4a6170", padding: "4px 6px", borderBottom: "1px solid rgba(152,177,190,0.8)" }}>TYPE D'EFFET</th>
+                    <th style={{ textAlign: "right", fontSize: 10, color: "#4a6170", padding: "4px 6px", borderBottom: "1px solid rgba(152,177,190,0.8)" }}>HS</th>
+                    <th style={{ textAlign: "right", fontSize: 10, color: "#4a6170", padding: "4px 6px", borderBottom: "1px solid rgba(152,177,190,0.8)" }}>PERDU</th>
+                    <th style={{ textAlign: "right", fontSize: 10, color: "#4a6170", padding: "4px 6px", borderBottom: "1px solid rgba(152,177,190,0.8)" }}>VOL</th>
+                    <th style={{ textAlign: "right", fontSize: 10, color: "#4a6170", padding: "4px 6px", borderBottom: "1px solid rgba(152,177,190,0.8)" }}>NON RENDU</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {clauseRows.map((row) => (
+                    <tr key={row.id}>
+                      <td style={{ fontSize: 11, color: "#213b48", padding: "6px", borderBottom: "1px solid rgba(152,177,190,0.5)" }}>{row.label}</td>
+                      <td style={{ fontSize: 11, color: "#213b48", padding: "6px", textAlign: "right", borderBottom: "1px solid rgba(152,177,190,0.5)" }}>{eur.format(row.hs)}</td>
+                      <td style={{ fontSize: 11, color: "#213b48", padding: "6px", textAlign: "right", borderBottom: "1px solid rgba(152,177,190,0.5)" }}>{eur.format(row.perdu)}</td>
+                      <td style={{ fontSize: 11, color: "#213b48", padding: "6px", textAlign: "right", borderBottom: "1px solid rgba(152,177,190,0.5)" }}>{eur.format(row.vol)}</td>
+                      <td style={{ fontSize: 11, color: "#213b48", padding: "6px", textAlign: "right", borderBottom: "1px solid rgba(152,177,190,0.5)" }}>{eur.format(row.nonRendu)}</td>
+                    </tr>
+                  ))}
+                  {clauseRows.length === 0 && (
+                    <tr>
+                      <td colSpan={5} style={{ fontSize: 11, color: "#3f5662", padding: "8px 6px", textAlign: "center" }}>AUCUN EFFET</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
           <MobileSignatureCanvas
             personId={selectedPerson.id}
             docType="arrival"

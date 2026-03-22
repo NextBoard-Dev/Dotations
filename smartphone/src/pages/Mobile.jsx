@@ -204,6 +204,8 @@ export default function Mobile() {
                 setSaveStatus={setSaveStatus}
                 onDataChange={loadData}
                 representatives={bases.representantsSignataires || []}
+                pricingRules={bases.coutsRemplacement || []}
+                effetTypes={bases.typesEffets || []}
               />
             )}
             {activeTab === "sortie" && (
@@ -215,6 +217,8 @@ export default function Mobile() {
                 setSaveStatus={setSaveStatus}
                 onDataChange={loadData}
                 representatives={bases.representantsSignataires || []}
+                pricingRules={bases.coutsRemplacement || []}
+                effetTypes={bases.typesEffets || []}
               />
             )}
           </>
