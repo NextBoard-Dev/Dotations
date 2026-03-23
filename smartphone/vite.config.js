@@ -3,7 +3,12 @@ import { defineConfig } from "vite";
 import { fileURLToPath, URL } from "node:url";
 
 export default defineConfig({
+  base: "./",
   logLevel: "error",
+  build: {
+    outDir: "../mobile",
+    emptyOutDir: true,
+  },
   resolve: {
     dedupe: ["react", "react-dom", "react/jsx-runtime", "react/jsx-dev-runtime"],
     alias: [

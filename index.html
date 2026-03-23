@@ -4,7 +4,62 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Suivi des dotations Entree / Sortie</title>
-        <link rel="icon" href="favicon.ico" type="image/x-icon" />
+    <script>
+      (function () {
+        var MOBILE_ENTRY_RELATIVE = "mobile/index.html";
+        var VIEW_PARAM = "view";
+        var STORAGE_KEY = "dotations_preferred_view";
+
+        function getParamValue(searchParams, key) {
+          var value = (searchParams.get(key) || "").trim().toLowerCase();
+          return value === "mobile" || value === "desktop" ? value : "";
+        }
+
+        function isProbablyMobileDevice() {
+          var ua = String(navigator.userAgent || "");
+          var isMobileUa = /android|iphone|ipod|blackberry|iemobile|opera mini|mobile/i.test(ua);
+          if (isMobileUa) return true;
+
+          var coarse = false;
+          try {
+            coarse = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
+          } catch (error) {}
+
+          var hasTouch = Number(navigator.maxTouchPoints || 0) > 0;
+          var smallViewport = Math.min(window.screen.width || 0, window.screen.height || 0) <= 900;
+          return Boolean(coarse && hasTouch && smallViewport);
+        }
+
+        function buildMobileUrl(params) {
+          params.delete(VIEW_PARAM);
+          var mobileUrl = new URL(MOBILE_ENTRY_RELATIVE, window.location.href);
+          var nextSearch = params.toString();
+          mobileUrl.search = nextSearch ? "?" + nextSearch : "";
+          mobileUrl.hash = window.location.hash || "";
+          return mobileUrl.href;
+        }
+
+        var params = new URLSearchParams(window.location.search || "");
+        var explicitView = getParamValue(params, VIEW_PARAM);
+        var storedView = "";
+        try {
+          storedView = getParamValue(new URLSearchParams("view=" + localStorage.getItem(STORAGE_KEY)), "view");
+        } catch (error) {}
+
+        var effectiveView = explicitView || storedView || (isProbablyMobileDevice() ? "mobile" : "desktop");
+
+        if (explicitView) {
+          try {
+            localStorage.setItem(STORAGE_KEY, explicitView);
+          } catch (error) {}
+        }
+
+        if (effectiveView === "mobile") {
+          window.location.replace(buildMobileUrl(params));
+        }
+      })();
+    </script>
+    <link rel="icon" href="favicon.ico" type="image/x-icon" />
     <link rel="alternate icon" href="favicon-dark.ico" type="image/x-icon" />
     <link rel="stylesheet" href="style.css?v=20260316-1715" />
   </head>
