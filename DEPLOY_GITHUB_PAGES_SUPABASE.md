@@ -32,3 +32,7 @@ Date de mise a jour: 18/03/2026
   - ouverture PDF fonctionnelle.
 - Archives:
   - presence uniquement des documents valides.
+- URL unique:
+  - `https://nextboard-dev.github.io/Dotations/` (auto PC/mobile),
+  - forcer mobile: `?view=mobile`,
+  - forcer desktop: `?view=desktop`.
