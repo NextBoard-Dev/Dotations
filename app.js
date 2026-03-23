@@ -237,8 +237,10 @@ function getSupabaseHeaders(extra = {}, options = {}) {
     ...extra,
   };
   const keyLooksLikeJwt = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(key);
+  const keyLooksLikeSupabasePublishable = key.startsWith("sb_");
   const shouldAddAuthorization =
-    includeAuthorization === true || (includeAuthorization === "auto" && keyLooksLikeJwt);
+    includeAuthorization === true ||
+    (includeAuthorization === "auto" && (keyLooksLikeJwt || keyLooksLikeSupabasePublishable));
   if (shouldAddAuthorization) {
     headers.Authorization = `Bearer ${key}`;
   }
