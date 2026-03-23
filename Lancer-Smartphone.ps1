@@ -34,4 +34,5 @@ Start-Job -ScriptBlock {
   Start-Sleep -Seconds 3
   Start-Process "http://127.0.0.1:5173"
 } | Out-Null
+$env:VITE_SMARTPHONE_READONLY = "false"
 npm run dev -- --host 127.0.0.1 --port 5173

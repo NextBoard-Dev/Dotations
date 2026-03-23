@@ -52,9 +52,10 @@ function MobileEffetForm({ personId, editingEffet, onSaved, onCancel, setSaveSta
       }
       setSaveStatus("saved");
       onSaved();
-    } catch {
+    } catch (error) {
+      console.error("Effet save error:", error);
       setSaveStatus("saved");
-      setError("SAUVEGARDE SUPABASE TEMPORAIREMENT BLOQUEE");
+      setError(String(error?.message || "ERREUR DE SAUVEGARDE SUPABASE").toUpperCase());
     } finally {
       setSaving(false);
     }
@@ -68,9 +69,10 @@ function MobileEffetForm({ personId, editingEffet, onSaved, onCancel, setSaveSta
       await db.Effet.delete(editingEffet.id);
       setSaveStatus("saved");
       onSaved();
-    } catch {
+    } catch (error) {
+      console.error("Effet delete error:", error);
       setSaveStatus("saved");
-      setError("SAUVEGARDE SUPABASE TEMPORAIREMENT BLOQUEE");
+      setError(String(error?.message || "ERREUR DE SAUVEGARDE SUPABASE").toUpperCase());
     }
   };
 

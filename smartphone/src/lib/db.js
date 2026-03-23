@@ -1,6 +1,31 @@
 import { supabase } from "@/lib/supabaseClient";
 
-const READ_ONLY_MODE = String(import.meta?.env?.VITE_SMARTPHONE_READONLY ?? "true").trim().toLowerCase() !== "false";
+function parseReadonlyFlag(value) {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (!raw) return null;
+  if (raw === "false" || raw === "0" || raw === "off" || raw === "no") return false;
+  if (raw === "true" || raw === "1" || raw === "on" || raw === "yes") return true;
+  return null;
+}
+
+function resolveReadonlyMode() {
+  const envFlag = parseReadonlyFlag(import.meta?.env?.VITE_SMARTPHONE_READONLY);
+  if (envFlag !== null) return envFlag;
+
+  try {
+    const queryFlag = parseReadonlyFlag(new URLSearchParams(window.location.search).get("readonly"));
+    if (queryFlag !== null) return queryFlag;
+  } catch {}
+
+  try {
+    const localFlag = parseReadonlyFlag(window.localStorage.getItem("smartphone_readonly"));
+    if (localFlag !== null) return localFlag;
+  } catch {}
+
+  return false;
+}
+
+const READ_ONLY_MODE = resolveReadonlyMode();
 
 function ensureWritable(actionLabel = "operation") {
   if (!READ_ONLY_MODE) return;

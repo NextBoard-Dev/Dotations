@@ -154,8 +154,10 @@ export default function MobileSignatureCanvas({ personId, docType, signer, signe
       setMsg("SIGNATURE VALIDEE ✓");
       setTimeout(() => setMsg(null), 2500);
       if (onSaved) await onSaved();
-    } catch {
-      setMsg("SAUVEGARDE SUPABASE TEMPORAIREMENT BLOQUEE");
+    } catch (error) {
+      console.error("Signature save error:", error);
+      const message = String(error?.message || "").toUpperCase();
+      setMsg(message || "ERREUR DE SAUVEGARDE SUPABASE");
       setTimeout(() => setMsg(null), 2500);
     } finally {
       setSaving(false);

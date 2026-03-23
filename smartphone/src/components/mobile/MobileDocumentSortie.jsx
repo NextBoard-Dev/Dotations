@@ -126,9 +126,10 @@ export default function MobileDocumentSortie({ persons, effets, selectedPerson, 
       setMsg("MODIFICATIONS SAUVEGARDEES");
       onDataChange();
       setTimeout(() => setMsg(null), 2500);
-    } catch {
+    } catch (error) {
+      console.error("Sortie save effets error:", error);
       setSaveStatus("saved");
-      setMsg("SAUVEGARDE SUPABASE TEMPORAIREMENT BLOQUEE");
+      setMsg(String(error?.message || "ERREUR DE SAUVEGARDE SUPABASE").toUpperCase());
       setTimeout(() => setMsg(null), 2500);
     } finally {
       setSaving(false);

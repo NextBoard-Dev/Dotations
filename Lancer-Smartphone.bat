@@ -40,6 +40,7 @@ if not exist "node_modules" (
 echo [INFO] Lancement smartphone...
 echo [INFO] URL: http://127.0.0.1:5173
 start "" cmd /c "timeout /t 3 /nobreak >nul & start http://127.0.0.1:5173"
+set "VITE_SMARTPHONE_READONLY=false"
 call npm run dev -- --host 127.0.0.1 --port 5173
 
 endlocal

@@ -44,6 +44,7 @@ try {
   Write-Host "[INFO] Lancement smartphone en mode telephone..." -ForegroundColor Cyan
   Write-Host "[INFO] PC et telephone doivent etre sur le meme Wi-Fi." -ForegroundColor Cyan
   Write-Host "[INFO] URL telephone: http://$localIp`:5173" -ForegroundColor Green
+  $env:VITE_SMARTPHONE_READONLY = "false"
   npm run dev -- --host 0.0.0.0 --port 5173
 }
 catch {

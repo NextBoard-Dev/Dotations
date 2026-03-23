@@ -51,6 +51,7 @@ for /f "tokens=2 delims=:" %%A in ('ipconfig ^| findstr /R /C:"IPv4" /C:"Adresse
 echo [INFO] Lancement smartphone en mode telephone...
 echo [INFO] Le telephone doit etre sur le meme Wi-Fi que le PC.
 echo [INFO] URL telephone: http://%LOCAL_IP%:5173
+set "VITE_SMARTPHONE_READONLY=false"
 call npm run dev -- --host 0.0.0.0 --port 5173
 
 endlocal

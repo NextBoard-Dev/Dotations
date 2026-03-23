@@ -57,8 +57,9 @@ export default function MobileFichePerson({ persons, effets, selectedPerson, onS
       }
       setSaveStatus("saved");
       onDataChange();
-    } catch {
-      setMsg("SAUVEGARDE SUPABASE TEMPORAIREMENT BLOQUEE");
+    } catch (error) {
+      console.error("Person save error:", error);
+      setMsg(String(error?.message || "ERREUR DE SAUVEGARDE SUPABASE").toUpperCase());
       setSaveStatus("saved");
     } finally {
       setSaving(false);
@@ -77,9 +78,10 @@ export default function MobileFichePerson({ persons, effets, selectedPerson, onS
       setSaveStatus("saved");
       onDataChange();
       setForm({ nom: "", prenom: "", fonction: "", sites: [], typePersonnel: "", typeContrat: "", dateEntree: "", dateSortiePrevue: "", dateSortieReelle: "" });
-    } catch {
+    } catch (error) {
+      console.error("Person delete error:", error);
       setSaveStatus("saved");
-      setMsg("SAUVEGARDE SUPABASE TEMPORAIREMENT BLOQUEE");
+      setMsg(String(error?.message || "ERREUR DE SAUVEGARDE SUPABASE").toUpperCase());
       setTimeout(() => setMsg(null), 2500);
     }
   };
