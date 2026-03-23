@@ -1,9 +1,9 @@
 @echo off
-setlocal
+setlocal EnableDelayedExpansion
 
 set "ROOT=%~dp0"
 set "APP_DIR=%ROOT%smartphone"
-set "LOCAL_IP="
+set "LOCAL_IP=IP_DU_PC"
 
 if not exist "%APP_DIR%\package.json" (
   echo [ERREUR] Dossier smartphone introuvable: "%APP_DIR%"
@@ -37,10 +37,16 @@ if not exist "node_modules" (
   )
 )
 
-for /f "usebackq delims=" %%I in (`powershell -NoProfile -Command "$ip=(Get-NetIPAddress -AddressFamily IPv4 ^| Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' -and $_.PrefixOrigin -ne 'WellKnown' } ^| Select-Object -ExpandProperty IPAddress -First 1); if(-not $ip){$ip='IP_DU_PC'}; Write-Output $ip"`) do (
-  set "LOCAL_IP=%%I"
+for /f "tokens=2 delims=:" %%A in ('ipconfig ^| findstr /R /C:"IPv4" /C:"Adresse IPv4"') do (
+  for /f "tokens=* delims= " %%B in ("%%A") do (
+    set "CANDIDATE=%%B"
+    if not "!CANDIDATE:~0,4!"=="127." if not "!CANDIDATE:~0,8!"=="169.254." (
+      set "LOCAL_IP=!CANDIDATE!"
+      goto :ip_found
+    )
+  )
 )
-if "%LOCAL_IP%"=="" set "LOCAL_IP=IP_DU_PC"
+:ip_found
 
 echo [INFO] Lancement smartphone en mode telephone...
 echo [INFO] Le telephone doit etre sur le meme Wi-Fi que le PC.
