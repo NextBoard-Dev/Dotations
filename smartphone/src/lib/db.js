@@ -1,6 +1,6 @@
 import { supabase } from "@/lib/supabaseClient";
 
-const READ_ONLY_MODE = String(import.meta?.env?.VITE_SMARTPHONE_READONLY ?? "true").toLowerCase() !== "false";
+const READ_ONLY_MODE = String(import.meta?.env?.VITE_SMARTPHONE_READONLY ?? "true").trim().toLowerCase() !== "false";
 
 function ensureWritable(actionLabel = "operation") {
   if (!READ_ONLY_MODE) return;
