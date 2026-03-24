@@ -95,7 +95,6 @@ export default function Mobile() {
         const found = p.find((person) => String(person.id) === String(urlState.personId));
         setSelectedPerson(found || null);
       }
-      setActiveTab("overview");
     } catch {
       personsRef.current = [];
       setPersons([]);
