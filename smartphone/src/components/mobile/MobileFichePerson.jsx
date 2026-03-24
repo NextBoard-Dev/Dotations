@@ -17,6 +17,7 @@ const FONCTIONS = ["AGENT", "AGENT SECURITE", "RESPONSABLE", "DIRECTEUR", "TECHN
 
 export default function MobileFichePerson({ persons, effets, selectedPerson, onSelectPerson, onDataChange, setSaveStatus, onNavigate, bases = {} }) {
   const [form, setForm] = useState({ nom: "", prenom: "", fonction: "", sites: [], typePersonnel: "", typeContrat: "", dateEntree: "", dateSortiePrevue: "", dateSortieReelle: "" });
+  const [lastSavedForm, setLastSavedForm] = useState(null);
   const [editingEffet, setEditingEffet] = useState(null);
   const [activeSection, setActiveSection] = useState("infos"); // "infos" | "effets" | "add-effet"
   const [saving, setSaving] = useState(false);
@@ -28,7 +29,7 @@ export default function MobileFichePerson({ persons, effets, selectedPerson, onS
 
   useEffect(() => {
     if (selectedPerson) {
-      setForm({
+      const nextForm = {
         nom: selectedPerson.nom || "",
         prenom: selectedPerson.prenom || "",
         fonction: selectedPerson.fonction || "",
@@ -38,7 +39,11 @@ export default function MobileFichePerson({ persons, effets, selectedPerson, onS
         dateEntree: selectedPerson.dateEntree || "",
         dateSortiePrevue: selectedPerson.dateSortiePrevue || "",
         dateSortieReelle: selectedPerson.dateSortieReelle || "",
-      });
+      };
+      setForm(nextForm);
+      setLastSavedForm(nextForm);
+    } else {
+      setLastSavedForm(null);
     }
   }, [selectedPerson]);
 
@@ -56,6 +61,7 @@ export default function MobileFichePerson({ persons, effets, selectedPerson, onS
         onSelectPerson(created);
         setMsg("PERSONNE AJOUTEE");
       }
+      setLastSavedForm(form);
       setSaveStatus("saved");
       onDataChange();
     } catch (error) {
@@ -90,6 +96,28 @@ export default function MobileFichePerson({ persons, effets, selectedPerson, onS
   const computeStatut = () => {
     return getDossierStatus(form);
   };
+
+  const normalizeSites = (value) => (Array.isArray(value) ? value.map((entry) => String(entry || "").trim()) : []);
+  const hasUnsavedChanges = (() => {
+    if (!lastSavedForm) {
+      const hasData = Object.values(form || {}).some((entry) => {
+        if (Array.isArray(entry)) return entry.length > 0;
+        return String(entry || "").trim() !== "";
+      });
+      return hasData;
+    }
+    return (
+      String(form.nom || "") !== String(lastSavedForm.nom || "") ||
+      String(form.prenom || "") !== String(lastSavedForm.prenom || "") ||
+      String(form.fonction || "") !== String(lastSavedForm.fonction || "") ||
+      String(form.typePersonnel || "") !== String(lastSavedForm.typePersonnel || "") ||
+      String(form.typeContrat || "") !== String(lastSavedForm.typeContrat || "") ||
+      String(form.dateEntree || "") !== String(lastSavedForm.dateEntree || "") ||
+      String(form.dateSortiePrevue || "") !== String(lastSavedForm.dateSortiePrevue || "") ||
+      String(form.dateSortieReelle || "") !== String(lastSavedForm.dateSortieReelle || "") ||
+      JSON.stringify(normalizeSites(form.sites)) !== JSON.stringify(normalizeSites(lastSavedForm.sites))
+    );
+  })();
 
   const toggleSite = (site) => {
     setForm((prev) => {
@@ -192,7 +220,7 @@ export default function MobileFichePerson({ persons, effets, selectedPerson, onS
             <input readOnly value={computeStatut()} style={{ ...inputStyle, background: "rgba(63,97,112,0.12)", fontWeight: 600 }} />
           </div>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 4 }}>
-            <button onClick={handleSavePerson} disabled={saving} style={{ flex: 1, minWidth: 120, padding: "9px 10px", borderRadius: 9, border: "none", background: "#3f6170", color: "#fff", fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", cursor: "pointer" }}>
+            <button onClick={handleSavePerson} disabled={saving} style={{ flex: 1, minWidth: 120, padding: "9px 10px", borderRadius: 9, border: "none", background: hasUnsavedChanges ? "#163b70" : "#3f6170", color: "#fff", fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", cursor: "pointer" }}>
               {selectedPerson ? "ENREGISTRER" : "AJOUTER"}
             </button>
             {selectedPerson && (
