@@ -46,8 +46,7 @@ function readUrlState() {
 }
 
 export default function Mobile() {
-  const initialUrl = readUrlState();
-  const [activeTab, setActiveTab] = useState(initialUrl.tab);
+  const [activeTab, setActiveTab] = useState("overview");
   const [persons, setPersons] = useState([]);
   const [effets, setEffets] = useState([]);
   const [bases, setBases] = useState(DEFAULT_BASES);
@@ -96,9 +95,7 @@ export default function Mobile() {
         const found = p.find((person) => String(person.id) === String(urlState.personId));
         setSelectedPerson(found || null);
       }
-      if (!isValidTab(urlState.tab)) {
-        setActiveTab("overview");
-      }
+      setActiveTab("overview");
     } catch {
       personsRef.current = [];
       setPersons([]);
