@@ -8,7 +8,6 @@
       (function () {
         var MOBILE_ENTRY_RELATIVE = "mobile/index.html";
         var VIEW_PARAM = "view";
-        var STORAGE_KEY = "dotations_preferred_view";
 
         function getParamValue(searchParams, key) {
           var value = (searchParams.get(key) || "").trim().toLowerCase();
@@ -32,7 +31,15 @@
 
         function buildMobileUrl(params) {
           params.delete(VIEW_PARAM);
-          var mobileUrl = new URL(MOBILE_ENTRY_RELATIVE, window.location.href);
+          var path = String(window.location.pathname || "/");
+          var looksLikeFile = /\/[^/]+\.[a-z0-9]+$/i.test(path);
+          if (looksLikeFile) {
+            path = path.replace(/\/[^/]+$/, "/");
+          } else if (!path.endsWith("/")) {
+            path += "/";
+          }
+          var baseUrl = window.location.origin + path;
+          var mobileUrl = new URL(MOBILE_ENTRY_RELATIVE, baseUrl);
           var nextSearch = params.toString();
           mobileUrl.search = nextSearch ? "?" + nextSearch : "";
           mobileUrl.hash = window.location.hash || "";
@@ -41,18 +48,7 @@
 
         var params = new URLSearchParams(window.location.search || "");
         var explicitView = getParamValue(params, VIEW_PARAM);
-        var storedView = "";
-        try {
-          storedView = getParamValue(new URLSearchParams("view=" + localStorage.getItem(STORAGE_KEY)), "view");
-        } catch (error) {}
-
-        var effectiveView = explicitView || storedView || (isProbablyMobileDevice() ? "mobile" : "desktop");
-
-        if (explicitView) {
-          try {
-            localStorage.setItem(STORAGE_KEY, explicitView);
-          } catch (error) {}
-        }
+        var effectiveView = explicitView || (isProbablyMobileDevice() ? "mobile" : "desktop");
 
         if (effectiveView === "mobile") {
           window.location.replace(buildMobileUrl(params));
