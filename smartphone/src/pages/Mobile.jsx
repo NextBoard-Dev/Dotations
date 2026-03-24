@@ -158,9 +158,9 @@ export default function Mobile() {
   const topSaveButtonStyle = (() => {
     if (saveStatus === "unsaved") {
       return {
-        background: "#163b70",
+        background: "#3f6170",
         color: "#ffffff",
-        border: "1px solid #0f2f59",
+        border: "1px solid rgba(63,97,112,0.3)",
       };
     }
     if (saveStatus === "saving") {
