@@ -154,6 +154,28 @@ export default function Mobile() {
     setActiveTab(tab);
   };
 
+  const topSaveButtonStyle = (() => {
+    if (saveStatus === "unsaved") {
+      return {
+        background: "#163b70",
+        color: "#ffffff",
+        border: "1px solid #0f2f59",
+      };
+    }
+    if (saveStatus === "saving") {
+      return {
+        background: "rgba(63,97,112,0.24)",
+        color: "#213b48",
+        border: "1px solid rgba(63,97,112,0.35)",
+      };
+    }
+    return {
+      background: "rgba(111,157,120,0.2)",
+      color: "#4c6a53",
+      border: "1px solid rgba(111,157,120,0.3)",
+    };
+  })();
+
   return (
     <div style={{ minHeight: "100vh", background: "linear-gradient(180deg, #ebe6dc 0%, #d9e2e7 100%)", display: "flex", flexDirection: "column", maxWidth: 480, margin: "0 auto", position: "relative" }}>
       <div style={{ background: "linear-gradient(180deg, #c2d2da 0%, #d9e2e7 100%)", padding: "10px 14px 8px", borderBottom: "1px solid rgba(63,97,112,0.2)", display: "flex", alignItems: "center", gap: 10 }}>
@@ -163,10 +185,22 @@ export default function Mobile() {
           <div style={{ fontSize: 11, fontWeight: 700, color: "#14242c", lineHeight: 1.2 }}>ENTREE / SORTIE</div>
         </div>
         <div style={{ display: "flex", gap: 5, alignItems: "center" }}>
-          <span style={{ fontSize: 8, padding: "2px 7px", borderRadius: 99, background: saveStatus === "saved" ? "rgba(111,157,120,0.2)" : "rgba(217,137,106,0.2)", color: saveStatus === "saved" ? "#4c6a53" : "#8f4a32", border: `1px solid ${saveStatus === "saved" ? "rgba(111,157,120,0.3)" : "rgba(217,137,106,0.3)"}` }}>
-            {saveStatus === "saving" ? "SAUVEGARDE..." : saveStatus === "saved" ? "SAUVEGARDE" : "NON SAUVEGARDE"}
-          </span>
-          <button onClick={loadData} style={{ fontSize: 9, padding: "4px 8px", borderRadius: 7, border: "1px solid rgba(63,97,112,0.3)", background: "rgba(63,97,112,0.12)", color: "#213b48", cursor: "pointer" }}>
+          <button
+            type="button"
+            style={{
+              fontSize: 8,
+              padding: "0 9px",
+              height: 26,
+              borderRadius: 7,
+              fontWeight: 700,
+              letterSpacing: "0.04em",
+              cursor: "default",
+              ...topSaveButtonStyle,
+            }}
+          >
+            {saveStatus === "saving" ? "SAUVEGARDE..." : saveStatus === "unsaved" ? "SAUVEGARDER" : "SAUVEGARDE"}
+          </button>
+          <button onClick={loadData} style={{ fontSize: 9, padding: "0 8px", height: 26, borderRadius: 7, border: "1px solid rgba(63,97,112,0.3)", background: "rgba(63,97,112,0.12)", color: "#213b48", cursor: "pointer" }}>
             ↻
           </button>
         </div>

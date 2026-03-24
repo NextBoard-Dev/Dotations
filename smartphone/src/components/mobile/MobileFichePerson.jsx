@@ -119,6 +119,11 @@ export default function MobileFichePerson({ persons, effets, selectedPerson, onS
     );
   })();
 
+  useEffect(() => {
+    if (saving) return;
+    setSaveStatus(hasUnsavedChanges ? "unsaved" : "saved");
+  }, [hasUnsavedChanges, saving, setSaveStatus]);
+
   const toggleSite = (site) => {
     setForm((prev) => {
       const current = Array.isArray(prev.sites) ? prev.sites : [];
@@ -220,7 +225,7 @@ export default function MobileFichePerson({ persons, effets, selectedPerson, onS
             <input readOnly value={computeStatut()} style={{ ...inputStyle, background: "rgba(63,97,112,0.12)", fontWeight: 600 }} />
           </div>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 4 }}>
-            <button onClick={handleSavePerson} disabled={saving} style={{ flex: 1, minWidth: 120, padding: "9px 10px", borderRadius: 9, border: "none", background: hasUnsavedChanges ? "#163b70" : "#3f6170", color: "#fff", fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", cursor: "pointer" }}>
+            <button onClick={handleSavePerson} disabled={saving} style={{ flex: 1, minWidth: 120, padding: "9px 10px", borderRadius: 9, border: "none", background: "#3f6170", color: "#fff", fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", cursor: "pointer" }}>
               {selectedPerson ? "ENREGISTRER" : "AJOUTER"}
             </button>
             {selectedPerson && (
