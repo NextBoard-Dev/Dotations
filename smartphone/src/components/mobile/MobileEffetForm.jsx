@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from "react";
 import { db } from "@/lib/db";
+import { normalizeManualStatus } from "@/lib/businessRules";
 
 const inputStyle = { padding: "8px 10px", borderRadius: 9, border: "1px solid rgba(173,190,199,0.98)", background: "#fffdfa", fontSize: 12, color: "#0f1e26", width: "100%", boxSizing: "border-box" };
 const labelStyle = { fontSize: 9, color: "#4a6170", letterSpacing: "0.08em", display: "block", marginBottom: 3 };
 const fieldStyle = { marginBottom: 10 };
 
 const TYPES_EFFET = ["CLE", "BADGE", "CARTE", "TELECOMMANDE", "AUTRE"];
-const STATUTS = ["ACTIF", "RESTITUE", "NON RENDU", "PERDU", "HS", "VOLE", "DETRUIT"];
+const STATUTS = ["ACTIF", "RESTITUE", "NON RENDU", "PERDU", "HS", "VOL", "DETRUIT"];
 
 function MobileEffetForm({ personId, editingEffet, onSaved, onCancel, setSaveStatus, bases = {} }) {
   const [form, setForm] = useState({ typeEffet: "", designation: "", siteReference: "", numeroIdentification: "", vehiculeImmatriculation: "", dateRemise: "", dateRetour: "", statut: "ACTIF", dateRemplacement: "", coutRemplacement: "", commentaire: "" });
@@ -14,7 +15,7 @@ function MobileEffetForm({ personId, editingEffet, onSaved, onCancel, setSaveSta
   const [error, setError] = useState(null);
   const typesEffetsRef = Array.isArray(bases.typesEffets) && bases.typesEffets.length ? bases.typesEffets : TYPES_EFFET;
   const statutsRef = Array.isArray(bases.statutsObjetManuels) && bases.statutsObjetManuels.length
-    ? Array.from(new Set(["ACTIF", "RESTITUE", "NON RENDU", "PERDU", "HS", "VOLE", "DETRUIT", ...bases.statutsObjetManuels]))
+    ? Array.from(new Set(["ACTIF", "RESTITUE", "NON RENDU", "PERDU", "HS", "VOL", "DETRUIT", ...bases.statutsObjetManuels.map((s) => normalizeManualStatus(s) || s)]))
     : STATUTS;
   const sitesRef = Array.isArray(bases.sites) ? bases.sites : [];
 
@@ -28,7 +29,7 @@ function MobileEffetForm({ personId, editingEffet, onSaved, onCancel, setSaveSta
         vehiculeImmatriculation: editingEffet.vehiculeImmatriculation || "",
         dateRemise: editingEffet.dateRemise || "",
         dateRetour: editingEffet.dateRetour || "",
-        statut: editingEffet.statut || "ACTIF",
+        statut: normalizeManualStatus(editingEffet.statut) || "ACTIF",
         dateRemplacement: editingEffet.dateRemplacement || "",
         coutRemplacement: editingEffet.coutRemplacement || "",
         commentaire: editingEffet.commentaire || "",
@@ -44,7 +45,12 @@ function MobileEffetForm({ personId, editingEffet, onSaved, onCancel, setSaveSta
     setSaveStatus("saving");
     setError(null);
     try {
-      const data = { ...form, personId, coutRemplacement: form.coutRemplacement ? parseFloat(String(form.coutRemplacement).replace(",", ".")) : null };
+      const data = {
+        ...form,
+        statut: normalizeManualStatus(form.statut) || "ACTIF",
+        personId,
+        coutRemplacement: form.coutRemplacement ? parseFloat(String(form.coutRemplacement).replace(",", ".")) : null
+      };
       if (editingEffet) {
         await db.Effet.update(editingEffet.id, data);
       } else {

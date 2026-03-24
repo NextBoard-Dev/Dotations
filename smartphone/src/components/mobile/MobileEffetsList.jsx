@@ -1,4 +1,5 @@
 import React from "react";
+import { getEffectStatus } from "@/lib/businessRules";
 
 const STATUT_COLORS = {
   "ACTIF": { bg: "rgba(89,148,117,0.16)", color: "#2f5e43" },
@@ -6,6 +7,7 @@ const STATUT_COLORS = {
   "NON RENDU": { bg: "rgba(224,147,82,0.2)", color: "#8e4d1e" },
   "PERDU": { bg: "rgba(202,91,96,0.19)", color: "#7d2a31" },
   "HS": { bg: "rgba(132,140,149,0.22)", color: "#4a545d" },
+  "VOL": { bg: "rgba(181,120,172,0.2)", color: "#6f3d73" },
   "VOLE": { bg: "rgba(181,120,172,0.2)", color: "#6f3d73" },
   "DETRUIT": { bg: "rgba(122,112,170,0.19)", color: "#4f447f" },
 };
@@ -22,7 +24,8 @@ export default function MobileEffetsList({ effets, onEdit }) {
   return (
     <div>
       {effets.map(e => {
-        const sc = STATUT_COLORS[e.statut] || STATUT_COLORS["ACTIF"];
+        const displayStatus = getEffectStatus(null, e);
+        const sc = STATUT_COLORS[displayStatus] || STATUT_COLORS["ACTIF"];
         return (
           <button
             key={e.id}
@@ -31,7 +34,7 @@ export default function MobileEffetsList({ effets, onEdit }) {
           >
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
               <span style={{ fontWeight: 700, fontSize: 12, color: "#0f1e26" }}>{e.typeEffet}</span>
-              <span style={{ fontSize: 9, padding: "2px 8px", borderRadius: 99, background: sc.bg, color: sc.color }}>{e.statut}</span>
+              <span style={{ fontSize: 9, padding: "2px 8px", borderRadius: 99, background: sc.bg, color: sc.color }}>{displayStatus}</span>
             </div>
             <div style={{ fontSize: 11, color: "#213b48", marginBottom: 2 }}>{e.designation || "—"}</div>
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>

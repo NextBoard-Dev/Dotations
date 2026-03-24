@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabaseClient";
+import { normalizeManualStatus } from "@/lib/businessRules";
 
 function parseReadonlyFlag(value) {
   const raw = String(value ?? "").trim().toLowerCase();
@@ -107,10 +108,8 @@ function computeStatutDossier(person) {
   const dateSortieReelle = cleanDate(person?.dateSortieReelle);
   if (dateSortieReelle) return "SORTI";
   const dateSortiePrevue = cleanDate(person?.dateSortiePrevue);
-  if (!dateSortiePrevue) return "EN POSTE";
-  const d = new Date(dateSortiePrevue);
-  if (!Number.isFinite(d.getTime())) return "EN POSTE";
-  return d <= new Date() ? "SORTIE PREVUE" : "EN POSTE";
+  if (dateSortiePrevue) return "SORTIE PREVUE";
+  return "EN POSTE";
 }
 
 function normalizeLegacyPerson(person = {}) {
@@ -133,6 +132,7 @@ function normalizeLegacyPerson(person = {}) {
 }
 
 function normalizeLegacyEffet(effet = {}, personId = "") {
+  const normalizedStatus = normalizeManualStatus(effet.statutManuel || effet.statut || "ACTIF") || "ACTIF";
   return {
     id: toString(effet.id),
     personId: toString(personId),
@@ -143,7 +143,7 @@ function normalizeLegacyEffet(effet = {}, personId = "") {
     vehiculeImmatriculation: toString(effet.vehiculeImmatriculation).trim(),
     dateRemise: cleanDate(effet.dateRemise),
     dateRetour: cleanDate(effet.dateRetour),
-    statut: toString(effet.statutManuel || effet.statut || "ACTIF").trim() || "ACTIF",
+    statut: normalizedStatus,
     dateRemplacement: cleanDate(effet.dateRemplacement),
     coutRemplacement: Number(effet.coutRemplacement) || 0,
     commentaire: toString(effet.commentaire).trim(),
@@ -433,7 +433,9 @@ function applyLegacyEffetToRaw(rawEffet = {}, data = {}) {
     const c = Number(data.coutRemplacement);
     out.coutRemplacement = Number.isFinite(c) ? c : 0;
   }
-  if (Object.prototype.hasOwnProperty.call(data, "statut")) out.statutManuel = toString(data.statut).trim() || "ACTIF";
+  if (Object.prototype.hasOwnProperty.call(data, "statut")) {
+    out.statutManuel = normalizeManualStatus(data.statut) || "ACTIF";
+  }
   return out;
 }
 

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { db } from "@/lib/db";
 import MobilePersonSearch from "./MobilePersonSearch";
 import MobileSignatureCanvas from "./MobileSignatureCanvas";
+import { getEffectBillingCause, getEffectStatus, getReplacementCostValue, normalizeManualStatus } from "@/lib/businessRules";
 
 const card = { background: "rgba(244,241,234,0.98)", border: "1px solid rgba(173,190,199,0.98)", borderRadius: 11, padding: "12px", marginBottom: 8, boxShadow: "0 4px 12px rgba(31,49,59,0.10)" };
 const docField = { display: "flex", flexDirection: "column", gap: 3, marginBottom: 8 };
@@ -19,6 +20,7 @@ const STATUT_COLORS = {
   "NON RENDU": { bg: "rgba(224,147,82,0.2)", color: "#8e4d1e" },
   "PERDU": { bg: "rgba(202,91,96,0.19)", color: "#7d2a31" },
   "HS": { bg: "rgba(132,140,149,0.22)", color: "#4a545d" },
+  "VOL": { bg: "rgba(181,120,172,0.2)", color: "#6f3d73" },
 };
 
 export default function MobileDocumentSortie({ persons, effets, selectedPerson, onSelectPerson, setSaveStatus, onDataChange, representatives = [], pricingRules = [], effetTypes = [] }) {
@@ -33,7 +35,7 @@ export default function MobileDocumentSortie({ persons, effets, selectedPerson, 
     if (selectedPerson) {
       loadSignatures();
       const pe = effets.filter(e => e.personId === selectedPerson.id);
-      setLocalEffets(pe.map(e => ({ ...e, _rendus: false })));
+      setLocalEffets(pe.map(e => ({ ...e, statut: normalizeManualStatus(e.statut) || "ACTIF", _rendus: false })));
     }
   }, [selectedPerson, effets]);
 
@@ -80,9 +82,13 @@ export default function MobileDocumentSortie({ persons, effets, selectedPerson, 
   };
 
   const totalEffets = localEffets.length;
-  const rendus = localEffets.filter(e => e.statut === "RESTITUE" || e._rendus).length;
-  const facturables = localEffets.filter(e => ["NON RENDU", "PERDU", "VOLE"].includes(e.statut)).length;
-  const totalFacturable = localEffets.filter(e => ["NON RENDU", "PERDU", "VOLE"].includes(e.statut)).reduce((s, e) => s + (Number(e.coutRemplacement) || 0), 0);
+  const rendus = localEffets.filter((e) => getEffectStatus(selectedPerson, e) === "RESTITUE" || e._rendus).length;
+  const facturableAmounts = localEffets.map((e) => {
+    const cause = getEffectBillingCause(selectedPerson, e);
+    return getReplacementCostValue(pricingRules, e.typeEffet, cause);
+  });
+  const facturables = facturableAmounts.filter((amount) => amount > 0).length;
+  const totalFacturable = facturableAmounts.reduce((sum, amount) => sum + amount, 0);
   const costByType = new Map();
   pricingRules.forEach((rule) => {
     const type = normalizeLabel(rule.typeEffet);
@@ -118,7 +124,7 @@ export default function MobileDocumentSortie({ persons, effets, selectedPerson, 
     try {
       for (const e of localEffets) {
         await db.Effet.update(e.id, {
-          statut: e.statut,
+          statut: normalizeManualStatus(e.statut) || "ACTIF",
           dateRetour: e.statut === "RESTITUE" ? (e.dateRetour || todayIso()) : "",
         });
       }
@@ -199,13 +205,14 @@ export default function MobileDocumentSortie({ persons, effets, selectedPerson, 
             <div style={{ ...card, textAlign: "center", color: "#3f5662", fontSize: 11 }}>AUCUN EFFET</div>
           ) : (
             localEffets.map(e => {
-              const sc = STATUT_COLORS[e.statut] || STATUT_COLORS["ACTIF"];
+              const displayStatus = getEffectStatus(selectedPerson, e);
+              const sc = STATUT_COLORS[displayStatus] || STATUT_COLORS["ACTIF"];
               return (
                 <div key={e.id} style={{ ...card, padding: "10px 12px" }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
                     <div>
                       <span style={{ fontWeight: 700, fontSize: 12 }}>{e.typeEffet}</span>
-                      <span style={{ fontSize: 9, marginLeft: 8, padding: "2px 7px", borderRadius: 99, background: sc.bg, color: sc.color }}>{e.statut}</span>
+                      <span style={{ fontSize: 9, marginLeft: 8, padding: "2px 7px", borderRadius: 99, background: sc.bg, color: sc.color }}>{displayStatus}</span>
                     </div>
                     {e.coutRemplacement && <span style={{ fontSize: 11, color: "#9b5a2a", fontWeight: 600 }}>{Number(e.coutRemplacement).toFixed(2)} €</span>}
                   </div>
@@ -214,7 +221,7 @@ export default function MobileDocumentSortie({ persons, effets, selectedPerson, 
                   <select
                     value={e.statut}
                     onChange={(ev) => {
-                      const nextStatut = ev.target.value;
+                      const nextStatut = normalizeManualStatus(ev.target.value) || "ACTIF";
                       setLocalEffets((prev) =>
                         prev.map((x) =>
                           x.id === e.id
@@ -230,7 +237,7 @@ export default function MobileDocumentSortie({ persons, effets, selectedPerson, 
                     }}
                     style={{ width: "100%", padding: "6px 8px", borderRadius: 7, border: "1px solid rgba(173,190,199,0.98)", background: "#fffdfa", fontSize: 11, color: "#0f1e26" }}
                   >
-                    {["ACTIF", "RESTITUE", "NON RENDU", "PERDU", "HS", "VOLE", "DETRUIT"].map(s => <option key={s} value={s}>{s}</option>)}
+                    {["ACTIF", "RESTITUE", "NON RENDU", "PERDU", "HS", "VOL", "DETRUIT"].map(s => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
               );

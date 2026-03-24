@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { getDossierStatus, getEffectStatus } from "@/lib/businessRules";
 
 const card = { background: "rgba(244,241,234,0.98)", border: "1px solid rgba(173,190,199,0.98)", borderRadius: 11, padding: "10px 12px", marginBottom: 8, boxShadow: "0 4px 12px rgba(31,49,59,0.10)" };
 const label = { fontSize: 9, color: "#4a6170", letterSpacing: "0.08em", margin: "0 0 2px" };
@@ -23,9 +24,13 @@ export default function MobileOverview({ persons, effets, onSelectPerson }) {
       (p.sites || []).join(" ").toLowerCase().includes(q);
   });
 
+  const personById = new Map((persons || []).map((p) => [String(p.id), p]));
   const totalEffets = effets.length;
-  const nonRendus = effets.filter(e => ["NON RENDU", "PERDU", "VOLE"].includes(e.statut)).length;
-  const enPoste = persons.filter(p => p.statutDossier !== "SORTI").length;
+  const nonRendus = effets.filter((e) => {
+    const person = personById.get(String(e.personId));
+    return getEffectStatus(person, e) === "NON RENDU";
+  }).length;
+  const enPoste = persons.filter((p) => getDossierStatus(p) !== "SORTI").length;
   const alerts = persons.flatMap((p) => {
     const personAlerts = [];
     const sortiePrevue = String(p.dateSortiePrevue || "");
@@ -36,7 +41,9 @@ export default function MobileOverview({ persons, effets, onSelectPerson }) {
     if (sortieReelle && sortieReelle <= todayIso) {
       personAlerts.push({ key: `${p.id}-out`, personId: p.id, type: "dateSortieReelle", text: `${p.nom} ${p.prenom} : PERSONNE SORTIE` });
     }
-    const nonRendusCount = effets.filter((e) => e.personId === p.id && ["NON RENDU", "PERDU", "VOLE"].includes(e.statut)).length;
+    const nonRendusCount = effets.filter(
+      (e) => String(e.personId) === String(p.id) && getEffectStatus(p, e) === "NON RENDU"
+    ).length;
     if (nonRendusCount > 0) {
       personAlerts.push({ key: `${p.id}-nr`, personId: p.id, type: "dateSortiePrevue", text: `${p.nom} ${p.prenom} : ${nonRendusCount} EFFET(S) NON RENDU(S)` });
     }
@@ -146,7 +153,8 @@ export default function MobileOverview({ persons, effets, onSelectPerson }) {
         )}
         {filtered.map(p => {
           const personEffets = effets.filter(e => e.personId === p.id);
-          const sc = statusColor(p.statutDossier);
+          const dossierStatus = getDossierStatus(p);
+          const sc = statusColor(dossierStatus);
           return (
             <button
               key={p.id}
@@ -159,7 +167,7 @@ export default function MobileOverview({ persons, effets, onSelectPerson }) {
                 <div style={{ fontSize: 10, color: "#3f5662", marginTop: 2 }}>{personEffets.length} effet(s)</div>
               </div>
               <span style={{ fontSize: 9, padding: "3px 8px", borderRadius: 99, background: sc.bg, color: sc.color, border: `1px solid ${sc.border}`, whiteSpace: "nowrap" }}>
-                {p.statutDossier || "—"}
+                {dossierStatus || "—"}
               </span>
             </button>
           );
