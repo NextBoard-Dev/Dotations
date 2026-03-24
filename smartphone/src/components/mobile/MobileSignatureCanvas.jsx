@@ -1,6 +1,8 @@
 import React, { useRef, useState, useEffect } from "react";
 import { db } from "@/lib/db";
 
+const MOBILE_SIGNATURE_CANVAS_CSS_HEIGHT = 220;
+
 export default function MobileSignatureCanvas({ personId, docType, signer, signerLabel, existingSignature, onSaved, signataireName = "", signataireFunction = "", signataireId = "" }) {
   const canvasRef = useRef(null);
   const [drawing, setDrawing] = useState(false);
@@ -172,8 +174,8 @@ export default function MobileSignatureCanvas({ personId, docType, signer, signe
         <canvas
           ref={canvasRef}
           width={640}
-          height={200}
-          style={{ display: "block", width: "100%", height: 160, cursor: "crosshair", touchAction: "none" }}
+          height={280}
+          style={{ display: "block", width: "100%", height: MOBILE_SIGNATURE_CANVAS_CSS_HEIGHT, cursor: "crosshair", touchAction: "none" }}
           onMouseDown={startDraw}
           onMouseMove={draw}
           onMouseUp={endDraw}
