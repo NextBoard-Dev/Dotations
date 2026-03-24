@@ -18,6 +18,26 @@ function MobileEffetForm({ personId, editingEffet, onSaved, onCancel, setSaveSta
     ? Array.from(new Set(["ACTIF", "RESTITUE", "NON RENDU", "PERDU", "HS", "VOL", "DETRUIT", ...bases.statutsObjetManuels.map((s) => normalizeManualStatus(s) || s)]))
     : STATUTS;
   const sitesRef = Array.isArray(bases.sites) ? bases.sites : [];
+  const referencesEffetsRef = Array.isArray(bases.referencesEffets) ? bases.referencesEffets : [];
+  const normalizedType = String(form.typeEffet || "").trim().toUpperCase();
+  const normalizedSite = String(form.siteReference || "").trim().toUpperCase();
+  const designationOptions = Array.from(
+    new Set(
+      referencesEffetsRef
+        .filter((entry) => {
+          const refType = String(entry?.typeEffet || "").trim().toUpperCase();
+          const refSite = String(entry?.site || "").trim().toUpperCase();
+          if (normalizedType && refType && refType !== normalizedType) return false;
+          if (normalizedType === "CLE" && normalizedSite && refSite && refSite !== normalizedSite) return false;
+          return true;
+        })
+        .map((entry) => String(entry?.designation || "").trim())
+        .filter(Boolean)
+    )
+  );
+  const siteOptions = Array.from(new Set((sitesRef || []).map((entry) => String(entry || "").trim()).filter(Boolean)));
+  const siteValueInList = !form.siteReference || siteOptions.includes(form.siteReference);
+  const designationValueInList = !form.designation || designationOptions.includes(form.designation);
 
   useEffect(() => {
     if (editingEffet) {
@@ -38,6 +58,13 @@ function MobileEffetForm({ personId, editingEffet, onSaved, onCancel, setSaveSta
       setForm({ typeEffet: "", designation: "", siteReference: "", numeroIdentification: "", vehiculeImmatriculation: "", dateRemise: new Date().toISOString().slice(0, 10), dateRetour: "", statut: "ACTIF", dateRemplacement: "", coutRemplacement: "", commentaire: "" });
     }
   }, [editingEffet]);
+
+  useEffect(() => {
+    if (!form.designation) return;
+    if (!designationOptions.includes(form.designation)) {
+      setForm((prev) => ({ ...prev, designation: "" }));
+    }
+  }, [form.typeEffet, form.siteReference]);
 
   const handleSave = async () => {
     if (!form.typeEffet) { setError("TYPE D'EFFET OBLIGATOIRE"); return; }
@@ -104,7 +131,13 @@ function MobileEffetForm({ personId, editingEffet, onSaved, onCancel, setSaveSta
 
       <div style={fieldStyle}>
         <label style={labelStyle}>DESIGNATION</label>
-        <input value={form.designation} onChange={e => setForm(f => ({ ...f, designation: e.target.value }))} style={inputStyle} placeholder="DESIGNATION / REFERENCE" />
+        <select value={form.designation} onChange={e => setForm(f => ({ ...f, designation: e.target.value }))} style={inputStyle}>
+          <option value="">
+            {designationOptions.length ? "SELECTIONNER UNE DESIGNATION" : "AUCUNE DESIGNATION DISPONIBLE"}
+          </option>
+          {!designationValueInList && <option value={form.designation}>{form.designation}</option>}
+          {designationOptions.map((d) => <option key={d} value={d}>{d}</option>)}
+        </select>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 10px" }}>
@@ -114,7 +147,11 @@ function MobileEffetForm({ personId, editingEffet, onSaved, onCancel, setSaveSta
         </div>
         <div style={fieldStyle}>
           <label style={labelStyle}>SITE REFERENCE</label>
-          <input value={form.siteReference} onChange={e => setForm(f => ({ ...f, siteReference: e.target.value }))} style={inputStyle} />
+          <select value={form.siteReference} onChange={e => setForm(f => ({ ...f, siteReference: e.target.value }))} style={inputStyle}>
+            <option value="">{siteOptions.length ? "SELECTIONNER UN SITE" : "AUCUN SITE DISPONIBLE"}</option>
+            {!siteValueInList && <option value={form.siteReference}>{form.siteReference}</option>}
+            {siteOptions.map((site) => <option key={site} value={site}>{site}</option>)}
+          </select>
         </div>
         <div style={fieldStyle}>
           <label style={labelStyle}>DATE REMISE</label>

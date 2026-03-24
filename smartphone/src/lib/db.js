@@ -290,6 +290,14 @@ async function getReferenceBases() {
       typesEffets: normalizeStringArray(listes.typesEffets),
       statutsObjetManuels: normalizeStringArray(listes.statutsObjetManuels),
       coutsRemplacement,
+      referencesEffets: ensureArray(listes.referencesEffets)
+        .map((entry) => ({
+          id: toString(entry?.id),
+          site: toString(entry?.site).trim(),
+          typeEffet: toString(entry?.typeEffet).trim(),
+          designation: toString(entry?.designation).trim(),
+        }))
+        .filter((entry) => entry.designation),
       representantsSignataires: listRepresentantsSignatairesFromPayload(payload),
     };
   } catch {
@@ -301,6 +309,7 @@ async function getReferenceBases() {
       typesEffets: [],
       statutsObjetManuels: [],
       coutsRemplacement: [],
+      referencesEffets: [],
       representantsSignataires: [],
     };
   }
