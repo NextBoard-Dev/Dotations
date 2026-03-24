@@ -14,6 +14,29 @@ function normalizeLabel(value) {
   return String(value || "").replace(/\s+/g, " ").trim().toUpperCase();
 }
 
+function resolveRepresentativeIdFromSignature(signature, representatives) {
+  if (!signature || !Array.isArray(representatives) || representatives.length === 0) {
+    return "";
+  }
+  const directId = String(signature.signataireId || "").trim();
+  if (directId && representatives.some((rep) => String(rep.id) === directId)) {
+    return directId;
+  }
+  const signedName = normalizeLabel(signature.signataireName);
+  if (!signedName) {
+    return "";
+  }
+  const signedFunction = normalizeLabel(signature.signataireFunction);
+  const strictMatch = representatives.find(
+    (rep) => normalizeLabel(rep.nom) === signedName && (!signedFunction || normalizeLabel(rep.fonction) === signedFunction)
+  );
+  if (strictMatch) {
+    return String(strictMatch.id);
+  }
+  const looseMatch = representatives.find((rep) => normalizeLabel(rep.nom) === signedName);
+  return looseMatch ? String(looseMatch.id) : "";
+}
+
 export default function MobileDocumentArrivee({ persons, effets, selectedPerson, onSelectPerson, setSaveStatus, onDataChange, representatives = [], pricingRules = [], effetTypes = [] }) {
   const [signatures, setSignatures] = useState([]);
   const [activeSection, setActiveSection] = useState("identite");
@@ -26,6 +49,14 @@ export default function MobileDocumentArrivee({ persons, effets, selectedPerson,
   useEffect(() => {
     setRepresentantId("");
   }, [selectedPerson?.id]);
+
+  useEffect(() => {
+    if (!selectedPerson) return;
+    const signedRepresentative = signatures.find((s) => s.signer === "representant");
+    const resolvedId = resolveRepresentativeIdFromSignature(signedRepresentative, representatives || []);
+    if (!resolvedId) return;
+    setRepresentantId((prev) => (prev === resolvedId ? prev : resolvedId));
+  }, [selectedPerson?.id, signatures, representatives]);
 
   const loadSignatures = async () => {
     const sigs = await db.Signature.filter({ personId: selectedPerson.id, docType: "arrival" });

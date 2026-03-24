@@ -14,6 +14,29 @@ function normalizeLabel(value) {
   return String(value || "").replace(/\s+/g, " ").trim().toUpperCase();
 }
 
+function resolveRepresentativeIdFromSignature(signature, representatives) {
+  if (!signature || !Array.isArray(representatives) || representatives.length === 0) {
+    return "";
+  }
+  const directId = String(signature.signataireId || "").trim();
+  if (directId && representatives.some((rep) => String(rep.id) === directId)) {
+    return directId;
+  }
+  const signedName = normalizeLabel(signature.signataireName);
+  if (!signedName) {
+    return "";
+  }
+  const signedFunction = normalizeLabel(signature.signataireFunction);
+  const strictMatch = representatives.find(
+    (rep) => normalizeLabel(rep.nom) === signedName && (!signedFunction || normalizeLabel(rep.fonction) === signedFunction)
+  );
+  if (strictMatch) {
+    return String(strictMatch.id);
+  }
+  const looseMatch = representatives.find((rep) => normalizeLabel(rep.nom) === signedName);
+  return looseMatch ? String(looseMatch.id) : "";
+}
+
 const STATUT_COLORS = {
   "ACTIF": { bg: "rgba(89,148,117,0.16)", color: "#2f5e43" },
   "RESTITUE": { bg: "rgba(87,143,106,0.2)", color: "#2c513a" },
@@ -42,6 +65,14 @@ export default function MobileDocumentSortie({ persons, effets, selectedPerson, 
   useEffect(() => {
     setRepresentantId("");
   }, [selectedPerson?.id]);
+
+  useEffect(() => {
+    if (!selectedPerson) return;
+    const signedRepresentative = signatures.find((s) => s.signer === "representant");
+    const resolvedId = resolveRepresentativeIdFromSignature(signedRepresentative, representatives || []);
+    if (!resolvedId) return;
+    setRepresentantId((prev) => (prev === resolvedId ? prev : resolvedId));
+  }, [selectedPerson?.id, signatures, representatives]);
 
   const loadSignatures = async () => {
     const sigs = await db.Signature.filter({ personId: selectedPerson.id, docType: "exit" });
