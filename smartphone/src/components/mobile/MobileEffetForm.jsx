@@ -122,9 +122,11 @@ function MobileEffetForm({ personId, editingEffet, onSaved, onCancel, setSaveSta
           </select>
         </div>
         <div style={fieldStyle}>
-          <label style={labelStyle}>STATUT</label>
-          <select value={form.statut} onChange={e => setForm(f => ({ ...f, statut: e.target.value }))} style={inputStyle}>
-            {statutsRef.map(s => <option key={s} value={s}>{s}</option>)}
+          <label style={labelStyle}>SITE REFERENCE</label>
+          <select value={form.siteReference} onChange={e => setForm(f => ({ ...f, siteReference: e.target.value }))} style={inputStyle}>
+            <option value="">{siteOptions.length ? "SELECTIONNER UN SITE" : "AUCUN SITE DISPONIBLE"}</option>
+            {!siteValueInList && <option value={form.siteReference}>{form.siteReference}</option>}
+            {siteOptions.map((site) => <option key={site} value={site}>{site}</option>)}
           </select>
         </div>
       </div>
@@ -146,11 +148,9 @@ function MobileEffetForm({ personId, editingEffet, onSaved, onCancel, setSaveSta
           <input value={form.numeroIdentification} onChange={e => setForm(f => ({ ...f, numeroIdentification: e.target.value }))} style={inputStyle} />
         </div>
         <div style={fieldStyle}>
-          <label style={labelStyle}>SITE REFERENCE</label>
-          <select value={form.siteReference} onChange={e => setForm(f => ({ ...f, siteReference: e.target.value }))} style={inputStyle}>
-            <option value="">{siteOptions.length ? "SELECTIONNER UN SITE" : "AUCUN SITE DISPONIBLE"}</option>
-            {!siteValueInList && <option value={form.siteReference}>{form.siteReference}</option>}
-            {siteOptions.map((site) => <option key={site} value={site}>{site}</option>)}
+          <label style={labelStyle}>STATUT</label>
+          <select value={form.statut} onChange={e => setForm(f => ({ ...f, statut: e.target.value }))} style={inputStyle}>
+            {statutsRef.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
         </div>
         <div style={fieldStyle}>
