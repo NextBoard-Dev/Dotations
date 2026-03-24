@@ -49,7 +49,7 @@ export default function MobileOverview({ persons, effets, onSelectPerson }) {
     }
     return personAlerts;
   });
-  const visibleAlerts = alerts.slice(0, 3);
+  const isAlertListScrollable = alerts.length > 3;
 
   const alertStyle = (type) => {
     if (type === "dateSortieReelle") {
@@ -107,8 +107,8 @@ export default function MobileOverview({ persons, effets, onSelectPerson }) {
             <span style={{ fontSize: 9, color: "#4a6170", letterSpacing: "0.08em", fontWeight: 700 }}>ALERTES</span>
             <span style={{ fontSize: 9, color: "#8e4d1e", fontWeight: 700 }}>{alerts.length}</span>
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            {visibleAlerts.map((a) => {
+          <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: isAlertListScrollable ? 142 : "none", overflowY: isAlertListScrollable ? "auto" : "visible", paddingRight: isAlertListScrollable ? 2 : 0 }}>
+            {alerts.map((a) => {
               const s = alertStyle(a.type);
               const iconS = alertIconStyle(a.type);
               const person = persons.find((p) => p.id === a.personId);
@@ -128,9 +128,6 @@ export default function MobileOverview({ persons, effets, onSelectPerson }) {
                 </button>
               );
             })}
-            {alerts.length > visibleAlerts.length && (
-              <div style={{ fontSize: 9, color: "#556d79", textAlign: "right" }}>+{alerts.length - visibleAlerts.length} alerte(s)</div>
-            )}
           </div>
         </div>
       )}
