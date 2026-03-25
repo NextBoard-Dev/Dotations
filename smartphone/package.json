@@ -9,8 +9,8 @@
   "scripts": {
     "dev": "node ./node_modules/vite/bin/vite.js",
     "build": "node ./node_modules/vite/bin/vite.js build",
-    "lint": "eslint . --quiet",
-    "lint:fix": "eslint . --fix",
+    "lint": "node ./node_modules/eslint/bin/eslint.js . --quiet",
+    "lint:fix": "node ./node_modules/eslint/bin/eslint.js . --fix",
     "typecheck": "tsc -p ./jsconfig.json",
     "preview": "node ./node_modules/vite/bin/vite.js preview"
   },
@@ -88,6 +88,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
     "baseline-browser-mapping": "^2.8.32",
+    "define-data-property": "^1.1.4",
     "esbuild": "^0.27.4",
     "eslint": "^9.19.0",
     "eslint-plugin-react": "^7.37.4",

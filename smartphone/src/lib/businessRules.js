@@ -4,6 +4,8 @@ function normalizeText(value) {
     .toUpperCase();
 }
 
+const ALLOWED_MANUAL_EFFECT_STATUSES = new Set(["ACTIF", "PERDU", "VOL", "HS"]);
+
 export function getDossierStatus(person) {
   if (String(person?.dateSortieReelle || "").trim()) return "SORTI";
   if (String(person?.dateSortiePrevue || "").trim()) return "SORTIE PREVUE";
@@ -31,7 +33,8 @@ export function normalizeManualStatus(rawStatus) {
   const status = normalizeText(rawStatus);
   if (status === "VOLE") return "VOL";
   if (status === "CASSE" || status === "DETRUIT") return "HS";
-  return status;
+  if (ALLOWED_MANUAL_EFFECT_STATUSES.has(status)) return status;
+  return "";
 }
 
 export function getEffectStatus(person, effect) {
@@ -61,6 +64,6 @@ export function getReplacementCostValue(pricingRules = [], typeEffet, cause) {
     if (ruleCause === "PERDU") ruleCause = "PERTE";
     return ruleType === wantedType && ruleCause === wantedCause;
   });
-  return Number(row?.montant) || 0;
+  const amount = Number(row?.montant);
+  return Number.isFinite(amount) ? amount : 0;
 }
-

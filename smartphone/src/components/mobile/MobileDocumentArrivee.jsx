@@ -2,7 +2,6 @@ import React, { useState, useEffect } from "react";
 import { db } from "@/lib/db";
 import MobilePersonSearch from "./MobilePersonSearch";
 import MobileSignatureCanvas from "./MobileSignatureCanvas";
-import MobileEffetsList from "./MobileEffetsList";
 
 const card = { background: "rgba(244,241,234,0.98)", border: "1px solid rgba(173,190,199,0.98)", borderRadius: 11, padding: "12px", marginBottom: 8, boxShadow: "0 4px 12px rgba(31,49,59,0.10)" };
 const docField = { display: "flex", flexDirection: "column", gap: 3, marginBottom: 8 };
