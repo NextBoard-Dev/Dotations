@@ -1,7 +1,12 @@
 {
   "permissions": {
     "allow": [
-      "Bash(ls \"c:/Users/sebastien.duc/CLOUD/02_ARCHIVAGE PERSONNEL/DASHBOARDS/GESTION DES ACCÈS & EFFETS SENSIBLES\")"
+      "Bash(ls \"c:/Users/sebastien.duc/CLOUD/02_ARCHIVAGE PERSONNEL/DASHBOARDS/GESTION DES ACCÈS & EFFETS SENSIBLES\")",
+      "Bash(ls \"c:/Users/sebastien.duc/CLOUD/02_ARCHIVAGE PERSONNEL/DASHBOARDS/GESTION DES ACCÈS & EFFETS SENSIBLES/smartphone\")",
+      "Bash(ls \"c:/Users/sebastien.duc/CLOUD/02_ARCHIVAGE PERSONNEL/DASHBOARDS/GESTION DES ACCÈS & EFFETS SENSIBLES/smartphone/src\")",
+      "Bash(ls \"c:/Users/sebastien.duc/CLOUD/02_ARCHIVAGE PERSONNEL/DASHBOARDS/GESTION DES ACCÈS & EFFETS SENSIBLES/smartphone/src/components\")",
+      "Bash(ls \"c:/Users/sebastien.duc/CLOUD/02_ARCHIVAGE PERSONNEL/DASHBOARDS/GESTION DES ACCÈS & EFFETS SENSIBLES/smartphone/src/pages\")",
+      "Bash(ls \"c:/Users/sebastien.duc/CLOUD/02_ARCHIVAGE PERSONNEL/DASHBOARDS/GESTION DES ACCÈS & EFFETS SENSIBLES/smartphone/src/components/mobile\")"
     ]
   }
 }
