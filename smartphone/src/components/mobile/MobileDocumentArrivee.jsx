@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { db } from "@/lib/db";
 import MobilePersonSearch from "./MobilePersonSearch";
 import MobileSignatureCanvas from "./MobileSignatureCanvas";
+import { getReplacementCostValue } from "@/lib/businessRules";
 
 const card = { background: "rgba(244,241,234,0.98)", border: "1px solid rgba(173,190,199,0.98)", borderRadius: 11, padding: "12px", marginBottom: 8, boxShadow: "0 4px 12px rgba(31,49,59,0.10)" };
 const docField = { display: "flex", flexDirection: "column", gap: 3, marginBottom: 8 };
@@ -11,6 +12,11 @@ const eur = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR",
 
 function normalizeLabel(value) {
   return String(value || "").replace(/\s+/g, " ").trim().toUpperCase();
+}
+
+function formatCost(value) {
+  const amount = Number(value);
+  return `${Number.isFinite(amount) ? amount : 0}€`;
 }
 
 function resolveRepresentativeIdFromSignature(signature, representatives) {
@@ -67,8 +73,13 @@ export default function MobileDocumentArrivee({ persons, effets, selectedPerson,
     if (onDataChange) await onDataChange();
   };
 
-  const personEffets = selectedPerson ? effets.filter(e => e.personId === selectedPerson.id && e.statut === "ACTIF") : [];
-  const totalValeur = personEffets.reduce((s, e) => s + (Number(e.coutRemplacement) || 0), 0);
+  const personEffets = selectedPerson ? effets.filter(e => e.personId === selectedPerson.id) : [];
+  const getEntryEffetValue = (effet) => {
+    const directAmount = Number(effet?.coutRemplacement);
+    if (Number.isFinite(directAmount) && directAmount > 0) return directAmount;
+    return getReplacementCostValue(pricingRules, effet?.typeEffet, "NON RENDU");
+  };
+  const totalValeur = personEffets.reduce((s, e) => s + getEntryEffetValue(e), 0);
   const costByType = new Map();
   pricingRules.forEach((rule) => {
     const type = normalizeLabel(rule.typeEffet);
@@ -158,7 +169,7 @@ export default function MobileDocumentArrivee({ persons, effets, selectedPerson,
             </div>
             <div>
               <div style={{ fontSize: 9, color: "#4a6170" }}>VALEUR TOTALE</div>
-              <div style={{ fontSize: 18, fontWeight: 700, color: "#9b5a2a" }}>{totalValeur.toFixed(2)} €</div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: "#9b5a2a" }}>{formatCost(totalValeur)}</div>
             </div>
           </div>
         </div>
@@ -167,16 +178,16 @@ export default function MobileDocumentArrivee({ persons, effets, selectedPerson,
       {selectedPerson && activeSection === "effets" && (
         <div>
           <div style={{ ...card, padding: "8px 12px", marginBottom: 6 }}>
-            <div style={{ fontSize: 10, color: "#3f5662", fontWeight: 600 }}>EFFETS REMIS A L'ARRIVEE (statut ACTIF)</div>
+            <div style={{ fontSize: 10, color: "#3f5662", fontWeight: 600 }}>EFFETS REMIS A L'ARRIVEE</div>
           </div>
           {personEffets.length === 0 ? (
-            <div style={{ ...card, textAlign: "center", color: "#3f5662", fontSize: 11 }}>AUCUN EFFET ACTIF</div>
+            <div style={{ ...card, textAlign: "center", color: "#3f5662", fontSize: 11 }}>AUCUN EFFET REMIS</div>
           ) : (
             personEffets.map(e => (
               <div key={e.id} style={{ ...card, padding: "10px 12px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
                   <span style={{ fontWeight: 700, fontSize: 12 }}>{e.typeEffet}</span>
-                  {e.coutRemplacement && <span style={{ fontSize: 11, color: "#9b5a2a", fontWeight: 600 }}>{Number(e.coutRemplacement).toFixed(2)} €</span>}
+                  <span style={{ fontSize: 11, color: "#9b5a2a", fontWeight: 600 }}>{formatCost(getEntryEffetValue(e))}</span>
                 </div>
                 <div style={{ fontSize: 11, color: "#213b48" }}>{e.designation || "—"}</div>
                 {e.numeroIdentification && <div style={{ fontSize: 10, color: "#556d79" }}>N° {e.numeroIdentification}</div>}

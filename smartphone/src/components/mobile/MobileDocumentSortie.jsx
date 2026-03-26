@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { db } from "@/lib/db";
 import MobilePersonSearch from "./MobilePersonSearch";
 import MobileSignatureCanvas from "./MobileSignatureCanvas";
-import { getEffectBillingCause, getEffectStatus, getReplacementCostValue, normalizeManualStatus } from "@/lib/businessRules";
+import { getEffectStatus, getReplacementCostValue, normalizeManualStatus } from "@/lib/businessRules";
 
 const card = { background: "rgba(244,241,234,0.98)", border: "1px solid rgba(173,190,199,0.98)", borderRadius: 11, padding: "12px", marginBottom: 8, boxShadow: "0 4px 12px rgba(31,49,59,0.10)" };
 const docField = { display: "flex", flexDirection: "column", gap: 3, marginBottom: 8 };
@@ -12,6 +12,11 @@ const eur = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR",
 
 function normalizeLabel(value) {
   return String(value || "").replace(/\s+/g, " ").trim().toUpperCase();
+}
+
+function formatCost(value) {
+  const amount = Number(value);
+  return `${Number.isFinite(amount) ? amount : 0}€`;
 }
 
 function resolveRepresentativeIdFromSignature(signature, representatives) {
@@ -114,11 +119,12 @@ export default function MobileDocumentSortie({ persons, effets, selectedPerson, 
 
   const totalEffets = localEffets.length;
   const rendus = localEffets.filter((e) => getEffectStatus(selectedPerson, e) === "RESTITUE" || e._rendus).length;
-  const facturableAmounts = localEffets.map((e) => {
-    const cause = getEffectBillingCause(selectedPerson, e);
-    return getReplacementCostValue(pricingRules, e.typeEffet, cause);
-  });
-  const facturables = facturableAmounts.filter((amount) => amount > 0).length;
+  const getEffetReferenceCost = (effet) => {
+    const directAmount = Number(effet?.coutRemplacement);
+    if (Number.isFinite(directAmount) && directAmount > 0) return directAmount;
+    return getReplacementCostValue(pricingRules, effet?.typeEffet, "NON RENDU");
+  };
+  const facturableAmounts = localEffets.map((e) => getEffetReferenceCost(e));
   const totalFacturable = facturableAmounts.reduce((sum, amount) => sum + amount, 0);
   const costByType = new Map();
   pricingRules.forEach((rule) => {
@@ -218,7 +224,7 @@ export default function MobileDocumentSortie({ persons, effets, selectedPerson, 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginTop: 8, padding: "8px", background: "rgba(221,231,235,0.6)", borderRadius: 9 }}>
             <div><div style={{ fontSize: 9, color: "#4a6170" }}>TOTAL</div><div style={{ fontSize: 18, fontWeight: 700 }}>{totalEffets}</div></div>
             <div><div style={{ fontSize: 9, color: "#4a6170" }}>RENDUS</div><div style={{ fontSize: 18, fontWeight: 700, color: "#2f5e43" }}>{rendus}</div></div>
-            <div><div style={{ fontSize: 9, color: "#4a6170" }}>FACTURABLES</div><div style={{ fontSize: 18, fontWeight: 700, color: "#8e4d1e" }}>{facturables}</div></div>
+            <div><div style={{ fontSize: 9, color: "#4a6170" }}>FACTURABLES</div><div style={{ fontSize: 18, fontWeight: 700, color: "#8e4d1e" }}>{formatCost(totalFacturable)}</div></div>
           </div>
           {totalFacturable > 0 && (
             <div style={{ marginTop: 8, padding: "8px 12px", borderRadius: 9, background: "linear-gradient(180deg, rgba(232,215,167,0.42) 0%, rgba(244,241,234,0.98) 100%)", border: "1px solid rgba(216,169,104,0.74)", textAlign: "center" }}>
@@ -245,7 +251,7 @@ export default function MobileDocumentSortie({ persons, effets, selectedPerson, 
                       <span style={{ fontWeight: 700, fontSize: 12 }}>{e.typeEffet}</span>
                       <span style={{ fontSize: 9, marginLeft: 8, padding: "2px 7px", borderRadius: 99, background: sc.bg, color: sc.color }}>{displayStatus}</span>
                     </div>
-                    {e.coutRemplacement && <span style={{ fontSize: 11, color: "#9b5a2a", fontWeight: 600 }}>{Number(e.coutRemplacement).toFixed(2)} €</span>}
+                    <span style={{ fontSize: 11, color: "#9b5a2a", fontWeight: 600 }}>{formatCost(e.coutRemplacement)}</span>
                   </div>
                   <div style={{ fontSize: 11, color: "#213b48", marginBottom: 4 }}>{e.designation || "—"}</div>
                   {/* Statut select */}
@@ -292,6 +298,10 @@ export default function MobileDocumentSortie({ persons, effets, selectedPerson, 
                 {isDocumentSigned ? "SIGNE" : "EN ATTENTE"}
               </span>
             </div>
+          </div>
+          <div style={{ ...card, padding: "7px 10px", marginBottom: 8, background: "linear-gradient(180deg, rgba(232,215,167,0.42) 0%, rgba(244,241,234,0.98) 100%)", border: "1px solid rgba(216,169,104,0.74)" }}>
+            <div style={{ fontSize: 9, color: "#8a5325", letterSpacing: "0.08em", marginBottom: 2, fontWeight: 700 }}>TOTAL FACTURABLE</div>
+            <div style={{ fontSize: 18, fontWeight: 800, color: "#8a5325", lineHeight: 1.1 }}>{formatCost(totalFacturable)}</div>
           </div>
           <div style={card}>
             <div style={{ fontSize: 11, color: "#14242c", fontWeight: 700, letterSpacing: "0.08em", marginBottom: 8 }}>CLAUSES DE RESTITUTION ET DE FACTURATION</div>

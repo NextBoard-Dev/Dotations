@@ -13,6 +13,15 @@ const STATUT_COLORS = {
 };
 
 export default function MobileEffetsList({ effets, onEdit }) {
+  const formatCost = (value) => {
+    const amount = Number(value);
+    return `${Number.isFinite(amount) ? amount : 0}€`;
+  };
+  const hasPositiveCost = (value) => {
+    const amount = Number(value);
+    return Number.isFinite(amount) && amount > 0;
+  };
+
   if (effets.length === 0) {
     return (
       <div style={{ background: "rgba(244,241,234,0.98)", border: "1px solid rgba(173,190,199,0.98)", borderRadius: 11, padding: 16, textAlign: "center", color: "#3f5662", fontSize: 11 }}>
@@ -40,7 +49,9 @@ export default function MobileEffetsList({ effets, onEdit }) {
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
               {e.numeroIdentification && <span style={{ fontSize: 9, color: "#3f5662" }}>N° {e.numeroIdentification}</span>}
               {e.dateRemise && <span style={{ fontSize: 9, color: "#3f5662" }}>Remis le {e.dateRemise}</span>}
-              {Number(e.coutRemplacement) > 0 && <span style={{ fontSize: 9, color: "#9b5a2a", fontWeight: 600 }}>{Number(e.coutRemplacement).toFixed(2)} €</span>}
+              {hasPositiveCost(e.coutRemplacement) && (
+                <span style={{ fontSize: 9, color: "#9b5a2a", fontWeight: 600 }}>{formatCost(e.coutRemplacement)}</span>
+              )}
             </div>
             {e.commentaire && <div style={{ fontSize: 9, color: "#556d79", marginTop: 3, fontStyle: "italic" }}>{e.commentaire}</div>}
           </button>
