@@ -15,7 +15,8 @@ const STATUT_COLORS = {
 export default function MobileEffetsList({ effets, onEdit }) {
   const formatCost = (value) => {
     const amount = Number(value);
-    return `${Number.isFinite(amount) ? amount : 0}€`;
+    const safeAmount = Number.isFinite(amount) ? amount : 0;
+    return `${safeAmount.toFixed(2).replace(".", ",")}€`;
   };
   const hasPositiveCost = (value) => {
     const amount = Number(value);

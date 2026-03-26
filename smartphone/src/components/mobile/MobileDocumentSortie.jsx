@@ -8,15 +8,14 @@ const card = { background: "rgba(244,241,234,0.98)", border: "1px solid rgba(173
 const docField = { display: "flex", flexDirection: "column", gap: 3, marginBottom: 8 };
 const docLabel = { fontSize: 9, color: "#4a6170", letterSpacing: "0.08em" };
 const docValue = { padding: "7px 12px", borderRadius: 9, background: "rgba(251,250,247,0.98)", border: "1px solid rgba(152,177,190,0.9)", fontSize: 12, color: "#0f1e26", minHeight: 32, display: "flex", alignItems: "center" };
-const eur = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
 function normalizeLabel(value) {
   return String(value || "").replace(/\s+/g, " ").trim().toUpperCase();
 }
 
 function formatCost(value) {
   const amount = Number(value);
-  return `${Number.isFinite(amount) ? amount : 0}€`;
+  const safeAmount = Number.isFinite(amount) ? amount : 0;
+  return `${safeAmount.toFixed(2).replace(".", ",")}€`;
 }
 
 function resolveRepresentativeIdFromSignature(signature, representatives) {
@@ -229,7 +228,7 @@ export default function MobileDocumentSortie({ persons, effets, selectedPerson, 
           {totalFacturable > 0 && (
             <div style={{ marginTop: 8, padding: "8px 12px", borderRadius: 9, background: "linear-gradient(180deg, rgba(232,215,167,0.42) 0%, rgba(244,241,234,0.98) 100%)", border: "1px solid rgba(216,169,104,0.74)", textAlign: "center" }}>
               <div style={{ fontSize: 9, color: "#8a5325" }}>TOTAL FACTURABLE</div>
-              <div style={{ fontSize: 22, fontWeight: 800, color: "#8a5325" }}>{totalFacturable.toFixed(2)} €</div>
+              <div style={{ fontSize: 22, fontWeight: 800, color: "#8a5325" }}>{formatCost(totalFacturable)}</div>
             </div>
           )}
         </div>
@@ -323,10 +322,10 @@ export default function MobileDocumentSortie({ persons, effets, selectedPerson, 
                   {clauseRows.map((row) => (
                     <tr key={row.id}>
                       <td style={{ fontSize: 11, color: "#213b48", padding: "6px", borderBottom: "1px solid rgba(152,177,190,0.5)" }}>{row.label}</td>
-                      <td style={{ fontSize: 11, color: "#213b48", padding: "6px", textAlign: "right", borderBottom: "1px solid rgba(152,177,190,0.5)" }}>{eur.format(row.hs)}</td>
-                      <td style={{ fontSize: 11, color: "#213b48", padding: "6px", textAlign: "right", borderBottom: "1px solid rgba(152,177,190,0.5)" }}>{eur.format(row.perdu)}</td>
-                      <td style={{ fontSize: 11, color: "#213b48", padding: "6px", textAlign: "right", borderBottom: "1px solid rgba(152,177,190,0.5)" }}>{eur.format(row.vol)}</td>
-                      <td style={{ fontSize: 11, color: "#213b48", padding: "6px", textAlign: "right", borderBottom: "1px solid rgba(152,177,190,0.5)" }}>{eur.format(row.nonRendu)}</td>
+                      <td style={{ fontSize: 11, color: "#213b48", padding: "6px", textAlign: "right", borderBottom: "1px solid rgba(152,177,190,0.5)" }}>{formatCost(row.hs)}</td>
+                      <td style={{ fontSize: 11, color: "#213b48", padding: "6px", textAlign: "right", borderBottom: "1px solid rgba(152,177,190,0.5)" }}>{formatCost(row.perdu)}</td>
+                      <td style={{ fontSize: 11, color: "#213b48", padding: "6px", textAlign: "right", borderBottom: "1px solid rgba(152,177,190,0.5)" }}>{formatCost(row.vol)}</td>
+                      <td style={{ fontSize: 11, color: "#213b48", padding: "6px", textAlign: "right", borderBottom: "1px solid rgba(152,177,190,0.5)" }}>{formatCost(row.nonRendu)}</td>
                     </tr>
                   ))}
                   {clauseRows.length === 0 && (

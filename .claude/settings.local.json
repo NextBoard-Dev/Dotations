@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls \"c:/Users/sebastien.duc/CLOUD/02_ARCHIVAGE PERSONNEL/DASHBOARDS/GESTION DES ACCÈS & EFFETS SENSIBLES\")"
+    ]
+  }
+}
