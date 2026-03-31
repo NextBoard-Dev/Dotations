@@ -1037,9 +1037,23 @@ async function getMobileSignatureBaseUrl() {
     return configuredBaseUrl;
   }
 
-  const currentOrigin = normalizeHttpUrl(window.location.origin || "");
-  if (currentOrigin && !isLikelyLocalUrl(currentOrigin)) {
-    return currentOrigin;
+  let currentRuntimeBaseUrl = "";
+  try {
+    const runtimeUrl = new URL(window.location.href || "", window.location.origin);
+    if (/\.[a-z0-9]+$/i.test(runtimeUrl.pathname)) {
+      runtimeUrl.pathname = runtimeUrl.pathname.replace(/[^/]+$/, "");
+    }
+    if (!runtimeUrl.pathname.endsWith("/")) {
+      runtimeUrl.pathname = `${runtimeUrl.pathname}/`;
+    }
+    runtimeUrl.search = "";
+    runtimeUrl.hash = "";
+    currentRuntimeBaseUrl = normalizeHttpUrl(runtimeUrl.href);
+  } catch (error) {
+    currentRuntimeBaseUrl = normalizeHttpUrl(window.location.origin || "");
+  }
+  if (currentRuntimeBaseUrl && !isLikelyLocalUrl(currentRuntimeBaseUrl)) {
+    return currentRuntimeBaseUrl;
   }
 
   if (state.mobileSignatureNetworkInfo?.preferredUrl) {
