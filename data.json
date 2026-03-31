@@ -4,7 +4,7 @@
     "appTitle": "SUIVI DES DOTATIONS ENTREE / SORTIE",
     "appSubtitle": "GESTION ONLINE DES EFFETS",
     "storagePdfBucket": "pdf",
-    "signatureMobileBaseUrl": "https://mililumatt.github.io/Dotations",
+    "signatureMobileBaseUrl": "https://nextboard-dev.github.io/Dotations",
     "storageSignaturesBucket": "signatures"
   },
   "listes": {

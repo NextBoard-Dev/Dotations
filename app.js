@@ -191,6 +191,24 @@ function normalizeHttpUrl(value) {
   }
 }
 
+function normalizeMobileSignatureBaseUrl(value) {
+  const normalized = normalizeHttpUrl(value);
+  if (!normalized) {
+    return "";
+  }
+  try {
+    const parsed = new URL(normalized);
+    const host = String(parsed.hostname || "").toLowerCase();
+    if (host === "mililumatt.github.io") {
+      parsed.hostname = "nextboard-dev.github.io";
+      return parsed.href.replace(/\/$/, "");
+    }
+    return normalized;
+  } catch (error) {
+    return normalized;
+  }
+}
+
 function normalizeBucketName(value, fallback = "") {
   const normalized = String(value || "")
     .trim()
@@ -538,7 +556,7 @@ function isLikelyLocalUrl(value) {
 }
 
 function getConfiguredMobileSignatureBaseUrl() {
-  return normalizeHttpUrl(state.data?.meta?.signatureMobileBaseUrl || "");
+  return normalizeMobileSignatureBaseUrl(state.data?.meta?.signatureMobileBaseUrl || "");
 }
 
 function getMobileSignatureReachabilityHint(url) {
@@ -549,6 +567,16 @@ function getMobileSignatureReachabilityHint(url) {
     return "TELEPHONE ET ORDINATEUR DOIVENT ETRE SUR LE MEME RESEAU WIFI.";
   }
   return "LIEN OUVRABLE EN WIFI OU EN 4G/5G.";
+}
+
+function areSameHost(leftUrl, rightUrl) {
+  try {
+    const leftHost = String(new URL(leftUrl).hostname || "").toLowerCase().replace(/^www\./, "");
+    const rightHost = String(new URL(rightUrl).hostname || "").toLowerCase().replace(/^www\./, "");
+    return Boolean(leftHost && rightHost && leftHost === rightHost);
+  } catch (error) {
+    return false;
+  }
 }
 
 function compareTextValues(left, right) {
@@ -855,7 +883,7 @@ function captureMobileSignatureSettingsDraftToState() {
     return false;
   }
   const rawValue = String(form.elements.mobileSignatureBaseUrl?.value || "").trim();
-  const normalized = normalizeHttpUrl(rawValue);
+  const normalized = normalizeMobileSignatureBaseUrl(rawValue);
   if (rawValue && !normalized) {
     return false;
   }
@@ -1033,9 +1061,6 @@ function getMobileSignaturePageUrl(request) {
 
 async function getMobileSignatureBaseUrl() {
   const configuredBaseUrl = getConfiguredMobileSignatureBaseUrl();
-  if (configuredBaseUrl) {
-    return configuredBaseUrl;
-  }
 
   let currentRuntimeBaseUrl = "";
   try {
@@ -1052,6 +1077,16 @@ async function getMobileSignatureBaseUrl() {
   } catch (error) {
     currentRuntimeBaseUrl = normalizeHttpUrl(window.location.origin || "");
   }
+
+  if (configuredBaseUrl) {
+    if (!currentRuntimeBaseUrl || isLikelyLocalUrl(currentRuntimeBaseUrl)) {
+      return configuredBaseUrl;
+    }
+    if (areSameHost(configuredBaseUrl, currentRuntimeBaseUrl)) {
+      return configuredBaseUrl;
+    }
+  }
+
   if (currentRuntimeBaseUrl && !isLikelyLocalUrl(currentRuntimeBaseUrl)) {
     return currentRuntimeBaseUrl;
   }
@@ -1399,7 +1434,7 @@ function migrateDataModel() {
   if (!state.data.meta || typeof state.data.meta !== "object") {
     state.data.meta = {};
   }
-  state.data.meta.signatureMobileBaseUrl = normalizeHttpUrl(state.data.meta.signatureMobileBaseUrl || "");
+  state.data.meta.signatureMobileBaseUrl = normalizeMobileSignatureBaseUrl(state.data.meta.signatureMobileBaseUrl || "");
   state.data.meta.storagePdfBucket = normalizeBucketName(
     state.data.meta.storagePdfBucket,
     DEFAULT_SUPABASE_PDF_BUCKET
@@ -4439,7 +4474,7 @@ function bindMobileSignatureSettingsForm() {
     }
 
     const rawValue = String(form.elements.mobileSignatureBaseUrl?.value || "").trim();
-    const normalized = normalizeHttpUrl(rawValue);
+    const normalized = normalizeMobileSignatureBaseUrl(rawValue);
     if (rawValue && !normalized) {
       showDataStatus("URL INVALIDE (UTILISER HTTP OU HTTPS)");
       form.elements.mobileSignatureBaseUrl?.focus();
