@@ -35,15 +35,15 @@ export default function MobileOverview({ persons, effets, onSelectPerson }) {
     const personAlerts = [];
     const sortiePrevue = String(p.dateSortiePrevue || "");
     const sortieReelle = String(p.dateSortieReelle || "");
-    if (sortiePrevue && !sortieReelle && sortiePrevue < todayIso) {
-      personAlerts.push({ key: `${p.id}-late`, personId: p.id, type: "dateSortiePrevue", text: `${p.nom} ${p.prenom} : SORTIE PREVUE DEPASSEE` });
-    }
-    if (sortieReelle && sortieReelle <= todayIso) {
-      personAlerts.push({ key: `${p.id}-out`, personId: p.id, type: "dateSortieReelle", text: `${p.nom} ${p.prenom} : PERSONNE SORTIE` });
-    }
     const nonRendusCount = effets.filter(
       (e) => String(e.personId) === String(p.id) && getEffectStatus(p, e) === "NON RENDU"
     ).length;
+    if (sortiePrevue && !sortieReelle && sortiePrevue < todayIso) {
+      personAlerts.push({ key: `${p.id}-late`, personId: p.id, type: "dateSortiePrevue", text: `${p.nom} ${p.prenom} : SORTIE PREVUE DEPASSEE` });
+    }
+    if (sortieReelle && sortieReelle <= todayIso && nonRendusCount > 0) {
+      personAlerts.push({ key: `${p.id}-out`, personId: p.id, type: "dateSortieReelle", text: `${p.nom} ${p.prenom} : PERSONNE SORTIE` });
+    }
     if (nonRendusCount > 0) {
       personAlerts.push({ key: `${p.id}-nr`, personId: p.id, type: "dateSortiePrevue", text: `${p.nom} ${p.prenom} : ${nonRendusCount} EFFET(S) NON RENDU(S)` });
     }
