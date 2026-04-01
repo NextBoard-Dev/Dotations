@@ -8115,14 +8115,20 @@ function renderMobileSignatureSettings() {
     return;
   }
 
+  const withTrailingSlash = (url) => {
+    const raw = String(url || "").trim();
+    if (!raw) return "";
+    return raw.endsWith("/") ? raw : `${raw}/`;
+  };
+
   const configured = getConfiguredMobileSignatureBaseUrl();
-  input.value = configured;
+  input.value = withTrailingSlash(configured);
   if (!statusNode) {
     return;
   }
 
   const setStatusWithUrl = (prefix, url) => {
-    const safeUrl = escapeHtml(url);
+    const safeUrl = escapeHtml(withTrailingSlash(url));
     statusNode.innerHTML = `${prefix} : <a href="${safeUrl}" target="_blank" rel="noopener">${safeUrl}</a>`;
   };
 
