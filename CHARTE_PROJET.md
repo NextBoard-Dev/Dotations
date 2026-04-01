@@ -21,6 +21,14 @@ Date de mise a jour: 18/03/2026
 - Toujours verifier la syntaxe JS apres modification: `node --check app.js`.
 - Reponse en francais simple (niveau novice).
 
+## 3.1) POLITIQUE DE VERIFICATION ANTI-REGRESSION UI (OBLIGATOIRE)
+
+- Toute correction doit inclure une verification explicite des zones UI potentiellement impactees.
+- Interdiction de valider une correction sans controle des interactions liees (filtres, boutons, formulaires, tableaux, calculs KPI, documents).
+- La verification doit confirmer que la correction n'affecte pas les autres fonctionnalites de l'interface.
+- En cas de doute sur un impact transversal: stopper, signaler le risque, et demander validation avant extension des modifications.
+- Cette politique s'applique a chaque correction, meme mineure.
+
 ## 4) SIGNATURES / PDF / ARCHIVES
 
 - `OUVRIR EN PDF` bloque tant que les 2 signatures ne sont pas validees.

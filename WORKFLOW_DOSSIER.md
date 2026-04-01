@@ -26,3 +26,5 @@ Date de mise a jour: 18/03/2026
 - Pas de fichier parasite.
 - Regles signatures/PDF/archives respectees.
 - Aucun effet de bord majeur UI/metier.
+- Verification anti-regression UI effectuee sur les ecrans/fonctions proches de la correction.
+- Verification explicite que la correction n'a pas degrade les autres fonctionnalites UI.
