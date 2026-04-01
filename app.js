@@ -7948,7 +7948,10 @@ function getOverdueExitAlertMeta(person) {
       message: `ALERTE : DATE DE SORTIE PREVUE DEPASSEE (${formatDate(person.dateSortiePrevue)})`,
     };
   }
-  if (person?.dateSortieReelle && isPastDate(person.dateSortieReelle)) {
+  const hasNonRenduEffects = (person?.effetsConfies || []).some(
+    (effect) => normalizeText(getEffectStatus(person, effect)) === "NON RENDU"
+  );
+  if (person?.dateSortieReelle && isPastDate(person.dateSortieReelle) && hasNonRenduEffects) {
     return {
       type: "dateSortieReelle",
       message: `ALERTE : DATE DE SORTIE REELLE DEPASSEE (${formatDate(person.dateSortieReelle)})`,
