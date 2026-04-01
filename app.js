@@ -4693,6 +4693,8 @@ function renderPage() {
 
   if (page === "reference-bases") {
     renderReferenceBases();
+    bindEffectTableSorting();
+    updateSortableHeaders("referenceEffects");
   }
 
   updateDocumentPdfButtonsState();
