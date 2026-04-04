@@ -1514,7 +1514,7 @@ function migrateDataModel() {
   state.data.listes.coutsRemplacement = state.data.listes.coutsRemplacement
     .map((entry) => ({
       typeEffet: normalizeText(entry.typeEffet),
-      cause: ["CASSE", "DETRUIT"].includes(normalizeText(entry.cause)) ? "HS" : normalizeText(entry.cause),
+      cause: normalizeText(entry.cause) === "CASSE" ? "HS" : normalizeText(entry.cause),
       montant: normalizeAmount(entry.montant),
     }))
     .filter((entry) => entry.typeEffet && entry.cause);
