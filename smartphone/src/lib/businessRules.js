@@ -4,7 +4,7 @@ function normalizeText(value) {
     .toUpperCase();
 }
 
-const ALLOWED_MANUAL_EFFECT_STATUSES = new Set(["ACTIF", "PERDU", "VOL", "HS"]);
+const ALLOWED_MANUAL_EFFECT_STATUSES = new Set(["ACTIF", "PERDU", "VOL", "HS", "DETRUIT"]);
 
 export function getDossierStatus(person) {
   if (String(person?.dateSortieReelle || "").trim()) return "SORTI";
@@ -32,7 +32,7 @@ function isExitDue(person) {
 export function normalizeManualStatus(rawStatus) {
   const status = normalizeText(rawStatus);
   if (status === "VOLE") return "VOL";
-  if (status === "CASSE" || status === "DETRUIT") return "HS";
+  if (status === "CASSE") return "HS";
   if (ALLOWED_MANUAL_EFFECT_STATUSES.has(status)) return status;
   return "";
 }

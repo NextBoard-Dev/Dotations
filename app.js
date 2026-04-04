@@ -49,7 +49,7 @@ const LEGACY_CONTRACT_TYPES = ["CDI", "CDD", "INTERIMAIRE"];
 const MAX_UNDO_STACK = 30;
 const ALL_SITES_VALUE = "TOUS SITES";
 const EFFECT_STATUS_CAUSES = ["HS", "PERTE", "VOL", "NON RENDU", "DETRUIT"];
-const BILLABLE_EFFECT_CAUSES = ["PERTE", "VOL", "NON RENDU"];
+const BILLABLE_EFFECT_CAUSES = ["PERTE", "VOL", "NON RENDU", "DETRUIT"];
 const MOBILE_SIGNATURE_REQUEST_TTL_MS = 10 * 60 * 1000;
 const SUPABASE_PROJECT_URL = "https://dphrvdhqhgycmllietuk.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_2wYXnIDj4-c8daQZW8D5hA_2Py6k7z6";
@@ -3928,7 +3928,7 @@ function isCesKeyDesignation(designation) {
 function getReplacementCostValue(typeEffet, causeRemplacement, designation = "") {
   const normalizedType = normalizeText(typeEffet);
   const normalizedCauseRaw = normalizeText(causeRemplacement) || "";
-  const normalizedCause = normalizedCauseRaw === "CASSE" || normalizedCauseRaw === "DETRUIT" ? "HS" : normalizedCauseRaw;
+  const normalizedCause = normalizedCauseRaw === "CASSE" ? "HS" : normalizedCauseRaw;
   if (!normalizedType) {
     return 0;
   }
@@ -3992,7 +3992,7 @@ function getEffectReplacementCause(person, effect) {
     return "PERTE";
   }
   if (status === "DETRUIT") {
-    return "HS";
+    return "DETRUIT";
   }
   if (status === "VOL") {
     return "VOL";
@@ -4036,7 +4036,7 @@ function syncReplacementCostField() {
   const billingCause = manualStatus === "PERDU"
     ? "PERTE"
     : manualStatus === "DETRUIT"
-      ? "HS"
+      ? "DETRUIT"
       : manualStatus === "VOL"
         ? "VOL"
         : "";
@@ -7985,7 +7985,7 @@ function getEffectStatus(person, effect) {
   if (effect.dateRetour) return "RESTITUE";
 
   const manualStatus = normalizeText(effect.statutManuel);
-  if (manualStatus === "CASSE" || manualStatus === "DETRUIT") return "HS";
+  if (manualStatus === "CASSE") return "HS";
   if (["PERDU", "HS", "VOL"].includes(manualStatus)) return manualStatus;
   if (isExitDue(person)) return "NON RENDU";
   return manualStatus || "ACTIF";
