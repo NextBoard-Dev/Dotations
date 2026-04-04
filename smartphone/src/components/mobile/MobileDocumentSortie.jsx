@@ -170,7 +170,7 @@ export default function MobileDocumentSortie({ persons, effets, selectedPerson, 
       setTimeout(() => setMsg(null), 2500);
     } catch (error) {
       console.error("Sortie save effets error:", error);
-      setSaveStatus("saved");
+      setSaveStatus("error");
       setMsg(String(error?.message || "ERREUR DE SAUVEGARDE SUPABASE").toUpperCase());
       setTimeout(() => setMsg(null), 2500);
     } finally {

@@ -67,7 +67,7 @@ export default function MobileFichePerson({ persons, effets, selectedPerson, onS
     } catch (error) {
       console.error("Person save error:", error);
       setMsg(String(error?.message || "ERREUR DE SAUVEGARDE SUPABASE").toUpperCase());
-      setSaveStatus("saved");
+      setSaveStatus("error");
     } finally {
       setSaving(false);
       setTimeout(() => setMsg(null), 2500);
@@ -87,7 +87,7 @@ export default function MobileFichePerson({ persons, effets, selectedPerson, onS
       setForm({ nom: "", prenom: "", fonction: "", sites: [], typePersonnel: "", typeContrat: "", dateEntree: "", dateSortiePrevue: "", dateSortieReelle: "" });
     } catch (error) {
       console.error("Person delete error:", error);
-      setSaveStatus("saved");
+      setSaveStatus("error");
       setMsg(String(error?.message || "ERREUR DE SAUVEGARDE SUPABASE").toUpperCase());
       setTimeout(() => setMsg(null), 2500);
     }

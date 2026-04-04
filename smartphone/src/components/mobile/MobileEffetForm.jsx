@@ -87,7 +87,7 @@ function MobileEffetForm({ personId, editingEffet, onSaved, onCancel, setSaveSta
       onSaved();
     } catch (error) {
       console.error("Effet save error:", error);
-      setSaveStatus("saved");
+      setSaveStatus("error");
       setError(String(error?.message || "ERREUR DE SAUVEGARDE SUPABASE").toUpperCase());
     } finally {
       setSaving(false);
@@ -104,7 +104,7 @@ function MobileEffetForm({ personId, editingEffet, onSaved, onCancel, setSaveSta
       onSaved();
     } catch (error) {
       console.error("Effet delete error:", error);
-      setSaveStatus("saved");
+      setSaveStatus("error");
       setError(String(error?.message || "ERREUR DE SAUVEGARDE SUPABASE").toUpperCase());
     }
   };
