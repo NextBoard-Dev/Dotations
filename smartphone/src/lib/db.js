@@ -225,23 +225,47 @@ function applySignedDocumentCompletion(person, docType) {
 
 async function getAppStateRow() {
   const rows = await runQuery(
-    supabase.from("app_state").select("id,payload").eq("id", "main").limit(1),
+    supabase.from("app_state").select("id,payload,revision").eq("id", "main").limit(1),
     "Lecture app_state impossible"
   );
   const row = rows?.[0];
   if (!row) return null;
+  const revision = Number(row.revision);
   return {
     id: row.id,
     payload: safeJsonParse(row.payload),
+    revision: Number.isFinite(revision) ? revision : 0,
   };
 }
 
-async function saveAppStatePayload(payload) {
+function buildAppStateConflictError() {
+  const error = new Error("Conflit de sauvegarde : les donnees ont ete modifiees ailleurs. Recharge puis reessaie.");
+  error.code = "APP_STATE_CONFLICT";
+  return error;
+}
+
+async function saveAppStatePayload(payload, expectedRevision) {
   const normalizedPayload = payload && typeof payload === "object" ? payload : {};
-  await runQuery(
-    supabase.from("app_state").update({ payload: normalizedPayload }).eq("id", "main").select("id").single(),
-    "Mise a jour app_state impossible"
-  );
+  const revision = Number(expectedRevision);
+  if (!Number.isFinite(revision)) {
+    throw new Error("Mise a jour app_state impossible: revision indisponible");
+  }
+  const { data, error } = await supabase
+    .from("app_state")
+    .update({ payload: normalizedPayload, revision: revision + 1 })
+    .eq("id", "main")
+    .eq("revision", revision)
+    .select("id,revision");
+  if (error) {
+    const details = [error.message, error.details, error.hint].filter(Boolean).join(" | ");
+    throw new Error(`Mise a jour app_state impossible: ${details || "Erreur inconnue"}`);
+  }
+  const updated = Array.isArray(data) ? data[0] : null;
+  if (!updated?.id) {
+    throw buildAppStateConflictError();
+  }
+  const nextRevision = Number(updated.revision);
+  return Number.isFinite(nextRevision) ? nextRevision : revision + 1;
 }
 
 async function getAppStatePayload() {
@@ -560,7 +584,7 @@ export const db = {
           representants: { arrival: {}, exit: {} },
         };
         payload.personnes = [...raw, entry];
-        await saveAppStatePayload(payload);
+        await saveAppStatePayload(payload, row?.revision);
         return normalizeLegacyPerson(entry);
       }
       return sqlPerson.create(data);
@@ -574,7 +598,7 @@ export const db = {
         if (idx >= 0) {
           const updated = applyLegacyPersonToRaw(payload.personnes[idx], data || {});
           payload.personnes[idx] = updated;
-          await saveAppStatePayload(payload);
+          await saveAppStatePayload(payload, row?.revision);
           return normalizeLegacyPerson(updated);
         }
       }
@@ -588,7 +612,7 @@ export const db = {
         const before = payload.personnes.length;
         payload.personnes = payload.personnes.filter((p) => toString(p?.id) !== toString(id));
         if (payload.personnes.length !== before) {
-          await saveAppStatePayload(payload);
+          await saveAppStatePayload(payload, row?.revision);
           return { success: true };
         }
       }
@@ -618,7 +642,7 @@ export const db = {
         const newId = nextNumericId(allEffetIds, "E", 6);
         const entry = applyLegacyEffetToRaw({ id: newId, referenceEffetId: "", legacyDamageFacturable: false }, data || {});
         person.effetsConfies = [...ensureArray(person.effetsConfies), entry];
-        await saveAppStatePayload(payload);
+        await saveAppStatePayload(payload, row?.revision);
         return normalizeLegacyEffet(entry, person.id);
       }
       return sqlEffet.create(data);
@@ -635,7 +659,7 @@ export const db = {
             const updated = applyLegacyEffetToRaw(list[idx], data || {});
             list[idx] = updated;
             person.effetsConfies = list;
-            await saveAppStatePayload(payload);
+            await saveAppStatePayload(payload, row?.revision);
             return normalizeLegacyEffet(updated, person.id);
           }
         }
@@ -651,7 +675,7 @@ export const db = {
           const before = ensureArray(person?.effetsConfies).length;
           person.effetsConfies = ensureArray(person?.effetsConfies).filter((e) => toString(e?.id) !== toString(id));
           if (person.effetsConfies.length !== before) {
-            await saveAppStatePayload(payload);
+            await saveAppStatePayload(payload, row?.revision);
             return { success: true };
           }
         }
@@ -704,7 +728,7 @@ export const db = {
         }
         person.signatures = sigRoot;
         applySignedDocumentCompletion(person, docType);
-        await saveAppStatePayload(payload);
+        await saveAppStatePayload(payload, row?.revision);
         return normalizeLegacySignature(personId, docType, signer, sigRoot[docType][signer]);
       }
       const created = await sqlSignature.create(toSqlSignatureCreatePayload(data));
@@ -745,7 +769,7 @@ export const db = {
         }
         person.signatures = sigRoot;
         applySignedDocumentCompletion(person, docType);
-        await saveAppStatePayload(payload);
+        await saveAppStatePayload(payload, row?.revision);
         return normalizeLegacySignature(personId, docType, signer, sigRoot[docType][signer]);
       }
       const updated = await sqlSignature.update(id, toSqlSignatureUpdatePayload(data));
@@ -764,7 +788,7 @@ export const db = {
           sigRoot[docType] = sigRoot[docType] || {};
           sigRoot[docType][signer] = { image: "", validatedAt: "", signataireName: "", signataireFunction: "" };
           person.signatures = sigRoot;
-          await saveAppStatePayload(payload);
+          await saveAppStatePayload(payload, row?.revision);
           return { success: true };
         }
       }

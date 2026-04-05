@@ -10,6 +10,7 @@ const DEFAULT_FILTERS = {
 
 const state = {
   data: null,
+  supabaseRevision: null,
   currentSheetPersonId: "",
   editingEffectId: "",
   editingReferenceId: "",
@@ -486,7 +487,7 @@ async function uploadSignatureImageToSupabaseStorage(docType, person, signer, si
 async function fetchSupabaseStateData() {
   const endpoint = `${getSupabaseRestEndpoint()}?id=eq.${encodeURIComponent(
     SUPABASE_APP_STATE_ID
-  )}&select=payload&limit=1`;
+  )}&select=payload,revision&limit=1`;
   const response = await fetch(endpoint, {
     headers: getSupabaseHeaders(),
     cache: "no-store",
@@ -498,25 +499,56 @@ async function fetchSupabaseStateData() {
   if (!Array.isArray(rows) || !rows.length || !rows[0]?.payload) {
     throw new Error("SUPABASE EMPTY PAYLOAD");
   }
+  const revision = Number(rows[0]?.revision);
+  state.supabaseRevision = Number.isFinite(revision) ? revision : 0;
   return rows[0].payload;
 }
 
+function buildSaveConflictError() {
+  const error = new Error("Conflit de sauvegarde : les donnees ont ete modifiees ailleurs. Recharge puis reessaie.");
+  error.code = "APP_STATE_CONFLICT";
+  return error;
+}
+
+function isSaveConflictError(error) {
+  return String(error?.code || "") === "APP_STATE_CONFLICT";
+}
+
 async function saveSupabaseStateData(payload) {
-  const response = await fetch(getSupabaseRestEndpoint(), {
-    method: "POST",
+  if (!Number.isFinite(Number(state.supabaseRevision))) {
+    await fetchSupabaseStateData();
+  }
+  const expectedRevision = Number(state.supabaseRevision);
+  if (!Number.isFinite(expectedRevision)) {
+    throw new Error("SUPABASE REVISION INDISPONIBLE");
+  }
+
+  const endpoint = `${getSupabaseRestEndpoint()}?id=eq.${encodeURIComponent(
+    SUPABASE_APP_STATE_ID
+  )}&revision=eq.${encodeURIComponent(String(expectedRevision))}&select=id,revision`;
+  const response = await fetch(endpoint, {
+    method: "PATCH",
     headers: getSupabaseHeaders({
       "Content-Type": "application/json",
-      Prefer: "resolution=merge-duplicates,return=representation",
+      Prefer: "return=representation",
     }),
-    body: JSON.stringify([
-      {
-        id: SUPABASE_APP_STATE_ID,
-        payload,
-      },
-    ]),
+    body: JSON.stringify({
+      payload,
+      revision: expectedRevision + 1,
+    }),
   });
   if (!response.ok) {
     throw new Error("SUPABASE SAVE FAILED");
+  }
+
+  const rows = await response.json().catch(() => null);
+  const updated = Array.isArray(rows) ? rows[0] : null;
+  if (!updated?.id) {
+    throw buildSaveConflictError();
+  }
+  const nextRevision = Number(updated.revision);
+  if (Number.isFinite(nextRevision)) {
+    state.supabaseRevision = nextRevision;
   }
 }
 
@@ -1397,6 +1429,7 @@ async function reloadData(statusText = "RECHARGEMENT DES DONNEES...") {
     );
   } catch (error) {
     console.error(error);
+    state.supabaseRevision = null;
     state.data = null;
     resetUiWithoutData();
     if (getDataBackendMode() === "HOSTED_NO_BACKEND") {
@@ -9085,6 +9118,13 @@ async function saveDataToFile(options = {}) {
     }
   } catch (error) {
     console.error(error);
+    if (isSaveConflictError(error)) {
+      showDataStatus("CONFLIT DE SAUVEGARDE - RECHARGER PUIS REESSAYER");
+      if (!silent) {
+        window.alert(error.message);
+      }
+      return;
+    }
     showDataStatus("SAUVEGARDE IMPOSSIBLE");
     if (!silent) {
       window.alert("SAUVEGARDE IMPOSSIBLE");
