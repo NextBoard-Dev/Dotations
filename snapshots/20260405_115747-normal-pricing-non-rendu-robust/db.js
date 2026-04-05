@@ -104,20 +104,6 @@ function normalizeCause(value) {
   return "";
 }
 
-function normalizePricingKey(value, { cause = false } = {}) {
-  let normalized = toString(value)
-    .trim()
-    .toUpperCase()
-    .replace(/[_-]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  if (!cause) return normalized;
-  if (normalized === "NON RENDU") return "NON RENDU";
-  if (normalized === "PERDU") return "PERTE";
-  if (normalized === "CASSE") return "HS";
-  return normalized;
-}
-
 function inferCauseFromStatus(value) {
   const status = normalizeManualStatus(value);
   if (status === "PERDU") return "PERTE";
@@ -336,11 +322,11 @@ async function getReferenceBases() {
     const listes = payload?.listes || {};
     const coutsRemplacement = ensureArray(listes.coutsRemplacement)
       .map((entry) => ({
-        typeEffet: normalizePricingKey(entry?.typeEffet),
-        cause: normalizePricingKey(entry?.cause, { cause: true }),
+        typeEffet: toString(entry?.typeEffet).trim(),
+        cause: toString(entry?.cause).trim().toUpperCase(),
         montant: Number(entry?.montant) || 0,
       }))
-      .filter((entry) => entry.typeEffet && entry.cause);
+      .filter((entry) => entry.typeEffet);
     return {
       sites: normalizeStringArray(listes.sites),
       fonctions: normalizeStringArray(listes.fonctions),

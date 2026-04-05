@@ -49,7 +49,9 @@ function loadPcBillingFns() {
     "normalizeText",
     "normalizeAmount",
     "normalizeEffectCause",
+    "normalizePricingKey",
     "isCesKeyDesignation",
+    "getFallbackNonRenduCost",
     "getReplacementCostValue",
     "getTodayIsoDate",
     "isPastDate",
@@ -61,6 +63,13 @@ function loadPcBillingFns() {
   const context = {
     state: { data: { listes: { coutsRemplacement: [] } } },
     BILLABLE_EFFECT_CAUSES: ["PERTE", "VOL", "NON RENDU", "DETRUIT"],
+    NON_RENDU_REFERENCE_COSTS: {
+      "BADGE INTRUSION": 15,
+      "CARTE TURBOSELF": 10,
+      CLE: 5,
+      "CLE CES": 50,
+      "TELECOMMANDE URMET": 40,
+    },
     Date,
   };
   vm.createContext(context);

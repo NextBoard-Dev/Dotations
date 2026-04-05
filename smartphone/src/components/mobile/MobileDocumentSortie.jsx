@@ -51,7 +51,7 @@ function resolveRepresentativeIdFromSignature(signature, representatives) {
 
 const STATUT_COLORS = {
   "ACTIF": { bg: "rgba(89,148,117,0.16)", color: "#2f5e43" },
-  "RESTITUE": { bg: "rgba(87,143,106,0.2)", color: "#2c513a" },
+  "RENDU": { bg: "rgba(87,143,106,0.2)", color: "#2c513a" },
   "NON RENDU": { bg: "rgba(224,147,82,0.2)", color: "#8e4d1e" },
   "PERDU": { bg: "rgba(202,91,96,0.19)", color: "#7d2a31" },
   "HS": { bg: "rgba(132,140,149,0.22)", color: "#4a545d" },
@@ -264,8 +264,10 @@ export default function MobileDocumentSortie({ persons, effets, selectedPerson, 
             <div style={{ ...card, textAlign: "center", color: "#3f5662", fontSize: 11 }}>AUCUN EFFET</div>
           ) : (
             localEffets.map(e => {
-              const displayStatus = getEffectStatus(selectedPerson, e);
+              const rawStatus = getEffectStatus(selectedPerson, e);
+              const displayStatus = rawStatus === "RESTITUE" ? "RENDU" : rawStatus;
               const sc = STATUT_COLORS[displayStatus] || STATUT_COLORS["ACTIF"];
+              const lineCost = getEffetReferenceCost(e);
               return (
                 <div key={e.id} style={{ ...card, padding: "10px 12px" }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
@@ -273,7 +275,7 @@ export default function MobileDocumentSortie({ persons, effets, selectedPerson, 
                       <span style={{ fontWeight: 700, fontSize: 12 }}>{e.typeEffet}</span>
                       <span style={{ fontSize: 9, marginLeft: 8, padding: "2px 7px", borderRadius: 99, background: sc.bg, color: sc.color }}>{displayStatus}</span>
                     </div>
-                    <span style={{ fontSize: 11, color: "#9b5a2a", fontWeight: 600 }}>{formatCost(e.coutRemplacement)}</span>
+                    <span style={{ fontSize: 11, color: "#9b5a2a", fontWeight: 600 }}>{formatCost(lineCost)}</span>
                   </div>
                   <div style={{ fontSize: 11, color: "#213b48", marginBottom: 4 }}>{e.designation || "—"}</div>
                   {/* Statut select */}
@@ -297,7 +299,14 @@ export default function MobileDocumentSortie({ persons, effets, selectedPerson, 
                     }}
                     style={{ width: "100%", padding: "6px 8px", borderRadius: 7, border: "1px solid rgba(173,190,199,0.98)", background: "#fffdfa", fontSize: 11, color: "#0f1e26" }}
                   >
-                    {["ACTIF", "RESTITUE", "PERDU", "HS", "VOL", "DETRUIT"].map(s => <option key={s} value={s}>{s}</option>)}
+                    {[
+                      ["ACTIF", "ACTIF"],
+                      ["RESTITUE", "RENDU"],
+                      ["PERDU", "PERDU"],
+                      ["HS", "HS"],
+                      ["VOL", "VOL"],
+                      ["DETRUIT", "DETRUIT"],
+                    ].map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                   </select>
                 </div>
               );

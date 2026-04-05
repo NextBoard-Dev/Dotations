@@ -51,13 +51,6 @@ const MAX_UNDO_STACK = 30;
 const ALL_SITES_VALUE = "TOUS SITES";
 const EFFECT_STATUS_CAUSES = ["HS", "PERTE", "VOL", "NON RENDU", "DETRUIT"];
 const BILLABLE_EFFECT_CAUSES = ["PERTE", "VOL", "NON RENDU", "DETRUIT"];
-const NON_RENDU_REFERENCE_COSTS = {
-  "BADGE INTRUSION": 15,
-  "CARTE TURBOSELF": 10,
-  CLE: 5,
-  "CLE CES": 50,
-  "TELECOMMANDE URMET": 40,
-};
 const MOBILE_SIGNATURE_REQUEST_TTL_MS = 10 * 60 * 1000;
 const SUPABASE_PROJECT_URL = "https://dphrvdhqhgycmllietuk.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_2wYXnIDj4-c8daQZW8D5hA_2Py6k7z6";
@@ -189,29 +182,6 @@ function normalizeEffectCause(value) {
   if (normalized === "PERDU") return "PERTE";
   if (["DETRUIT", "PERTE", "VOL", "HS", "NON RENDU"].includes(normalized)) return normalized;
   return "";
-}
-
-function normalizePricingKey(value, { cause = false } = {}) {
-  let normalized = normalizeText(value)
-    .replace(/[_-]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  if (!cause) {
-    return normalized;
-  }
-  if (normalized === "NON RENDU") return "NON RENDU";
-  if (normalized === "PERDU") return "PERTE";
-  if (normalized === "CASSE") return "HS";
-  return normalized;
-}
-
-function getFallbackNonRenduCost(typeEffet, designation = "") {
-  const normalizedType = normalizePricingKey(typeEffet);
-  if (!normalizedType) return 0;
-  if (normalizedType === "CLE") {
-    return isCesKeyDesignation(designation) ? 50 : 5;
-  }
-  return NON_RENDU_REFERENCE_COSTS[normalizedType] || 0;
 }
 
 function getCauseFromManualStatus(manualStatus) {
@@ -3994,8 +3964,9 @@ function isCesKeyDesignation(designation) {
 }
 
 function getReplacementCostValue(typeEffet, causeRemplacement, designation = "") {
-  const normalizedType = normalizePricingKey(typeEffet);
-  const normalizedCause = normalizePricingKey(causeRemplacement, { cause: true });
+  const normalizedType = normalizeText(typeEffet);
+  const normalizedCauseRaw = normalizeText(causeRemplacement) || "";
+  const normalizedCause = normalizedCauseRaw === "CASSE" ? "HS" : normalizedCauseRaw;
   if (!normalizedType) {
     return 0;
   }
@@ -4006,14 +3977,10 @@ function getReplacementCostValue(typeEffet, causeRemplacement, designation = "")
 
   const matchingEntry = (state.data?.listes?.coutsRemplacement || []).find(
     (entry) =>
-      normalizePricingKey(entry?.typeEffet) === normalizedType &&
-      normalizePricingKey(entry?.cause, { cause: true }) === normalizedCause
+      normalizeText(entry.typeEffet) === normalizedType && normalizeText(entry.cause) === normalizedCause
   );
 
   if (!matchingEntry) {
-    if (normalizedCause === "NON RENDU") {
-      return getFallbackNonRenduCost(normalizedType, designation);
-    }
     return 0;
   }
 
@@ -4025,22 +3992,7 @@ function getReplacementCostValue(typeEffet, causeRemplacement, designation = "")
     return isCesKeyDesignation(designation) ? 50 : 5;
   }
 
-  const rawAmount = String(matchingEntry.montant ?? "").trim();
-  const normalizedRawAmount = rawAmount.replace(/\s/g, "").replace(",", ".");
-  const hasValidNumericAmount = /^-?\d+(\.\d+)?$/.test(normalizedRawAmount);
-  const parsedAmount = normalizeAmount(matchingEntry.montant);
-  if (!rawAmount || !hasValidNumericAmount) {
-    console.warn(
-      "Tarif invalide detecte dans coutsRemplacement",
-      normalizedType,
-      normalizedCause,
-      matchingEntry.montant
-    );
-    if (normalizedCause === "NON RENDU") {
-      return getFallbackNonRenduCost(normalizedType, designation);
-    }
-  }
-  return parsedAmount;
+  return normalizeAmount(matchingEntry.montant);
 }
 
 function getEffectUnitValue(effect) {

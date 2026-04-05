@@ -6,13 +6,6 @@ function normalizeText(value) {
 
 const ALLOWED_MANUAL_EFFECT_STATUSES = new Set(["ACTIF", "PERDU", "VOL", "HS", "DETRUIT"]);
 const BILLABLE_EFFECT_CAUSES = new Set(["PERTE", "VOL", "NON RENDU", "DETRUIT"]);
-const NON_RENDU_REFERENCE_COSTS = {
-  "BADGE INTRUSION": 15,
-  "CARTE TURBOSELF": 10,
-  CLE: 5,
-  "CLE CES": 50,
-  "TELECOMMANDE URMET": 40,
-};
 
 function normalizeCause(rawCause) {
   const cause = normalizeText(rawCause);
@@ -20,25 +13,6 @@ function normalizeCause(rawCause) {
   if (cause === "PERDU") return "PERTE";
   if (["DETRUIT", "PERTE", "VOL", "HS", "NON RENDU"].includes(cause)) return cause;
   return "";
-}
-
-function normalizePricingKey(value, { cause = false } = {}) {
-  let normalized = normalizeText(value)
-    .replace(/[_-]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  if (!cause) return normalized;
-  if (normalized === "NON RENDU") return "NON RENDU";
-  if (normalized === "PERDU") return "PERTE";
-  if (normalized === "CASSE") return "HS";
-  return normalized;
-}
-
-function getFallbackNonRenduCost(typeEffet, designation = "") {
-  const normalizedType = normalizePricingKey(typeEffet);
-  if (!normalizedType) return 0;
-  if (normalizedType === "CLE") return isCesKeyDesignation(designation) ? 50 : 5;
-  return NON_RENDU_REFERENCE_COSTS[normalizedType] || 0;
 }
 
 function isCesKeyDesignation(designation) {
@@ -92,32 +66,23 @@ export function getEffectBillingCause(person, effect) {
 }
 
 export function getReplacementCostValue(pricingRules = [], typeEffet, cause, designation = "") {
-  const wantedType = normalizePricingKey(typeEffet);
-  const wantedCause = normalizePricingKey(cause, { cause: true });
+  const wantedType = normalizeText(typeEffet);
+  const wantedCause = normalizeText(cause);
   if (!wantedType || !wantedCause || wantedCause === "HS") return 0;
   if (wantedType === "CLE CES") {
     return BILLABLE_EFFECT_CAUSES.has(wantedCause) ? 50 : 0;
   }
   const row = (pricingRules || []).find((entry) => {
-    const ruleType = normalizePricingKey(entry?.typeEffet);
-    const ruleCause = normalizePricingKey(entry?.cause, { cause: true });
+    const ruleType = normalizeText(entry?.typeEffet);
+    let ruleCause = normalizeText(entry?.cause);
+    if (ruleCause === "PERDU") ruleCause = "PERTE";
     return ruleType === wantedType && ruleCause === wantedCause;
   });
-  if (!row) {
-    if (wantedCause === "NON RENDU") return getFallbackNonRenduCost(wantedType, designation);
-    return 0;
-  }
+  if (!row) return 0;
   if (!BILLABLE_EFFECT_CAUSES.has(wantedCause)) return 0;
   if (wantedType === "CLE") {
     return isCesKeyDesignation(designation) ? 50 : 5;
   }
-  const rawAmount = String(row?.montant ?? "").trim();
-  const normalizedRawAmount = rawAmount.replace(/\s/g, "").replace(",", ".");
-  const hasValidNumericAmount = /^-?\d+(\.\d+)?$/.test(normalizedRawAmount);
   const amount = Number(row?.montant);
-  if (!rawAmount || !hasValidNumericAmount) {
-    console.warn("Tarif invalide detecte dans coutsRemplacement", wantedType, wantedCause, row?.montant);
-    if (wantedCause === "NON RENDU") return getFallbackNonRenduCost(wantedType, designation);
-  }
   return Number.isFinite(amount) ? amount : 0;
 }
