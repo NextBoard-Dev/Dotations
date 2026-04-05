@@ -96,23 +96,6 @@ function cleanDate(value) {
   return v || "";
 }
 
-function normalizeCause(value) {
-  const normalized = toString(value).trim().toUpperCase();
-  if (normalized === "CASSE") return "HS";
-  if (normalized === "PERDU") return "PERTE";
-  if (["DETRUIT", "PERTE", "VOL", "HS"].includes(normalized)) return normalized;
-  return "";
-}
-
-function inferCauseFromStatus(value) {
-  const status = normalizeManualStatus(value);
-  if (status === "PERDU") return "PERTE";
-  if (status === "DETRUIT") return "DETRUIT";
-  if (status === "VOL") return "VOL";
-  if (status === "HS") return "HS";
-  return "";
-}
-
 function getTodayIsoDate() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -161,7 +144,6 @@ function normalizeLegacyEffet(effet = {}, personId = "") {
     dateRemise: cleanDate(effet.dateRemise),
     dateRetour: cleanDate(effet.dateRetour),
     statut: normalizedStatus,
-    cause: normalizeCause(effet.cause || effet.causeRemplacement),
     dateRemplacement: cleanDate(effet.dateRemplacement),
     coutRemplacement: Number(effet.coutRemplacement) || 0,
     commentaire: toString(effet.commentaire).trim(),
@@ -473,10 +455,6 @@ function applyLegacyPersonToRaw(rawPerson = {}, data = {}) {
 
 function applyLegacyEffetToRaw(rawEffet = {}, data = {}) {
   const out = { ...rawEffet };
-  const existingCause = normalizeCause(out.cause || out.causeRemplacement);
-  if (existingCause) {
-    out.cause = existingCause;
-  }
   if (Object.prototype.hasOwnProperty.call(data, "typeEffet")) out.typeEffet = toString(data.typeEffet).trim();
   if (Object.prototype.hasOwnProperty.call(data, "designation")) out.designation = toString(data.designation).trim();
   if (Object.prototype.hasOwnProperty.call(data, "siteReference")) out.siteReference = toString(data.siteReference).trim();
@@ -493,16 +471,6 @@ function applyLegacyEffetToRaw(rawEffet = {}, data = {}) {
   }
   if (Object.prototype.hasOwnProperty.call(data, "statut")) {
     out.statutManuel = normalizeManualStatus(data.statut) || "ACTIF";
-    if (!Object.prototype.hasOwnProperty.call(data, "cause") && !normalizeCause(out.cause)) {
-      const inferredCause = inferCauseFromStatus(data.statut);
-      if (inferredCause) out.cause = inferredCause;
-    }
-  }
-  if (Object.prototype.hasOwnProperty.call(data, "cause")) {
-    const normalizedCause = normalizeCause(data.cause);
-    if (normalizedCause) {
-      out.cause = normalizedCause;
-    }
   }
   return out;
 }

@@ -180,7 +180,7 @@ function normalizeEffectCause(value) {
   const normalized = normalizeText(value);
   if (normalized === "CASSE") return "HS";
   if (normalized === "PERDU") return "PERTE";
-  if (["DETRUIT", "PERTE", "VOL", "HS", "NON RENDU"].includes(normalized)) return normalized;
+  if (["DETRUIT", "PERTE", "VOL", "HS"].includes(normalized)) return normalized;
   return "";
 }
 
@@ -3438,7 +3438,7 @@ function bindEffectForm() {
       dateRemise: String(formData.get("dateRemise") || ""),
       dateRetour: String(formData.get("dateRetour") || ""),
       statutManuel: manualStatus === "CASSE" ? "HS" : manualStatus,
-      cause: preservedCause || nextCause,
+      cause: nextCause || preservedCause,
       dateRemplacement,
       coutRemplacement,
       commentaire: normalizeText(formData.get("commentaire")),
@@ -4046,10 +4046,28 @@ function getEffectUnitValue(effect) {
 }
 
 function getEffectReplacementCause(person, effect) {
-  return normalizeEffectCause(effect?.cause || effect?.causeRemplacement);
+  const status = normalizeText(getEffectStatus(person, effect));
+  if (status === "PERDU") {
+    return "PERTE";
+  }
+  if (status === "DETRUIT") {
+    return "DETRUIT";
+  }
+  if (status === "VOL") {
+    return "VOL";
+  }
+  if (status === "NON RENDU") {
+    return "NON RENDU";
+  }
+  return status === "HS" ? "HS" : "";
 }
 
 function getEffectReplacementCost(person, effect) {
+  const status = normalizeText(getEffectStatus(person, effect));
+  if (status === "HS") {
+    return 0;
+  }
+
   const cause = normalizeText(getEffectReplacementCause(person, effect));
   if (!cause) {
     return 0;

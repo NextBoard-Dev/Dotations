@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { db } from "@/lib/db";
 import MobilePersonSearch from "./MobilePersonSearch";
 import MobileSignatureCanvas from "./MobileSignatureCanvas";
-import { getEffectBillingCause, getEffectStatus, getReplacementCostValue, normalizeManualStatus } from "@/lib/businessRules";
+import { getEffectStatus, getReplacementCostValue, normalizeManualStatus } from "@/lib/businessRules";
 
 const card = { background: "rgba(244,241,234,0.98)", border: "1px solid rgba(173,190,199,0.98)", borderRadius: 11, padding: "12px", marginBottom: 8, boxShadow: "0 4px 12px rgba(31,49,59,0.10)" };
 const docField = { display: "flex", flexDirection: "column", gap: 3, marginBottom: 8 };
@@ -10,23 +10,6 @@ const docLabel = { fontSize: 9, color: "#4a6170", letterSpacing: "0.08em" };
 const docValue = { padding: "7px 12px", borderRadius: 9, background: "rgba(251,250,247,0.98)", border: "1px solid rgba(152,177,190,0.9)", fontSize: 12, color: "#0f1e26", minHeight: 32, display: "flex", alignItems: "center" };
 function normalizeLabel(value) {
   return String(value || "").replace(/\s+/g, " ").trim().toUpperCase();
-}
-
-function normalizeCause(value) {
-  const normalized = normalizeLabel(value);
-  if (normalized === "CASSE") return "HS";
-  if (normalized === "PERDU") return "PERTE";
-  if (["DETRUIT", "PERTE", "VOL", "HS"].includes(normalized)) return normalized;
-  return "";
-}
-
-function inferCauseFromStatus(value) {
-  const normalizedStatus = normalizeManualStatus(value);
-  if (normalizedStatus === "PERDU") return "PERTE";
-  if (normalizedStatus === "DETRUIT") return "DETRUIT";
-  if (normalizedStatus === "VOL") return "VOL";
-  if (normalizedStatus === "HS") return "HS";
-  return "";
 }
 
 function formatCost(value) {
@@ -79,14 +62,7 @@ export default function MobileDocumentSortie({ persons, effets, selectedPerson, 
     if (selectedPerson) {
       loadSignatures();
       const pe = effets.filter(e => e.personId === selectedPerson.id);
-      setLocalEffets(
-        pe.map((e) => ({
-          ...e,
-          statut: normalizeManualStatus(e.statut) || "ACTIF",
-          cause: normalizeCause(e.cause || e.causeRemplacement),
-          _rendus: false,
-        }))
-      );
+      setLocalEffets(pe.map(e => ({ ...e, statut: normalizeManualStatus(e.statut) || "ACTIF", _rendus: false })));
     }
   }, [selectedPerson, effets]);
 
@@ -143,16 +119,19 @@ export default function MobileDocumentSortie({ persons, effets, selectedPerson, 
   const totalEffets = localEffets.length;
   const rendus = localEffets.filter((e) => getEffectStatus(selectedPerson, e) === "RESTITUE" || e._rendus).length;
   const getEffetBillingCause = (effet) => {
-    const persistedCause = normalizeCause(effet?.cause || effet?.causeRemplacement);
-    if (persistedCause) return persistedCause;
-    return normalizeCause(getEffectBillingCause(selectedPerson, effet));
+    const status = normalizeLabel(getEffectStatus(selectedPerson, effet));
+    if (status === "PERDU") return "PERTE";
+    if (status === "DETRUIT") return "DETRUIT";
+    if (status === "VOL") return "VOL";
+    if (status === "NON RENDU") return "NON RENDU";
+    return "";
   };
   const getEffetReferenceCost = (effet) => {
     const cause = getEffetBillingCause(effet);
     if (!cause) return 0;
     const directAmount = Number(effet?.coutRemplacement);
     if (Number.isFinite(directAmount) && directAmount > 0) return directAmount;
-    return getReplacementCostValue(pricingRules, effet?.typeEffet, cause, effet?.designation || "");
+    return getReplacementCostValue(pricingRules, effet?.typeEffet, cause);
   };
   const facturableAmounts = localEffets
     .map((e) => getEffetReferenceCost(e))
@@ -194,7 +173,6 @@ export default function MobileDocumentSortie({ persons, effets, selectedPerson, 
       for (const e of localEffets) {
         await db.Effet.update(e.id, {
           statut: normalizeManualStatus(e.statut) || "ACTIF",
-          cause: normalizeCause(e.cause) || inferCauseFromStatus(e.statut),
           dateRetour: e.statut === "RESTITUE" ? (e.dateRetour || todayIso()) : "",
         });
       }

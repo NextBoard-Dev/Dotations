@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { db } from "@/lib/db";
 import MobilePersonSearch from "./MobilePersonSearch";
 import MobileSignatureCanvas from "./MobileSignatureCanvas";
-import { getEffectBillingCause, getEffectStatus, getReplacementCostValue, normalizeManualStatus } from "@/lib/businessRules";
+import { getEffectStatus, getReplacementCostValue, normalizeManualStatus } from "@/lib/businessRules";
 
 const card = { background: "rgba(244,241,234,0.98)", border: "1px solid rgba(173,190,199,0.98)", borderRadius: 11, padding: "12px", marginBottom: 8, boxShadow: "0 4px 12px rgba(31,49,59,0.10)" };
 const docField = { display: "flex", flexDirection: "column", gap: 3, marginBottom: 8 };
@@ -143,16 +143,19 @@ export default function MobileDocumentSortie({ persons, effets, selectedPerson, 
   const totalEffets = localEffets.length;
   const rendus = localEffets.filter((e) => getEffectStatus(selectedPerson, e) === "RESTITUE" || e._rendus).length;
   const getEffetBillingCause = (effet) => {
-    const persistedCause = normalizeCause(effet?.cause || effet?.causeRemplacement);
-    if (persistedCause) return persistedCause;
-    return normalizeCause(getEffectBillingCause(selectedPerson, effet));
+    const status = normalizeLabel(getEffectStatus(selectedPerson, effet));
+    if (status === "PERDU") return "PERTE";
+    if (status === "DETRUIT") return "DETRUIT";
+    if (status === "VOL") return "VOL";
+    if (status === "NON RENDU") return "NON RENDU";
+    return "";
   };
   const getEffetReferenceCost = (effet) => {
     const cause = getEffetBillingCause(effet);
     if (!cause) return 0;
     const directAmount = Number(effet?.coutRemplacement);
     if (Number.isFinite(directAmount) && directAmount > 0) return directAmount;
-    return getReplacementCostValue(pricingRules, effet?.typeEffet, cause, effet?.designation || "");
+    return getReplacementCostValue(pricingRules, effet?.typeEffet, cause);
   };
   const facturableAmounts = localEffets
     .map((e) => getEffetReferenceCost(e))

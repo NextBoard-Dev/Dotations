@@ -176,23 +176,6 @@ function normalizeAmount(value) {
   return Number.isFinite(parsed) ? Number(parsed.toFixed(2)) : 0;
 }
 
-function normalizeEffectCause(value) {
-  const normalized = normalizeText(value);
-  if (normalized === "CASSE") return "HS";
-  if (normalized === "PERDU") return "PERTE";
-  if (["DETRUIT", "PERTE", "VOL", "HS", "NON RENDU"].includes(normalized)) return normalized;
-  return "";
-}
-
-function getCauseFromManualStatus(manualStatus) {
-  const normalized = normalizeText(manualStatus);
-  if (normalized === "PERDU") return "PERTE";
-  if (normalized === "DETRUIT") return "DETRUIT";
-  if (normalized === "VOL") return "VOL";
-  if (normalized === "HS" || normalized === "CASSE") return "HS";
-  return "";
-}
-
 function normalizeHttpUrl(value) {
   const raw = String(value || "").trim();
   if (!raw) {
@@ -1718,8 +1701,6 @@ function migrateDataModel() {
         effect.statutManuel = "HS";
       }
       const legacyCause = normalizeText(effect.causeRemplacement);
-      const persistedCause = normalizeEffectCause(effect.cause || legacyCause);
-      effect.cause = persistedCause;
       if (legacyCause === "CASSE") {
         effect.statutManuel = "HS";
       }
@@ -3421,12 +3402,6 @@ function bindEffectForm() {
     const vehiculeImmatriculation =
       typeEffet === "TELECOMMANDE URMET" ? normalizeText(formData.get("vehiculeImmatriculation")) : "";
 
-    const existingEffect =
-      mode === "edit"
-        ? (person.effetsConfies || []).find((entry) => String(entry?.id || "") === String(effectId))
-        : null;
-    const nextCause = getCauseFromManualStatus(manualStatus);
-    const preservedCause = normalizeEffectCause(existingEffect?.cause || existingEffect?.causeRemplacement);
     const effect = {
         id: effectId,
         typeEffet,
@@ -3438,7 +3413,6 @@ function bindEffectForm() {
       dateRemise: String(formData.get("dateRemise") || ""),
       dateRetour: String(formData.get("dateRetour") || ""),
       statutManuel: manualStatus === "CASSE" ? "HS" : manualStatus,
-      cause: preservedCause || nextCause,
       dateRemplacement,
       coutRemplacement,
       commentaire: normalizeText(formData.get("commentaire")),
@@ -4046,10 +4020,28 @@ function getEffectUnitValue(effect) {
 }
 
 function getEffectReplacementCause(person, effect) {
-  return normalizeEffectCause(effect?.cause || effect?.causeRemplacement);
+  const status = normalizeText(getEffectStatus(person, effect));
+  if (status === "PERDU") {
+    return "PERTE";
+  }
+  if (status === "DETRUIT") {
+    return "DETRUIT";
+  }
+  if (status === "VOL") {
+    return "VOL";
+  }
+  if (status === "NON RENDU") {
+    return "NON RENDU";
+  }
+  return status === "HS" ? "HS" : "";
 }
 
 function getEffectReplacementCost(person, effect) {
+  const status = normalizeText(getEffectStatus(person, effect));
+  if (status === "HS") {
+    return 0;
+  }
+
   const cause = normalizeText(getEffectReplacementCause(person, effect));
   if (!cause) {
     return 0;

@@ -473,10 +473,6 @@ function applyLegacyPersonToRaw(rawPerson = {}, data = {}) {
 
 function applyLegacyEffetToRaw(rawEffet = {}, data = {}) {
   const out = { ...rawEffet };
-  const existingCause = normalizeCause(out.cause || out.causeRemplacement);
-  if (existingCause) {
-    out.cause = existingCause;
-  }
   if (Object.prototype.hasOwnProperty.call(data, "typeEffet")) out.typeEffet = toString(data.typeEffet).trim();
   if (Object.prototype.hasOwnProperty.call(data, "designation")) out.designation = toString(data.designation).trim();
   if (Object.prototype.hasOwnProperty.call(data, "siteReference")) out.siteReference = toString(data.siteReference).trim();
@@ -493,7 +489,7 @@ function applyLegacyEffetToRaw(rawEffet = {}, data = {}) {
   }
   if (Object.prototype.hasOwnProperty.call(data, "statut")) {
     out.statutManuel = normalizeManualStatus(data.statut) || "ACTIF";
-    if (!Object.prototype.hasOwnProperty.call(data, "cause") && !normalizeCause(out.cause)) {
+    if (!Object.prototype.hasOwnProperty.call(data, "cause")) {
       const inferredCause = inferCauseFromStatus(data.statut);
       if (inferredCause) out.cause = inferredCause;
     }
@@ -502,6 +498,8 @@ function applyLegacyEffetToRaw(rawEffet = {}, data = {}) {
     const normalizedCause = normalizeCause(data.cause);
     if (normalizedCause) {
       out.cause = normalizedCause;
+    } else if (Object.prototype.hasOwnProperty.call(out, "cause")) {
+      delete out.cause;
     }
   }
   return out;

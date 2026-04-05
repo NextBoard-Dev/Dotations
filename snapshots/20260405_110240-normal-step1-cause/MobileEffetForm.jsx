@@ -9,25 +9,8 @@ const fieldStyle = { marginBottom: 10 };
 const TYPES_EFFET = ["CLE", "BADGE", "CARTE", "TELECOMMANDE", "AUTRE"];
 const STATUTS = ["ACTIF", "RESTITUE", "NON RENDU", "PERDU", "HS", "VOL", "DETRUIT"];
 
-function normalizeCause(value) {
-  const normalized = String(value || "").trim().toUpperCase();
-  if (normalized === "CASSE") return "HS";
-  if (normalized === "PERDU") return "PERTE";
-  if (["DETRUIT", "PERTE", "VOL", "HS"].includes(normalized)) return normalized;
-  return "";
-}
-
-function inferCauseFromStatus(value) {
-  const normalizedStatus = normalizeManualStatus(value);
-  if (normalizedStatus === "PERDU") return "PERTE";
-  if (normalizedStatus === "DETRUIT") return "DETRUIT";
-  if (normalizedStatus === "VOL") return "VOL";
-  if (normalizedStatus === "HS") return "HS";
-  return "";
-}
-
 function MobileEffetForm({ personId, editingEffet, onSaved, onCancel, setSaveStatus, bases = {} }) {
-  const [form, setForm] = useState({ typeEffet: "", designation: "", siteReference: "", numeroIdentification: "", vehiculeImmatriculation: "", dateRemise: "", dateRetour: "", statut: "ACTIF", cause: "", dateRemplacement: "", coutRemplacement: "", commentaire: "" });
+  const [form, setForm] = useState({ typeEffet: "", designation: "", siteReference: "", numeroIdentification: "", vehiculeImmatriculation: "", dateRemise: "", dateRetour: "", statut: "ACTIF", dateRemplacement: "", coutRemplacement: "", commentaire: "" });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const typesEffetsRef = Array.isArray(bases.typesEffets) && bases.typesEffets.length ? bases.typesEffets : TYPES_EFFET;
@@ -67,13 +50,12 @@ function MobileEffetForm({ personId, editingEffet, onSaved, onCancel, setSaveSta
         dateRemise: editingEffet.dateRemise || "",
         dateRetour: editingEffet.dateRetour || "",
         statut: normalizeManualStatus(editingEffet.statut) || "ACTIF",
-        cause: normalizeCause(editingEffet.cause || editingEffet.causeRemplacement),
         dateRemplacement: editingEffet.dateRemplacement || "",
         coutRemplacement: editingEffet.coutRemplacement || "",
         commentaire: editingEffet.commentaire || "",
       });
     } else {
-      setForm({ typeEffet: "", designation: "", siteReference: "", numeroIdentification: "", vehiculeImmatriculation: "", dateRemise: new Date().toISOString().slice(0, 10), dateRetour: "", statut: "ACTIF", cause: "", dateRemplacement: "", coutRemplacement: "", commentaire: "" });
+      setForm({ typeEffet: "", designation: "", siteReference: "", numeroIdentification: "", vehiculeImmatriculation: "", dateRemise: new Date().toISOString().slice(0, 10), dateRetour: "", statut: "ACTIF", dateRemplacement: "", coutRemplacement: "", commentaire: "" });
     }
   }, [editingEffet]);
 
@@ -93,7 +75,6 @@ function MobileEffetForm({ personId, editingEffet, onSaved, onCancel, setSaveSta
       const data = {
         ...form,
         statut: normalizeManualStatus(form.statut) || "ACTIF",
-        cause: normalizeCause(form.cause) || inferCauseFromStatus(form.statut),
         personId,
         coutRemplacement: form.coutRemplacement ? parseFloat(String(form.coutRemplacement).replace(",", ".")) : null
       };
