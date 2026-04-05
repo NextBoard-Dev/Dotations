@@ -6,9 +6,6 @@ const inputStyle = { padding: "8px 10px", borderRadius: 9, border: "1px solid rg
 const labelStyle = { fontSize: 9, color: "#4a6170", letterSpacing: "0.08em", display: "block", marginBottom: 3 };
 const fieldStyle = { marginBottom: 10 };
 
-const TYPES_EFFET = ["CLE", "BADGE", "CARTE", "TELECOMMANDE", "AUTRE"];
-const STATUTS = ["ACTIF", "PERDU", "HS", "VOL", "DETRUIT"];
-
 function normalizeCause(value) {
   const normalized = String(value || "").trim().toUpperCase();
   if (normalized === "CASSE") return "HS";
@@ -30,10 +27,18 @@ function MobileEffetForm({ personId, editingEffet, onSaved, onCancel, setSaveSta
   const [form, setForm] = useState({ typeEffet: "", designation: "", siteReference: "", numeroIdentification: "", vehiculeImmatriculation: "", dateRemise: "", dateRetour: "", statut: "ACTIF", cause: "", dateRemplacement: "", coutRemplacement: "", commentaire: "" });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
-  const typesEffetsRef = Array.isArray(bases.typesEffets) && bases.typesEffets.length ? bases.typesEffets : TYPES_EFFET;
-  const statutsRef = Array.isArray(bases.statutsObjetManuels) && bases.statutsObjetManuels.length
-    ? Array.from(new Set(["ACTIF", "PERDU", "HS", "VOL", "DETRUIT", ...bases.statutsObjetManuels.map((s) => normalizeManualStatus(s)).filter(Boolean)]))
-    : STATUTS;
+  const typesEffetsRef = Array.from(
+    new Set([
+      ...(Array.isArray(bases.typesEffets) ? bases.typesEffets.map((entry) => String(entry || "").trim()).filter(Boolean) : []),
+      String(form.typeEffet || "").trim(),
+    ].filter(Boolean))
+  );
+  const statutsRef = Array.from(
+    new Set([
+      ...(Array.isArray(bases.statutsObjetManuels) ? bases.statutsObjetManuels.map((s) => normalizeManualStatus(s)).filter(Boolean) : []),
+      normalizeManualStatus(form.statut) || "ACTIF",
+    ].filter(Boolean))
+  );
   const sitesRef = Array.isArray(bases.sites) ? bases.sites : [];
   const referencesEffetsRef = Array.isArray(bases.referencesEffets) ? bases.referencesEffets : [];
   const normalizedType = String(form.typeEffet || "").trim().toUpperCase();

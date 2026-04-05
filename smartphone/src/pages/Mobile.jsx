@@ -20,6 +20,7 @@ const DEFAULT_BASES = {
   typesEffets: [],
   statutsObjetManuels: [],
   referencesEffets: [],
+  coutsRemplacement: [],
   representantsSignataires: [],
 };
 

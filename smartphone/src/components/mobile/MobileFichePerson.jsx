@@ -11,10 +11,6 @@ const labelStyle = { fontSize: 9, color: "#4a6170", letterSpacing: "0.08em" };
 const inputStyle = { padding: "7px 9px", borderRadius: 9, border: "1px solid rgba(173,190,199,0.98)", background: "#fffdfa", fontSize: 12, color: "#0f1e26", width: "100%", boxSizing: "border-box" };
 
 const STATUTS = ["EN POSTE", "SORTIE PREVUE", "SORTI"];
-const TYPES_PERSONNEL = ["PERMANENT", "INTERIM", "STAGIAIRE", "PRESTATAIRE", "BENEVOLE"];
-const TYPES_CONTRAT = ["CDI", "CDD", "INTERIM", "STAGE", "ALTERNANCE", "CONVENTION"];
-const FONCTIONS = ["AGENT", "AGENT SECURITE", "RESPONSABLE", "DIRECTEUR", "TECHNICIEN", "AUTRE"];
-
 export default function MobileFichePerson({ persons, effets, selectedPerson, onSelectPerson, onDataChange, setSaveStatus, onNavigate, bases = {} }) {
   const [form, setForm] = useState({ nom: "", prenom: "", fonction: "", sites: [], typePersonnel: "", typeContrat: "", dateEntree: "", dateSortiePrevue: "", dateSortieReelle: "" });
   const [lastSavedForm, setLastSavedForm] = useState(null);
@@ -22,9 +18,24 @@ export default function MobileFichePerson({ persons, effets, selectedPerson, onS
   const [activeSection, setActiveSection] = useState("infos"); // "infos" | "effets" | "add-effet"
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState(null);
-  const fonctionsRef = Array.isArray(bases.fonctions) && bases.fonctions.length ? bases.fonctions : FONCTIONS;
-  const typesPersonnelRef = Array.isArray(bases.typesPersonnel) && bases.typesPersonnel.length ? bases.typesPersonnel : TYPES_PERSONNEL;
-  const typesContratsRef = Array.isArray(bases.typesContrats) && bases.typesContrats.length ? bases.typesContrats : TYPES_CONTRAT;
+  const fonctionsRef = Array.from(
+    new Set([
+      ...(Array.isArray(bases.fonctions) ? bases.fonctions.map((entry) => String(entry || "").trim()).filter(Boolean) : []),
+      String(form.fonction || "").trim(),
+    ].filter(Boolean))
+  );
+  const typesPersonnelRef = Array.from(
+    new Set([
+      ...(Array.isArray(bases.typesPersonnel) ? bases.typesPersonnel.map((entry) => String(entry || "").trim()).filter(Boolean) : []),
+      String(form.typePersonnel || "").trim(),
+    ].filter(Boolean))
+  );
+  const typesContratsRef = Array.from(
+    new Set([
+      ...(Array.isArray(bases.typesContrats) ? bases.typesContrats.map((entry) => String(entry || "").trim()).filter(Boolean) : []),
+      String(form.typeContrat || "").trim(),
+    ].filter(Boolean))
+  );
   const sitesRef = Array.isArray(bases.sites) ? bases.sites : [];
 
   useEffect(() => {
