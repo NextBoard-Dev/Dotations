@@ -147,33 +147,38 @@ export default function MobileDocumentSortie({ persons, effets, selectedPerson, 
     .map((e) => getEffetReferenceCost(e))
     .filter((amount) => amount > 0);
   const totalFacturable = facturableAmounts.reduce((sum, amount) => sum + amount, 0);
+  const normalizeCostCause = (cause) => {
+    const normalized = normalizeLabel(cause);
+    if (normalized === "PERDU") return "PERTE";
+    if (normalized === "CASSE") return "HS";
+    return normalized;
+  };
   const costByType = new Map();
+  const causeColumns = Array.from(
+    new Set(
+      pricingRules
+        .map((rule) => normalizeCostCause(rule.cause))
+        .filter(Boolean)
+    )
+  );
   pricingRules.forEach((rule) => {
     const type = normalizeLabel(rule.typeEffet);
     if (!type) return;
-    const cause = normalizeLabel(rule.cause);
+    const cause = normalizeCostCause(rule.cause);
+    if (!cause) return;
     const amount = Number(rule.montant) || 0;
-    const current = costByType.get(type) || { hs: 0, perdu: 0, vol: 0, nonRendu: 0 };
-    if (cause === "HS") current.hs = amount;
-    if (cause === "PERTE" || cause === "PERDU") current.perdu = amount;
-    if (cause === "VOL") current.vol = amount;
-    if (cause === "NON RENDU") current.nonRendu = amount;
+    const current = costByType.get(type) || {};
+    current[cause] = amount;
     costByType.set(type, current);
   });
   const baseTypes = Array.from(new Set(
     [...effetTypes.map((t) => normalizeLabel(t)), ...Array.from(costByType.keys())].filter(Boolean)
   ));
-  const clauseRows = baseTypes.map((type) => {
-    const c = costByType.get(type) || { hs: 0, perdu: 0, vol: 0, nonRendu: 0 };
-    return {
-      id: type,
-      label: type,
-      hs: c.hs,
-      perdu: c.perdu,
-      vol: c.vol,
-      nonRendu: c.nonRendu,
-    };
-  });
+  const clauseRows = baseTypes.map((type) => ({
+    id: type,
+    label: type,
+    byCause: costByType.get(type) || {},
+  }));
 
   const handleSaveEffets = async () => {
     if (!selectedPerson) return;
@@ -345,25 +350,25 @@ export default function MobileDocumentSortie({ persons, effets, selectedPerson, 
                 <thead>
                   <tr>
                     <th style={{ textAlign: "left", fontSize: 10, color: "#4a6170", padding: "4px 6px", borderBottom: "1px solid rgba(152,177,190,0.8)" }}>TYPE D'EFFET</th>
-                    <th style={{ textAlign: "right", fontSize: 10, color: "#4a6170", padding: "4px 6px", borderBottom: "1px solid rgba(152,177,190,0.8)" }}>HS</th>
-                    <th style={{ textAlign: "right", fontSize: 10, color: "#4a6170", padding: "4px 6px", borderBottom: "1px solid rgba(152,177,190,0.8)" }}>PERDU</th>
-                    <th style={{ textAlign: "right", fontSize: 10, color: "#4a6170", padding: "4px 6px", borderBottom: "1px solid rgba(152,177,190,0.8)" }}>VOL</th>
-                    <th style={{ textAlign: "right", fontSize: 10, color: "#4a6170", padding: "4px 6px", borderBottom: "1px solid rgba(152,177,190,0.8)" }}>NON RENDU</th>
+                    {causeColumns.map((cause) => (
+                      <th key={cause} style={{ textAlign: "right", fontSize: 10, color: "#4a6170", padding: "4px 6px", borderBottom: "1px solid rgba(152,177,190,0.8)" }}>{cause}</th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
                   {clauseRows.map((row) => (
                     <tr key={row.id}>
                       <td style={{ fontSize: 11, color: "#213b48", padding: "6px", borderBottom: "1px solid rgba(152,177,190,0.5)" }}>{row.label}</td>
-                      <td style={{ fontSize: 11, color: "#213b48", padding: "6px", textAlign: "right", borderBottom: "1px solid rgba(152,177,190,0.5)" }}>{formatCost(row.hs)}</td>
-                      <td style={{ fontSize: 11, color: "#213b48", padding: "6px", textAlign: "right", borderBottom: "1px solid rgba(152,177,190,0.5)" }}>{formatCost(row.perdu)}</td>
-                      <td style={{ fontSize: 11, color: "#213b48", padding: "6px", textAlign: "right", borderBottom: "1px solid rgba(152,177,190,0.5)" }}>{formatCost(row.vol)}</td>
-                      <td style={{ fontSize: 11, color: "#213b48", padding: "6px", textAlign: "right", borderBottom: "1px solid rgba(152,177,190,0.5)" }}>{formatCost(row.nonRendu)}</td>
+                      {causeColumns.map((cause) => (
+                        <td key={`${row.id}-${cause}`} style={{ fontSize: 11, color: "#213b48", padding: "6px", textAlign: "right", borderBottom: "1px solid rgba(152,177,190,0.5)" }}>
+                          {formatCost(row.byCause?.[cause] || 0)}
+                        </td>
+                      ))}
                     </tr>
                   ))}
                   {clauseRows.length === 0 && (
                     <tr>
-                      <td colSpan={5} style={{ fontSize: 11, color: "#3f5662", padding: "8px 6px", textAlign: "center" }}>AUCUN EFFET</td>
+                      <td colSpan={Math.max(2, causeColumns.length + 1)} style={{ fontSize: 11, color: "#3f5662", padding: "8px 6px", textAlign: "center" }}>AUCUN EFFET</td>
                     </tr>
                   )}
                 </tbody>

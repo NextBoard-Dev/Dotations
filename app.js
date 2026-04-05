@@ -4489,6 +4489,22 @@ function bindReplacementCostForm() {
   };
 }
 
+function getReferenceCauseOptions() {
+  const baseCauses = Array.isArray(state.data?.listes?.causesRemplacement)
+    ? state.data.listes.causesRemplacement
+    : [];
+  const normalizedFromBase = baseCauses
+    .map(normalizeText)
+    .map((value) => (value === "CASSE" ? "HS" : value))
+    .filter(Boolean);
+  const normalizedFromCosts = (state.data?.listes?.coutsRemplacement || [])
+    .map((entry) => normalizeText(entry?.cause))
+    .map((value) => (value === "CASSE" ? "HS" : value))
+    .filter(Boolean);
+  const causes = Array.from(new Set([...normalizedFromBase, ...normalizedFromCosts]));
+  return causes.length ? causes : [...EFFECT_STATUS_CAUSES];
+}
+
 function bindReferenceFilters() {
   const form = document.getElementById("reference-filter-form");
   if (!form) {
@@ -4592,7 +4608,7 @@ function hydrateStaticLists() {
   populateSelect('select[name="filterReferenceTypeEffet"]', typesEffets);
   populateSelect('select[name="statutManuel"]', statutsObjetManuels);
   populateSelect('select[name="costTypeEffet"]', typesEffets);
-  populateSelect('select[name="costCauseRemplacement"]', EFFECT_STATUS_CAUSES);
+  populateSelect('select[name="costCauseRemplacement"]', getReferenceCauseOptions());
   renderSiteSelector("add-site-selector", "add", []);
   renderSiteSelector("sheet-site-selector", "sheet", getPersonSites(getCurrentPerson()));
   renderReferenceSitesSelector([]);
@@ -7490,7 +7506,7 @@ function getArrivalCostTypes() {
 }
 
 function getArrivalCostCauses() {
-  return [...EFFECT_STATUS_CAUSES];
+  return getReferenceCauseOptions();
 }
 
 function getArrivalCostDesignation(typeEffet) {
@@ -8427,6 +8443,7 @@ function renderReplacementCostsTable() {
         <td>${formatAmountWithEuro(entry.montant)}</td>
         <td>
           <button type="button" class="table-link js-edit-replacement-cost" data-cost-key="${key}">MODIFIER</button>
+          <button type="button" class="table-link js-delete-replacement-cost" data-cost-key="${key}">SUPPRIMER</button>
         </td>
       </tr>`;
     });
@@ -8736,6 +8753,39 @@ function startEditReplacementCost(costKey) {
   showDataStatus(`COUT EN COURS DE MODIFICATION : ${entry.typeEffet} / ${entry.cause}`);
 }
 
+function deleteReplacementCost(costKey) {
+  if (!state.data?.listes?.coutsRemplacement) {
+    return;
+  }
+  const entry = state.data.listes.coutsRemplacement.find(
+    (item) => getReplacementCostKey(item.typeEffet, item.cause) === costKey
+  );
+  if (!entry) {
+    return;
+  }
+  if (!window.confirm(`SUPPRIMER DEFINITIVEMENT LE COUT : ${entry.typeEffet} / ${entry.cause} ?`)) {
+    return;
+  }
+  pushUndoSnapshot("SUPPRESSION COUT");
+  state.data.listes.coutsRemplacement = state.data.listes.coutsRemplacement.filter(
+    (item) => getReplacementCostKey(item.typeEffet, item.cause) !== costKey
+  );
+  if (state.editingReplacementCostKey === costKey) {
+    state.editingReplacementCostKey = "";
+    const form = document.getElementById("replacement-cost-form");
+    if (form) {
+      form.reset();
+      const submitButton = form.querySelector('button[type="submit"]');
+      if (submitButton) {
+        submitButton.textContent = "ENREGISTRER LE COUT";
+      }
+    }
+  }
+  markDirty();
+  renderPage();
+  showActionStatus("delete", `COUT SUPPRIME : ${entry.typeEffet} / ${entry.cause}`);
+}
+
 function bindReplacementCostActions() {
   const body = document.getElementById("replacement-costs-body");
   if (!body || body.dataset.bound === "true") {
@@ -8745,6 +8795,14 @@ function bindReplacementCostActions() {
   body.addEventListener("click", (event) => {
     const target = event.target;
     if (!(target instanceof HTMLElement)) {
+      return;
+    }
+
+    const deleteButton = target.closest(".js-delete-replacement-cost");
+    if (deleteButton instanceof HTMLElement) {
+      event.preventDefault();
+      event.stopPropagation();
+      deleteReplacementCost(deleteButton.dataset.costKey || "");
       return;
     }
 
