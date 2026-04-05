@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { db } from "@/lib/db";
 import MobilePersonSearch from "./MobilePersonSearch";
 import MobileSignatureCanvas from "./MobileSignatureCanvas";
-import { getEffectBillingCause as getPersistedBillingCause, getEffectStatus, getReplacementCostValue, normalizeManualStatus } from "@/lib/businessRules";
+import { getEffectBillingCause, getEffectStatus, getReplacementCostValue, normalizeManualStatus } from "@/lib/businessRules";
 
 const card = { background: "rgba(244,241,234,0.98)", border: "1px solid rgba(173,190,199,0.98)", borderRadius: 11, padding: "12px", marginBottom: 8, boxShadow: "0 4px 12px rgba(31,49,59,0.10)" };
 const docField = { display: "flex", flexDirection: "column", gap: 3, marginBottom: 8 };
@@ -17,6 +17,15 @@ function normalizeCause(value) {
   if (normalized === "CASSE") return "HS";
   if (normalized === "PERDU") return "PERTE";
   if (["DETRUIT", "PERTE", "VOL", "HS"].includes(normalized)) return normalized;
+  return "";
+}
+
+function inferCauseFromStatus(value) {
+  const normalizedStatus = normalizeManualStatus(value);
+  if (normalizedStatus === "PERDU") return "PERTE";
+  if (normalizedStatus === "DETRUIT") return "DETRUIT";
+  if (normalizedStatus === "VOL") return "VOL";
+  if (normalizedStatus === "HS") return "HS";
   return "";
 }
 
@@ -124,7 +133,7 @@ export default function MobileDocumentSortie({ persons, effets, selectedPerson, 
         return {
           ...e,
           _rendus: nextRendu,
-          statut: e.statut,
+          statut: nextRendu ? "RESTITUE" : "ACTIF",
           dateRetour: nextRendu ? (e.dateRetour || todayIso()) : "",
         };
       })
@@ -134,7 +143,9 @@ export default function MobileDocumentSortie({ persons, effets, selectedPerson, 
   const totalEffets = localEffets.length;
   const rendus = localEffets.filter((e) => getEffectStatus(selectedPerson, e) === "RESTITUE" || e._rendus).length;
   const getEffetBillingCause = (effet) => {
-    return normalizeCause(getPersistedBillingCause(selectedPerson, effet));
+    const persistedCause = normalizeCause(effet?.cause || effet?.causeRemplacement);
+    if (persistedCause) return persistedCause;
+    return normalizeCause(getEffectBillingCause(selectedPerson, effet));
   };
   const getEffetReferenceCost = (effet) => {
     const cause = getEffetBillingCause(effet);
@@ -183,8 +194,8 @@ export default function MobileDocumentSortie({ persons, effets, selectedPerson, 
       for (const e of localEffets) {
         await db.Effet.update(e.id, {
           statut: normalizeManualStatus(e.statut) || "ACTIF",
-          cause: normalizeCause(e.cause),
-          dateRetour: String(e.dateRetour || "").trim() ? String(e.dateRetour) : "",
+          cause: normalizeCause(e.cause) || inferCauseFromStatus(e.statut),
+          dateRetour: e.statut === "RESTITUE" ? (e.dateRetour || todayIso()) : "",
         });
       }
       setSaveStatus("saved");
@@ -280,16 +291,15 @@ export default function MobileDocumentSortie({ persons, effets, selectedPerson, 
                   <select
                     value={e.statut}
                     onChange={(ev) => {
-                      const rawChoice = normalizeLabel(ev.target.value);
                       const nextStatut = normalizeManualStatus(ev.target.value) || "ACTIF";
                       setLocalEffets((prev) =>
                         prev.map((x) =>
                           x.id === e.id
                             ? {
                                 ...x,
-                                statut: rawChoice === "RESTITUE" ? x.statut : nextStatut,
-                                _rendus: rawChoice === "RESTITUE",
-                                dateRetour: rawChoice === "RESTITUE" ? (x.dateRetour || todayIso()) : "",
+                                statut: nextStatut,
+                                _rendus: nextStatut === "RESTITUE",
+                                dateRetour: nextStatut === "RESTITUE" ? (x.dateRetour || todayIso()) : "",
                               }
                             : x
                         )
