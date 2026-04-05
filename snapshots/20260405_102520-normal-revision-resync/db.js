@@ -262,9 +262,6 @@ async function saveAppStatePayload(payload, expectedRevision) {
   }
   const updated = Array.isArray(data) ? data[0] : null;
   if (!updated?.id) {
-    try {
-      await getAppStateRow();
-    } catch {}
     throw buildAppStateConflictError();
   }
   const nextRevision = Number(updated.revision);

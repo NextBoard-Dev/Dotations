@@ -9119,13 +9119,6 @@ async function saveDataToFile(options = {}) {
   } catch (error) {
     console.error(error);
     if (isSaveConflictError(error)) {
-      if (getDataBackendMode() === "SUPABASE" || isSupabaseConfigured()) {
-        try {
-          await fetchSupabaseStateData();
-        } catch (refreshError) {
-          console.error(refreshError);
-        }
-      }
       showDataStatus("CONFLIT DE SAUVEGARDE - RECHARGER PUIS REESSAYER");
       if (!silent) {
         window.alert(error.message);
