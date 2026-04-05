@@ -60,7 +60,9 @@ export function getEffectStatus(person, effect) {
 
 export function getEffectBillingCause(person, effect) {
   const persistedCause = normalizeCause(effect?.cause || effect?.causeRemplacement);
-  return persistedCause;
+  if (persistedCause) return persistedCause;
+  if (!String(effect?.dateRetour || "").trim() && isExitDue(person)) return "NON RENDU";
+  return "";
 }
 
 export function getReplacementCostValue(pricingRules = [], typeEffet, cause, designation = "") {

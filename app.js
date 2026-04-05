@@ -4025,7 +4025,14 @@ function getEffectUnitValue(effect) {
 }
 
 function getEffectReplacementCause(person, effect) {
-  return normalizeEffectCause(effect?.cause || effect?.causeRemplacement);
+  const persistedCause = normalizeEffectCause(effect?.cause || effect?.causeRemplacement);
+  if (persistedCause) {
+    return persistedCause;
+  }
+  if (!String(effect?.dateRetour || "").trim() && isExitDue(person)) {
+    return "NON RENDU";
+  }
+  return "";
 }
 
 function getEffectReplacementCost(person, effect) {
