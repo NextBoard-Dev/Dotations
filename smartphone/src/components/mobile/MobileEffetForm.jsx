@@ -5,6 +5,41 @@ import { normalizeManualStatus } from "@/lib/businessRules";
 const inputStyle = { padding: "8px 10px", borderRadius: 9, border: "1px solid rgba(173,190,199,0.98)", background: "#fffdfa", fontSize: 12, color: "#0f1e26", width: "100%", boxSizing: "border-box" };
 const labelStyle = { fontSize: 9, color: "#4a6170", letterSpacing: "0.08em", display: "block", marginBottom: 3 };
 const fieldStyle = { marginBottom: 10 };
+const ALL_SITES_VALUE = "TOUS SITES";
+
+function normalizeLabel(value) {
+  return String(value || "").trim().toUpperCase();
+}
+
+function typeUsesReferenceCatalog(typeEffet) {
+  return ["CLE", "CLE CES"].includes(normalizeLabel(typeEffet));
+}
+
+function getReferenceCatalogType(typeEffet) {
+  return typeUsesReferenceCatalog(typeEffet) ? "CLE" : normalizeLabel(typeEffet);
+}
+
+function isCesKeyDesignation(designation) {
+  return normalizeLabel(designation).startsWith("CES-");
+}
+
+function getReferenceSites(entry) {
+  const fromSite = String(entry?.site || "")
+    .split("/")
+    .map((site) => normalizeLabel(site))
+    .filter(Boolean);
+  const fromArray = Array.isArray(entry?.sitesAffectation)
+    ? entry.sitesAffectation.map((site) => normalizeLabel(site)).filter(Boolean)
+    : [];
+  return Array.from(new Set([...fromArray, ...fromSite]));
+}
+
+function referenceHasSite(entry, site) {
+  const wantedSite = normalizeLabel(site);
+  if (!wantedSite) return true;
+  const sites = getReferenceSites(entry);
+  return sites.includes(ALL_SITES_VALUE) || sites.includes(wantedSite);
+}
 
 function normalizeCause(value) {
   const normalized = String(value || "").trim().toUpperCase();
@@ -41,16 +76,30 @@ function MobileEffetForm({ personId, editingEffet, onSaved, onCancel, setSaveSta
   );
   const sitesRef = Array.isArray(bases.sites) ? bases.sites : [];
   const referencesEffetsRef = Array.isArray(bases.referencesEffets) ? bases.referencesEffets : [];
-  const normalizedType = String(form.typeEffet || "").trim().toUpperCase();
-  const normalizedSite = String(form.siteReference || "").trim().toUpperCase();
+  const normalizedType = normalizeLabel(form.typeEffet);
+  const normalizedSite = normalizeLabel(form.siteReference);
   const designationOptions = Array.from(
     new Set(
       referencesEffetsRef
         .filter((entry) => {
-          const refType = String(entry?.typeEffet || "").trim().toUpperCase();
-          const refSite = String(entry?.site || "").trim().toUpperCase();
-          if (normalizedType && refType && refType !== normalizedType) return false;
-          if (normalizedType === "CLE" && normalizedSite && refSite && refSite !== normalizedSite) return false;
+          const refType = normalizeLabel(entry?.typeEffet);
+          const refDesignation = String(entry?.designation || "").trim();
+          if (
+            normalizedType &&
+            refType &&
+            refType !== getReferenceCatalogType(normalizedType)
+          ) {
+            return false;
+          }
+          if (normalizedType === "CLE CES" && !isCesKeyDesignation(refDesignation)) {
+            return false;
+          }
+          if (normalizedType === "CLE" && isCesKeyDesignation(refDesignation)) {
+            return false;
+          }
+          if (normalizedType && typeUsesReferenceCatalog(normalizedType) && normalizedSite && !referenceHasSite(entry, normalizedSite)) {
+            return false;
+          }
           return true;
         })
         .map((entry) => String(entry?.designation || "").trim())
