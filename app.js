@@ -1786,6 +1786,7 @@ function migrateDataModel() {
   sortListValues(state.data.listes.typesEffets);
   sortListValues(state.data.listes.typesContrats);
   sortListValues(state.data.listes.fonctions);
+  sortListValues(state.data.listes.causesRemplacement);
   sortListValues(state.data.listes.statutsObjetManuels);
   sortRepresentatives();
   sortReferenceEffects();
@@ -4142,7 +4143,10 @@ function bindReferenceListForms() {
 
       const listName = form.dataset.listName || "";
       const input = form.querySelector('input[name="value"]');
-      const value = normalizeText(input?.value);
+      const normalizeForList = (entry) =>
+        listName === "causesRemplacement" ? normalizeReferenceCauseLabel(entry) : normalizeText(entry);
+      const rawValue = normalizeText(input?.value);
+      const value = normalizeForList(rawValue);
       if (!listName || !Array.isArray(state.data.listes[listName])) {
         return;
       }
@@ -4157,14 +4161,14 @@ function bindReferenceListForms() {
       if (currentEdit && currentEdit.listName === listName) {
         const oldValue = currentEdit.originalValue;
         const duplicate = list.some(
-          (entry) => normalizeText(entry) === value && normalizeText(entry) !== normalizeText(oldValue)
+          (entry) => normalizeForList(entry) === value && normalizeForList(entry) !== normalizeForList(oldValue)
         );
         if (duplicate) {
           showDataStatus("VALEUR DEJA PRESENTE");
           return;
         }
 
-        const index = list.findIndex((entry) => normalizeText(entry) === normalizeText(oldValue));
+        const index = list.findIndex((entry) => normalizeForList(entry) === normalizeForList(oldValue));
         if (index >= 0) {
           pushUndoSnapshot("MODIFICATION BASE");
           list[index] = value;
@@ -4184,7 +4188,7 @@ function bindReferenceListForms() {
         }
       }
 
-      if (list.some((entry) => normalizeText(entry) === value)) {
+      if (list.some((entry) => normalizeForList(entry) === value)) {
         showDataStatus("VALEUR DEJA PRESENTE");
         return;
       }
@@ -4493,16 +4497,19 @@ function getReferenceCauseOptions() {
   const baseCauses = Array.isArray(state.data?.listes?.causesRemplacement)
     ? state.data.listes.causesRemplacement
     : [];
-  const normalizedFromBase = baseCauses
-    .map(normalizeText)
-    .map((value) => (value === "CASSE" ? "HS" : value))
-    .filter(Boolean);
+  const normalizedFromBase = baseCauses.map(normalizeReferenceCauseLabel).filter(Boolean);
   const normalizedFromCosts = (state.data?.listes?.coutsRemplacement || [])
-    .map((entry) => normalizeText(entry?.cause))
-    .map((value) => (value === "CASSE" ? "HS" : value))
+    .map((entry) => normalizeReferenceCauseLabel(entry?.cause))
     .filter(Boolean);
   const causes = Array.from(new Set([...normalizedFromBase, ...normalizedFromCosts]));
   return causes.length ? causes : [...EFFECT_STATUS_CAUSES];
+}
+
+function normalizeReferenceCauseLabel(value) {
+  const normalized = normalizeText(value);
+  if (normalized === "CASSE") return "HS";
+  if (normalized === "PERDU") return "PERTE";
+  return normalized;
 }
 
 function bindReferenceFilters() {
@@ -8181,6 +8188,7 @@ function renderReferenceBases() {
   renderSimpleReferenceList("typesContrats", state.referenceRenderContext);
   renderSimpleReferenceList("fonctions", state.referenceRenderContext);
   renderSimpleReferenceList("typesEffets", state.referenceRenderContext);
+  renderSimpleReferenceList("causesRemplacement", state.referenceRenderContext);
   renderRepresentativesTable(state.referenceRenderContext);
   renderReferenceEffectsTable(state.referenceRenderContext);
   renderReplacementCostsTable();
@@ -8343,7 +8351,7 @@ function renderSimpleReferenceList(listName, renderContext = null) {
   const rowsHtml = values
     .map((value) => {
       const usage =
-        listName === "sites"
+        listName === "sites" || listName === "causesRemplacement"
           ? getSimpleReferenceUsage(listName, value)
           : renderContext?.simpleUsage?.[listName]?.get(normalizeText(value)) || 0;
       return `<tr class="js-reference-item-row" data-list-name="${listName}" data-value="${escapeHtml(value)}">
@@ -8519,6 +8527,7 @@ function renderReferenceCounts() {
     "reference-count-typesContrats": state.data?.listes?.typesContrats?.length || 0,
     "reference-count-fonctions": state.data?.listes?.fonctions?.length || 0,
     "reference-count-typesEffets": state.data?.listes?.typesEffets?.length || 0,
+    "reference-count-causesRemplacement": state.data?.listes?.causesRemplacement?.length || 0,
     "reference-count-referencesEffets": state.data?.listes?.referencesEffets?.length || 0,
     "reference-count-coutsRemplacement": state.data?.listes?.coutsRemplacement?.length || 0,
     "reference-count-representantsSignataires": state.data?.listes?.representantsSignataires?.length || 0,
@@ -8631,6 +8640,7 @@ function bindReferenceListActions() {
     "reference-typesContrats-body",
     "reference-fonctions-body",
     "reference-typesEffets-body",
+    "reference-causesRemplacement-body",
   ];
 
   bodyIds.forEach((bodyId) => {
@@ -8828,6 +8838,8 @@ function deleteSimpleReference(listName, value) {
   if (!Array.isArray(list)) {
     return;
   }
+  const normalizeForList = (entry) =>
+    listName === "causesRemplacement" ? normalizeReferenceCauseLabel(entry) : normalizeText(entry);
 
   const usage = getSimpleReferenceUsage(listName, value);
   if (usage > 0) {
@@ -8842,11 +8854,11 @@ function deleteSimpleReference(listName, value) {
   }
 
   pushUndoSnapshot("SUPPRESSION BASE");
-  state.data.listes[listName] = list.filter((entry) => normalizeText(entry) !== value);
+  state.data.listes[listName] = list.filter((entry) => normalizeForList(entry) !== normalizeForList(value));
   if (
     state.editingSimpleReference &&
     state.editingSimpleReference.listName === listName &&
-    normalizeText(state.editingSimpleReference.originalValue) === value
+    normalizeForList(state.editingSimpleReference.originalValue) === normalizeForList(value)
   ) {
     state.editingSimpleReference = null;
   }
@@ -8920,7 +8932,8 @@ function resetReferenceEffectForm() {
 }
 
 function getSimpleReferenceUsage(listName, value) {
-  const normalizedValue = normalizeText(value);
+  const normalizedValue =
+    listName === "causesRemplacement" ? normalizeReferenceCauseLabel(value) : normalizeText(value);
   const persons = state.data?.personnes || [];
   const references = state.data?.listes?.referencesEffets || [];
 
@@ -8945,6 +8958,11 @@ function getSimpleReferenceUsage(listName, value) {
       getAllEffects(persons).filter(({ effect }) => normalizeText(effect.typeEffet) === normalizedValue).length
     );
   }
+  if (listName === "causesRemplacement") {
+    return (state.data?.listes?.coutsRemplacement || []).filter(
+      (entry) => normalizeReferenceCauseLabel(entry?.cause) === normalizedValue
+    ).length;
+  }
   return 0;
 }
 
@@ -8955,8 +8973,10 @@ function getReferenceEffectUsage(referenceId) {
 }
 
 function cascadeSimpleReferenceRename(listName, oldValue, newValue) {
-  const oldNormalized = normalizeText(oldValue);
-  const nextValue = normalizeText(newValue);
+  const oldNormalized =
+    listName === "causesRemplacement" ? normalizeReferenceCauseLabel(oldValue) : normalizeText(oldValue);
+  const nextValue =
+    listName === "causesRemplacement" ? normalizeReferenceCauseLabel(newValue) : normalizeText(newValue);
 
   if (listName === "sites") {
     (state.data.personnes || []).forEach((person) => {
@@ -9013,6 +9033,14 @@ function cascadeSimpleReferenceRename(listName, oldValue, newValue) {
           effect.typeEffet = nextValue;
         }
       });
+    });
+  }
+
+  if (listName === "causesRemplacement") {
+    (state.data.listes.coutsRemplacement || []).forEach((entry) => {
+      if (normalizeReferenceCauseLabel(entry.cause) === oldNormalized) {
+        entry.cause = nextValue;
+      }
     });
   }
 }
@@ -9226,6 +9254,7 @@ async function saveDataToFile(options = {}) {
       window.alert("SAUVEGARDE IMPOSSIBLE");
     }
   }
+
 }
 
 function resetUiWithoutData() {
@@ -9238,6 +9267,7 @@ function resetUiWithoutData() {
     { id: "reference-typesContrats-body", colspan: 2 },
     { id: "reference-fonctions-body", colspan: 2 },
     { id: "reference-typesEffets-body", colspan: 2 },
+    { id: "reference-causesRemplacement-body", colspan: 2 },
     { id: "reference-effects-table-body", colspan: 5 },
     { id: "replacement-costs-body", colspan: 4 },
   ];
@@ -9258,6 +9288,7 @@ function resetUiWithoutData() {
     "reference-count-typesContrats",
     "reference-count-fonctions",
     "reference-count-typesEffets",
+    "reference-count-causesRemplacement",
     "reference-count-referencesEffets",
     "reference-count-coutsRemplacement",
     "reference-count-representantsSignataires",
