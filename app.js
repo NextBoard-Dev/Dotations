@@ -1560,37 +1560,25 @@ function migrateDataModel() {
     state.data.demandesSignatureMobile = [];
   }
 
-  state.data.listes.typesContrats = Array.from(
-    new Set([...state.data.listes.typesContrats.map(normalizeText), ...LEGACY_CONTRACT_TYPES])
-  ).filter(Boolean);
+  state.data.listes.typesContrats = Array.from(new Set(state.data.listes.typesContrats.map(normalizeText))).filter(
+    Boolean
+  );
   state.data.listes.fonctions = state.data.listes.fonctions.map(normalizeFunctionLabel).filter(Boolean);
 
-  state.data.listes.typesPersonnel = state.data.listes.typesPersonnel
-    .map(normalizeText)
-    .filter((value) => value && !LEGACY_CONTRACT_TYPES.includes(value));
-  state.data.listes.sites = Array.from(
-    new Set([ALL_SITES_VALUE, ...state.data.listes.sites.map(normalizeText)])
-  ).filter(Boolean);
-  state.data.listes.typesEffets = Array.from(
-    new Set([
-      ...state.data.listes.typesEffets.map(normalizeText),
-      "CLE",
-      "CLE CES",
-      "BADGE INTRUSION",
-      "TELECOMMANDE URMET",
-      "CARTE TURBOSELF",
-    ])
-  ).filter(Boolean);
+  state.data.listes.typesPersonnel = state.data.listes.typesPersonnel.map(normalizeText).filter(Boolean);
+  state.data.listes.sites = Array.from(new Set(state.data.listes.sites.map(normalizeText))).filter(Boolean);
+  state.data.listes.typesEffets = Array.from(new Set(state.data.listes.typesEffets.map(normalizeText))).filter(
+    Boolean
+  );
   state.data.listes.statutsObjetManuels = Array.from(
-    new Set(
-      state.data.listes.statutsObjetManuels
-        .map(normalizeText)
-        .map((value) => (value === "CASSE" ? "HS" : value))
-        .filter((value) => !["REMPLACE", "NON RENDU", "RESTITUE", "CASSE"].includes(value))
-        .concat(["ACTIF", "PERDU", "HS", "VOL", "DETRUIT"])
-    )
+    new Set(state.data.listes.statutsObjetManuels.map(normalizeText).map((value) => (value === "CASSE" ? "HS" : value)))
   ).filter(Boolean);
-  state.data.listes.causesRemplacement = [...EFFECT_STATUS_CAUSES];
+  state.data.listes.causesRemplacement = Array.from(
+    new Set(state.data.listes.causesRemplacement.map(normalizeText).map((value) => (value === "CASSE" ? "HS" : value)))
+  ).filter(Boolean);
+  if (!state.data.listes.causesRemplacement.length) {
+    state.data.listes.causesRemplacement = [...EFFECT_STATUS_CAUSES];
+  }
   state.data.listes.coutsRemplacement = state.data.listes.coutsRemplacement
     .map((entry) => ({
       typeEffet: normalizeText(entry.typeEffet),
@@ -1781,7 +1769,6 @@ function migrateDataModel() {
       typeEffet: normalizeText(reference.typeEffet),
       designation: normalizeText(reference.designation),
     }))
-    .filter((reference) => typeUsesReferenceCatalog(reference.typeEffet))
     .map((reference) => {
       const nextSites =
         normalizeText(reference.designation) === "CES-PG"
