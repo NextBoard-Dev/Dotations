@@ -305,6 +305,11 @@
         "montant": 15
       },
       {
+        "typeEffet": "BADGE INTRUSION",
+        "cause": "DETRUIT",
+        "montant": 15
+      },
+      {
         "typeEffet": "CARTE TURBOSELF",
         "cause": "HS",
         "montant": 0
