@@ -9238,7 +9238,7 @@ async function saveDataToFile(options = {}) {
     if (isSaveConflictError(error)) {
       if (getDataBackendMode() === "SUPABASE" || isSupabaseConfigured()) {
         try {
-          await fetchSupabaseStateData();
+          await reloadData("CONFLIT DETECTE - RECHARGEMENT DES DONNEES DISTANTES...");
         } catch (refreshError) {
           console.error(refreshError);
         }

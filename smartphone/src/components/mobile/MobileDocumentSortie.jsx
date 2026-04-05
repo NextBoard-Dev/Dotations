@@ -16,7 +16,7 @@ function normalizeCause(value) {
   const normalized = normalizeLabel(value);
   if (normalized === "CASSE") return "HS";
   if (normalized === "PERDU") return "PERTE";
-  if (["DETRUIT", "PERTE", "VOL", "HS"].includes(normalized)) return normalized;
+  if (["DETRUIT", "PERTE", "VOL", "HS", "NON RENDU"].includes(normalized)) return normalized;
   return "";
 }
 
@@ -139,8 +139,6 @@ export default function MobileDocumentSortie({ persons, effets, selectedPerson, 
   const getEffetReferenceCost = (effet) => {
     const cause = getEffetBillingCause(effet);
     if (!cause) return 0;
-    const directAmount = Number(effet?.coutRemplacement);
-    if (Number.isFinite(directAmount) && directAmount > 0) return directAmount;
     return getReplacementCostValue(pricingRules, effet?.typeEffet, cause, effet?.designation || "");
   };
   const facturableAmounts = localEffets
@@ -289,12 +287,23 @@ export default function MobileDocumentSortie({ persons, effets, selectedPerson, 
                     onChange={(ev) => {
                       const rawChoice = normalizeLabel(ev.target.value);
                       const nextStatut = normalizeManualStatus(ev.target.value) || "ACTIF";
+                      const nextCause =
+                        nextStatut === "PERDU"
+                          ? "PERTE"
+                          : nextStatut === "VOL"
+                            ? "VOL"
+                            : nextStatut === "DETRUIT"
+                              ? "DETRUIT"
+                              : nextStatut === "HS"
+                                ? "HS"
+                                : e.cause || "";
                       setLocalEffets((prev) =>
                         prev.map((x) =>
                           x.id === e.id
                             ? {
                                 ...x,
                                 statut: rawChoice === "RESTITUE" ? x.statut : nextStatut,
+                                cause: rawChoice === "RESTITUE" ? x.cause : nextCause,
                                 _rendus: rawChoice === "RESTITUE",
                                 dateRetour: rawChoice === "RESTITUE" ? (x.dateRetour || todayIso()) : "",
                               }
