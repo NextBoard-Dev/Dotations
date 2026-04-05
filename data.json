@@ -1123,6 +1123,223 @@
       "sitesAffectation": [
         "COLLEGE"
       ]
+    },
+    {
+      "id": "P9011",
+      "nom": "TEST - DETRUIT",
+      "site": "CDM",
+      "prenom": "JEU DONNEES",
+      "fonction": "TEST",
+      "dateEntree": "2026-04-05",
+      "signatures": {
+        "exit": {
+          "personnel": {
+            "image": "",
+            "validatedAt": ""
+          },
+          "representant": {
+            "image": "",
+            "validatedAt": ""
+          }
+        },
+        "arrival": {
+          "personnel": {
+            "image": "",
+            "validatedAt": ""
+          },
+          "representant": {
+            "image": "",
+            "validatedAt": ""
+          }
+        }
+      },
+      "typeContrat": "TEST",
+      "effetsConfies": [
+        {
+          "id": "E900903",
+          "typeEffet": "BADGE INTRUSION",
+          "dateRemise": "2026-04-05",
+          "dateRetour": "",
+          "commentaire": "TEST DATASET",
+          "designation": "",
+          "statutManuel": "DETRUIT",
+          "siteReference": "CDM",
+          "coutRemplacement": 0,
+          "dateRemplacement": "",
+          "referenceEffetId": "",
+          "numeroIdentification": "",
+          "legacyDamageFacturable": false,
+          "vehiculeImmatriculation": ""
+        }
+      ],
+      "representants": {
+        "exit": {
+          "id": "",
+          "nom": "",
+          "fonction": ""
+        },
+        "arrival": {
+          "id": "",
+          "nom": "",
+          "fonction": ""
+        }
+      },
+      "typePersonnel": "TEST",
+      "dateSortiePrevue": "",
+      "dateSortieReelle": "",
+      "sitesAffectation": [
+        "CDM"
+      ]
+    },
+    {
+      "id": "P9012",
+      "nom": "TEST - HS",
+      "site": "CDM",
+      "prenom": "JEU DONNEES",
+      "fonction": "TEST",
+      "dateEntree": "2026-04-05",
+      "signatures": {
+        "exit": {
+          "personnel": {
+            "image": "",
+            "validatedAt": ""
+          },
+          "representant": {
+            "image": "",
+            "validatedAt": ""
+          }
+        },
+        "arrival": {
+          "personnel": {
+            "image": "",
+            "validatedAt": ""
+          },
+          "representant": {
+            "image": "",
+            "validatedAt": ""
+          }
+        }
+      },
+      "typeContrat": "TEST",
+      "effetsConfies": [
+        {
+          "id": "E900904",
+          "typeEffet": "BADGE INTRUSION",
+          "dateRemise": "2026-04-05",
+          "dateRetour": "",
+          "commentaire": "TEST DATASET",
+          "designation": "",
+          "statutManuel": "HS",
+          "siteReference": "CDM",
+          "coutRemplacement": 0,
+          "dateRemplacement": "",
+          "referenceEffetId": "",
+          "numeroIdentification": "",
+          "legacyDamageFacturable": false,
+          "vehiculeImmatriculation": ""
+        }
+      ],
+      "representants": {
+        "exit": {
+          "id": "",
+          "nom": "",
+          "fonction": ""
+        },
+        "arrival": {
+          "id": "",
+          "nom": "",
+          "fonction": ""
+        }
+      },
+      "typePersonnel": "TEST",
+      "dateSortiePrevue": "",
+      "dateSortieReelle": "",
+      "sitesAffectation": [
+        "CDM"
+      ]
+    },
+    {
+      "id": "P9013",
+      "nom": "TEST - SORTIE",
+      "site": "CDM",
+      "prenom": "JEU DONNEES",
+      "fonction": "TEST",
+      "dateEntree": "2026-04-05",
+      "signatures": {
+        "exit": {
+          "personnel": {
+            "image": "",
+            "validatedAt": ""
+          },
+          "representant": {
+            "image": "",
+            "validatedAt": ""
+          }
+        },
+        "arrival": {
+          "personnel": {
+            "image": "",
+            "validatedAt": ""
+          },
+          "representant": {
+            "image": "",
+            "validatedAt": ""
+          }
+        }
+      },
+      "typeContrat": "TEST",
+      "effetsConfies": [
+        {
+          "id": "E900905",
+          "typeEffet": "BADGE INTRUSION",
+          "dateRemise": "2026-04-05",
+          "dateRetour": "",
+          "commentaire": "TEST DATASET",
+          "designation": "",
+          "statutManuel": "NON RENDU",
+          "siteReference": "CDM",
+          "coutRemplacement": 0,
+          "dateRemplacement": "",
+          "referenceEffetId": "",
+          "numeroIdentification": "",
+          "legacyDamageFacturable": false,
+          "vehiculeImmatriculation": ""
+        },
+        {
+          "id": "E900906",
+          "typeEffet": "BADGE INTRUSION",
+          "dateRemise": "2026-04-05",
+          "dateRetour": "2026-04-05",
+          "commentaire": "TEST DATASET",
+          "designation": "",
+          "statutManuel": "RESTITUE",
+          "siteReference": "CDM",
+          "coutRemplacement": 0,
+          "dateRemplacement": "",
+          "referenceEffetId": "",
+          "numeroIdentification": "",
+          "legacyDamageFacturable": false,
+          "vehiculeImmatriculation": ""
+        }
+      ],
+      "representants": {
+        "exit": {
+          "id": "",
+          "nom": "",
+          "fonction": ""
+        },
+        "arrival": {
+          "id": "",
+          "nom": "",
+          "fonction": ""
+        }
+      },
+      "typePersonnel": "TEST",
+      "dateSortiePrevue": "2026-04-01",
+      "dateSortieReelle": "",
+      "sitesAffectation": [
+        "CDM"
+      ]
     }
   ],
   "documentsArchives": [],
