@@ -1505,9 +1505,9 @@ function migrateDataModel() {
     new Set(
       state.data.listes.statutsObjetManuels
         .map(normalizeText)
-        .map((value) => (value === "CASSE" || value === "DETRUIT" ? "HS" : value))
-        .filter((value) => !["REMPLACE", "NON RENDU", "RESTITUE", "CASSE", "DETRUIT"].includes(value))
-        .concat(["ACTIF", "PERDU", "HS", "VOL"])
+        .map((value) => (value === "CASSE" ? "HS" : value))
+        .filter((value) => !["REMPLACE", "NON RENDU", "RESTITUE", "CASSE"].includes(value))
+        .concat(["ACTIF", "PERDU", "HS", "VOL", "DETRUIT"])
     )
   ).filter(Boolean);
   state.data.listes.causesRemplacement = [...EFFECT_STATUS_CAUSES];
@@ -1664,11 +1664,11 @@ function migrateDataModel() {
       effect.numeroIdentification = normalizeText(effect.numeroIdentification);
       effect.vehiculeImmatriculation = normalizeText(effect.vehiculeImmatriculation);
       effect.statutManuel = normalizeText(effect.statutManuel);
-      if (effect.statutManuel === "CASSE" || effect.statutManuel === "DETRUIT") {
+      if (effect.statutManuel === "CASSE") {
         effect.statutManuel = "HS";
       }
       const legacyCause = normalizeText(effect.causeRemplacement);
-      if (legacyCause === "CASSE" || legacyCause === "DETRUIT") {
+      if (legacyCause === "CASSE") {
         effect.statutManuel = "HS";
       }
       if (legacyCause === "VOL" && effect.statutManuel === "ACTIF") {
@@ -5012,7 +5012,7 @@ function getMovementBadgeVariant(movement) {
   const normalized = normalizeText(movement);
   if (normalized === "RENDU") return "retour";
   if (normalized === "PERDU") return "perdu";
-  if (normalized === "DETRUIT") return "hs";
+  if (normalized === "DETRUIT") return "detruit";
   if (normalized === "VOLE") return "vole";
   if (normalized === "HS") return "hs";
   if (normalized === "NON RENDU") return "non-rendu";
@@ -5025,7 +5025,7 @@ function getMovementRowVariant(movement) {
   const normalized = normalizeText(movement);
   if (normalized === "RENDU") return "returned";
   if (normalized === "PERDU") return "lost";
-  if (normalized === "DETRUIT") return "hs";
+  if (normalized === "DETRUIT") return "detruit";
   if (normalized === "VOLE") return "stolen";
   if (normalized === "HS") return "hs";
   if (normalized === "SUPPRIME") return "removed";
@@ -5227,7 +5227,7 @@ function getEffectMovementLabel(person, effect, movementMap = null) {
   const effectCause = normalizeText(getEffectReplacementCause(person, effect));
 
   if (effectStatus === "DETRUIT") {
-    return "HS";
+    return "DETRUIT";
   }
   if (effectStatus === "HS") {
     return "HS";

@@ -118,12 +118,24 @@ export default function MobileDocumentSortie({ persons, effets, selectedPerson, 
 
   const totalEffets = localEffets.length;
   const rendus = localEffets.filter((e) => getEffectStatus(selectedPerson, e) === "RESTITUE" || e._rendus).length;
+  const getEffetBillingCause = (effet) => {
+    const status = normalizeLabel(getEffectStatus(selectedPerson, effet));
+    if (status === "PERDU") return "PERTE";
+    if (status === "DETRUIT") return "DETRUIT";
+    if (status === "VOL") return "VOL";
+    if (status === "NON RENDU") return "NON RENDU";
+    return "";
+  };
   const getEffetReferenceCost = (effet) => {
+    const cause = getEffetBillingCause(effet);
+    if (!cause) return 0;
     const directAmount = Number(effet?.coutRemplacement);
     if (Number.isFinite(directAmount) && directAmount > 0) return directAmount;
-    return getReplacementCostValue(pricingRules, effet?.typeEffet, "NON RENDU");
+    return getReplacementCostValue(pricingRules, effet?.typeEffet, cause);
   };
-  const facturableAmounts = localEffets.map((e) => getEffetReferenceCost(e));
+  const facturableAmounts = localEffets
+    .map((e) => getEffetReferenceCost(e))
+    .filter((amount) => amount > 0);
   const totalFacturable = facturableAmounts.reduce((sum, amount) => sum + amount, 0);
   const costByType = new Map();
   pricingRules.forEach((rule) => {
