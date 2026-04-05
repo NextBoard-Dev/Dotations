@@ -7,7 +7,7 @@ const labelStyle = { fontSize: 9, color: "#4a6170", letterSpacing: "0.08em", dis
 const fieldStyle = { marginBottom: 10 };
 
 const TYPES_EFFET = ["CLE", "BADGE", "CARTE", "TELECOMMANDE", "AUTRE"];
-const STATUTS = ["ACTIF", "RESTITUE", "NON RENDU", "PERDU", "HS", "VOL", "DETRUIT"];
+const STATUTS = ["ACTIF", "PERDU", "HS", "VOL", "DETRUIT"];
 
 function normalizeCause(value) {
   const normalized = String(value || "").trim().toUpperCase();
@@ -32,7 +32,7 @@ function MobileEffetForm({ personId, editingEffet, onSaved, onCancel, setSaveSta
   const [error, setError] = useState(null);
   const typesEffetsRef = Array.isArray(bases.typesEffets) && bases.typesEffets.length ? bases.typesEffets : TYPES_EFFET;
   const statutsRef = Array.isArray(bases.statutsObjetManuels) && bases.statutsObjetManuels.length
-    ? Array.from(new Set(["ACTIF", "RESTITUE", "NON RENDU", "PERDU", "HS", "VOL", "DETRUIT", ...bases.statutsObjetManuels.map((s) => normalizeManualStatus(s) || s)]))
+    ? Array.from(new Set(["ACTIF", "PERDU", "HS", "VOL", "DETRUIT", ...bases.statutsObjetManuels.map((s) => normalizeManualStatus(s)).filter(Boolean)]))
     : STATUTS;
   const sitesRef = Array.isArray(bases.sites) ? bases.sites : [];
   const referencesEffetsRef = Array.isArray(bases.referencesEffets) ? bases.referencesEffets : [];

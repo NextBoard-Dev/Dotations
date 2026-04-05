@@ -1714,26 +1714,13 @@ function migrateDataModel() {
       effect.numeroIdentification = normalizeText(effect.numeroIdentification);
       effect.vehiculeImmatriculation = normalizeText(effect.vehiculeImmatriculation);
       effect.statutManuel = normalizeText(effect.statutManuel);
-      if (effect.statutManuel === "CASSE") {
-        effect.statutManuel = "HS";
-      }
       const legacyCause = normalizeText(effect.causeRemplacement);
-      const persistedCause = normalizeEffectCause(effect.cause || legacyCause);
-      effect.cause = persistedCause;
-      if (legacyCause === "CASSE") {
-        effect.statutManuel = "HS";
+      if (!normalizeEffectCause(effect.cause) && legacyCause) {
+        effect.cause = legacyCause;
       }
-      if (legacyCause === "VOL" && effect.statutManuel === "ACTIF") {
-        effect.statutManuel = "VOL";
-      }
-      if (legacyCause === "PERTE" && effect.statutManuel === "ACTIF") {
-        effect.statutManuel = "PERDU";
-      }
-      delete effect.causeRemplacement;
       effect.dateRemplacement = String(effect.dateRemplacement || "");
       effect.coutRemplacement = normalizeAmount(effect.coutRemplacement);
       effect.commentaire = normalizeText(effect.commentaire);
-      delete effect.prixPaye;
 
       if (!typeUsesReferenceCatalog(effect.typeEffet)) {
         effect.referenceEffetId = "";
@@ -1746,14 +1733,6 @@ function migrateDataModel() {
         effect.siteReference = getDefaultEffectSiteReference(person, effect);
       } else {
         effect.siteReference = normalizeText(effect.siteReference);
-      }
-
-      if (effect.dateRemplacement && !effect.statutManuel) {
-        effect.statutManuel = "ACTIF";
-      }
-
-      if (["NON RENDU", "RESTITUE", "REMPLACE"].includes(effect.statutManuel)) {
-        effect.statutManuel = "ACTIF";
       }
 
       effect.coutRemplacement = getEffectReplacementCost(person, effect);

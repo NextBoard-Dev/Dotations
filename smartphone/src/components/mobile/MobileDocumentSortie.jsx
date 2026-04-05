@@ -297,7 +297,7 @@ export default function MobileDocumentSortie({ persons, effets, selectedPerson, 
                     }}
                     style={{ width: "100%", padding: "6px 8px", borderRadius: 7, border: "1px solid rgba(173,190,199,0.98)", background: "#fffdfa", fontSize: 11, color: "#0f1e26" }}
                   >
-                    {["ACTIF", "RESTITUE", "NON RENDU", "PERDU", "HS", "VOL", "DETRUIT"].map(s => <option key={s} value={s}>{s}</option>)}
+                    {["ACTIF", "RESTITUE", "PERDU", "HS", "VOL", "DETRUIT"].map(s => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
               );
