@@ -2783,6 +2783,7 @@ async function autoGenerateSignedDocumentsPdfIfMissing() {
     return;
   }
 
+  const generatedLabels = [];
   state.autoPdfGenerationInFlight = true;
   try {
     for (const candidate of candidates) {
@@ -2790,6 +2791,9 @@ async function autoGenerateSignedDocumentsPdfIfMissing() {
         const generated = await generatePdfArchiveSilently(candidate.person, candidate.docType);
         if (generated) {
           state.autoPdfGeneratedKeys.add(candidate.key);
+          generatedLabels.push(
+            `${getDocumentTypeLabel(candidate.docType)} - ${candidate.person.nom || ""} ${candidate.person.prenom || ""}`.trim()
+          );
           showDataStatus(
             `UN DOCUMENT ${getDocumentTypeLabel(candidate.docType)} A ETE CREE - ${candidate.person.nom || ""} ${candidate.person.prenom || ""}`.trim()
           );
@@ -2797,6 +2801,9 @@ async function autoGenerateSignedDocumentsPdfIfMissing() {
       } catch (error) {
         console.error(error);
       }
+    }
+    if (generatedLabels.length) {
+      window.alert(`UN DOCUMENT A ETE CREE :\n${generatedLabels.join("\n")}`);
     }
     updateDocumentPdfButtonsState();
   } finally {
