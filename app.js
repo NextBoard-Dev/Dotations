@@ -2903,7 +2903,28 @@ function notifyFullySignedDocumentsOnReload(previousSignatureValidationMap = new
   } catch (error) {
     // ignore storage failures
   }
-  window.alert(`DOCUMENT SIGNE (2 SIGNATURES VALIDEES) :\n${labels.join("\n")}`);
+  const personLabel = person ? `${person.nom || ""} ${person.prenom || ""}`.trim() : "";
+  const docLabel = latestRequest?.docType === "exit" ? "SORTIE" : "ENTREE";
+  const messageLines = [
+    "DOCUMENT SIGNE (2 SIGNATURES VALIDEES) :",
+    ...labels,
+    "",
+    `VOUS AVEZ UN PDF A CREER POUR ${personLabel || "CE PERSONNEL"} - DOCUMENT DE ${docLabel}.`,
+    "OK = OUVRIR LE DOCUMENT",
+  ];
+
+  const shouldOpenDocument = window.confirm(`${messageLines.join("\n")}\n\nOK = OUVRIR LE DOCUMENT`);
+  if (!shouldOpenDocument) {
+    window.alert("VOTRE BASE N'EST PAS A JOUR");
+    return;
+  }
+
+  if (person && latestRequest?.docType) {
+    setCurrentPersonId(person.id, "replace");
+    const pagePath = getDocumentPagePath(latestRequest.docType);
+    navigateWithAutoSave(`${pagePath}?personId=${encodeURIComponent(person.id)}`);
+    window.alert("DOCUMENT OUVERT - GENERER LE PDF");
+  }
 }
 
 function bindDeletePersonButtons() {
