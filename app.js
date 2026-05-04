@@ -45,6 +45,7 @@ const state = {
   effectTableFlash: null,
   autoPdfGenerationInFlight: false,
   autoPdfGeneratedKeys: new Set(),
+  signedDocumentsPopupSeenKeys: new Set(),
 };
 
 const WORKING_DATA_KEY = "dashboard-working-data";
@@ -1477,6 +1478,9 @@ async function reloadData(statusText = "RECHARGEMENT DES DONNEES...") {
       getDataBackendMode() === "SUPABASE" ? "DONNEES SUPABASE CHARGEES" : "DONNEES LOCALES CHARGEES"
     );
     window.setTimeout(() => {
+      notifyFullySignedDocumentsOnReload();
+    }, 0);
+    window.setTimeout(() => {
       autoGenerateSignedDocumentsPdfIfMissing().catch((error) => {
         console.error(error);
       });
@@ -2809,6 +2813,30 @@ async function autoGenerateSignedDocumentsPdfIfMissing() {
   } finally {
     state.autoPdfGenerationInFlight = false;
   }
+}
+
+function notifyFullySignedDocumentsOnReload() {
+  if (!state.data) {
+    return;
+  }
+  const labels = [];
+  (state.data.personnes || []).forEach((person) => {
+    ["arrival", "exit"].forEach((docType) => {
+      if (!isDocumentFullySigned(person, docType)) {
+        return;
+      }
+      const key = `${person.id}:${docType}:${getDocumentFingerprint(person, docType)}`;
+      if (state.signedDocumentsPopupSeenKeys.has(key)) {
+        return;
+      }
+      state.signedDocumentsPopupSeenKeys.add(key);
+      labels.push(`${getDocumentTypeLabel(docType)} - ${person.nom || ""} ${person.prenom || ""}`.trim());
+    });
+  });
+  if (!labels.length) {
+    return;
+  }
+  window.alert(`DOCUMENT SIGNE (2 SIGNATURES VALIDEES) :\n${labels.join("\n")}`);
 }
 
 function bindDeletePersonButtons() {
