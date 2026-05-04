@@ -43,6 +43,8 @@ const state = {
   lastSaveInfo: null,
   effectRowFlash: null,
   effectTableFlash: null,
+  autoPdfGenerationInFlight: false,
+  autoPdfGeneratedKeys: new Set(),
 };
 
 const WORKING_DATA_KEY = "dashboard-working-data";
@@ -1474,6 +1476,11 @@ async function reloadData(statusText = "RECHARGEMENT DES DONNEES...") {
     showDataStatus(
       getDataBackendMode() === "SUPABASE" ? "DONNEES SUPABASE CHARGEES" : "DONNEES LOCALES CHARGEES"
     );
+    window.setTimeout(() => {
+      autoGenerateSignedDocumentsPdfIfMissing().catch((error) => {
+        console.error(error);
+      });
+    }, 0);
   } catch (error) {
     console.error(error);
     state.supabaseRevision = null;
@@ -2707,6 +2714,93 @@ async function openPdfDocument(docType, personId) {
       console.error(popupError);
     }
     showDataStatus("GENERATION PDF IMPOSSIBLE");
+  }
+}
+
+async function generatePdfArchiveSilently(person, docType) {
+  if (!person || !isDocumentFullySigned(person, docType)) {
+    return false;
+  }
+  if (getDataBackendMode() !== "LOCAL_API") {
+    return false;
+  }
+  if (findReusableArchivedDocument(person, docType)) {
+    return false;
+  }
+
+  const archiveMode = getDocumentArchiveMode(person, docType);
+  const url = `/api/pdf?type=${encodeURIComponent(docType)}&personId=${encodeURIComponent(person.id)}&archive=1&mode=${encodeURIComponent(archiveMode)}&ts=${Date.now()}`;
+  const response = await fetch(url, { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error(`AUTO PDF IMPOSSIBLE (${docType}/${person.id})`);
+  }
+
+  const archivePdfPath = response.headers.get("X-Archive-Pdf-Path") || "";
+  const archiveMetadataPath = response.headers.get("X-Archive-Metadata-Path") || "";
+  const blob = await response.blob();
+
+  let hostedStoragePdfPath = "";
+  if (isSupabaseConfigured()) {
+    try {
+      const uploadResult = await uploadPdfBlobToSupabaseStorage(docType, person, blob, archiveMode);
+      hostedStoragePdfPath = String(uploadResult?.storageRef || "");
+    } catch (error) {
+      console.error("[SUPABASE][PDF][AUTO] upload fail", error);
+    }
+  }
+
+  const finalArchivePath = hostedStoragePdfPath || archivePdfPath;
+  if (!finalArchivePath) {
+    return false;
+  }
+  await registerArchivedDocument(person, docType, finalArchivePath, archiveMetadataPath, archiveMode);
+  return true;
+}
+
+async function autoGenerateSignedDocumentsPdfIfMissing() {
+  if (state.autoPdfGenerationInFlight || !state.data || getDataBackendMode() !== "LOCAL_API") {
+    return;
+  }
+
+  const candidates = [];
+  (state.data.personnes || []).forEach((person) => {
+    ["arrival", "exit"].forEach((docType) => {
+      if (!isDocumentFullySigned(person, docType)) {
+        return;
+      }
+      if (findReusableArchivedDocument(person, docType)) {
+        return;
+      }
+      const key = `${person.id}:${docType}:${getDocumentFingerprint(person, docType)}`;
+      if (state.autoPdfGeneratedKeys.has(key)) {
+        return;
+      }
+      candidates.push({ person, docType, key });
+    });
+  });
+
+  if (!candidates.length) {
+    return;
+  }
+
+  state.autoPdfGenerationInFlight = true;
+  try {
+    for (const candidate of candidates) {
+      try {
+        const generated = await generatePdfArchiveSilently(candidate.person, candidate.docType);
+        if (generated) {
+          state.autoPdfGeneratedKeys.add(candidate.key);
+          showDataStatus(
+            `PDF AUTO GENERE (${getDocumentTypeLabel(candidate.docType)}) - ${candidate.person.nom || ""} ${candidate.person.prenom || ""}`.trim()
+          );
+        }
+      } catch (error) {
+        console.error(error);
+      }
+    }
+    updateDocumentPdfButtonsState();
+  } finally {
+    state.autoPdfGenerationInFlight = false;
   }
 }
 

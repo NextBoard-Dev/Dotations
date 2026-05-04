@@ -155,7 +155,15 @@ export default function MobileSignatureCanvas({ personId, docType, signer, signe
       setSigned(true);
       setMsg("SIGNATURE VALIDEE ✓");
       setTimeout(() => setMsg(null), 2500);
-      if (onSaved) await onSaved();
+      if (onSaved) {
+        await onSaved({
+          personId,
+          docType,
+          signer,
+          signatureData: data,
+          signedAt,
+        });
+      }
     } catch (error) {
       console.error("Signature save error:", error);
       const message = String(error?.message || "").toUpperCase();

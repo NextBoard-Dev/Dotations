@@ -67,9 +67,15 @@ export default function MobileDocumentArrivee({ persons, effets, selectedPerson,
     setSignatures(sigs);
   };
 
-  const handleSignatureSaved = async () => {
+  const handleSignatureSaved = async ({ signer } = {}) => {
     await loadSignatures();
-    if (onDataChange) await onDataChange();
+    if (signer !== "representant" || !onDataChange || !selectedPerson?.id) return;
+    const allSignatures = await db.Signature.filter({ personId: selectedPerson.id, docType: "arrival" });
+    const personnel = allSignatures.find((entry) => entry.signer === "personnel");
+    const representant = allSignatures.find((entry) => entry.signer === "representant");
+    if (personnel?.signedAt && representant?.signedAt) {
+      await onDataChange();
+    }
   };
 
   const personEffets = selectedPerson ? effets.filter(e => e.personId === selectedPerson.id) : [];
