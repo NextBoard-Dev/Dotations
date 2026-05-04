@@ -8,6 +8,7 @@ export default function MobileSignatureCanvas({ personId, docType, signer, signe
   const [drawing, setDrawing] = useState(false);
   const [signed, setSigned] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [validated, setValidated] = useState(false);
   const [msg, setMsg] = useState(null);
   const lastPos = useRef(null);
   const [loadedSignatureData, setLoadedSignatureData] = useState("");
@@ -67,6 +68,7 @@ export default function MobileSignatureCanvas({ personId, docType, signer, signe
     if (!incoming) {
       setLoadedSignatureData("");
       setSigned(false);
+      setValidated(false);
       return;
     }
 
@@ -76,6 +78,7 @@ export default function MobileSignatureCanvas({ personId, docType, signer, signe
       ctx.drawImage(img, 0, 0, canvas.clientWidth, canvas.clientHeight);
       setLoadedSignatureData(incoming);
       setSigned(true);
+      setValidated(Boolean(existingSignature?.signedAt));
     };
     img.src = incoming;
   }, [existingSignature]);
@@ -94,6 +97,7 @@ export default function MobileSignatureCanvas({ personId, docType, signer, signe
     if (!prepared) return;
     const { canvas } = prepared;
     setDrawing(true);
+    setValidated(false);
     lastPos.current = getPos(e, canvas);
   };
 
@@ -123,6 +127,7 @@ export default function MobileSignatureCanvas({ personId, docType, signer, signe
     ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
     setSigned(false);
     setLoadedSignatureData("");
+    setValidated(false);
   };
 
   const save = async () => {
@@ -153,6 +158,7 @@ export default function MobileSignatureCanvas({ personId, docType, signer, signe
       }
       setLoadedSignatureData(data);
       setSigned(true);
+      setValidated(true);
       setMsg("SIGNATURE VALIDEE ✓");
       setTimeout(() => setMsg(null), 2500);
       if (onSaved) {
@@ -202,8 +208,22 @@ export default function MobileSignatureCanvas({ personId, docType, signer, signe
       {msg && <div style={{ margin: "6px 0", fontSize: 10, color: "#2e6a44", fontWeight: 600 }}>{msg}</div>}
 
       <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
-        <button onClick={save} disabled={!signed || saving} style={{ flex: 1, padding: "8px 10px", borderRadius: 9, border: "none", background: signed ? "#3f6170" : "rgba(63,97,112,0.3)", color: "#fff", fontSize: 10, fontWeight: 700, cursor: signed ? "pointer" : "default" }}>
-          {saving ? "..." : "VALIDER"}
+        <button
+          onClick={save}
+          disabled={!signed || saving}
+          style={{
+            flex: 1,
+            padding: "8px 10px",
+            borderRadius: 9,
+            border: validated ? "1px solid rgba(111,157,120,0.45)" : "none",
+            background: validated ? "rgba(111,157,120,0.2)" : (signed ? "#3f6170" : "rgba(63,97,112,0.3)"),
+            color: validated ? "#2e6a44" : "#fff",
+            fontSize: 10,
+            fontWeight: 700,
+            cursor: signed ? "pointer" : "default",
+          }}
+        >
+          {saving ? "..." : (validated ? "VALIDE" : "VALIDER")}
         </button>
         <button onClick={clear} style={{ flex: 1, padding: "8px 10px", borderRadius: 9, border: "1px solid rgba(63,97,112,0.3)", background: "rgba(63,97,112,0.1)", color: "#213b48", fontSize: 10, cursor: "pointer" }}>
           EFFACER
