@@ -1999,7 +1999,7 @@ function bindPdfButtons() {
         return;
       }
       if (!isDocumentFullySigned(person, docType)) {
-        window.alert("OUVRIR EN PDF IMPOSSIBLE : LE DOCUMENT DOIT ETRE SIGNE PAR LE PERSONNEL ET LE REPRESENTANT.");
+        window.alert("GENERATION PDF IMPOSSIBLE : LE DOCUMENT DOIT ETRE SIGNE PAR LE PERSONNEL ET LE REPRESENTANT.");
         return;
       }
       openPdfDocument(docType, getCurrentPersonId());
@@ -2017,7 +2017,7 @@ function updateDocumentPdfButtonsState() {
     button.setAttribute(
       "title",
       canOpen
-        ? "OUVRIR EN PDF"
+        ? "GENERER LE PDF"
         : "INDISPONIBLE : SIGNATURES PERSONNEL ET REPRESENTANT OBLIGATOIRES"
     );
   });
