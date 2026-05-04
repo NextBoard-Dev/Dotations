@@ -2791,7 +2791,7 @@ async function autoGenerateSignedDocumentsPdfIfMissing() {
         if (generated) {
           state.autoPdfGeneratedKeys.add(candidate.key);
           showDataStatus(
-            `PDF AUTO GENERE (${getDocumentTypeLabel(candidate.docType)}) - ${candidate.person.nom || ""} ${candidate.person.prenom || ""}`.trim()
+            `UN DOCUMENT ${getDocumentTypeLabel(candidate.docType)} A ETE CREE - ${candidate.person.nom || ""} ${candidate.person.prenom || ""}`.trim()
           );
         }
       } catch (error) {
