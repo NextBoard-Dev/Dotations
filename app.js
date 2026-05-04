@@ -2819,20 +2819,43 @@ function notifyFullySignedDocumentsOnReload() {
   if (!state.data) {
     return;
   }
+  const signedRequests = (state.data.demandesSignatureMobile || [])
+    .filter((entry) => normalizeText(entry?.status) === "SIGNEE" && String(entry?.validatedAt || "").trim())
+    .map((entry) => ({
+      personId: String(entry.personId || ""),
+      docType: normalizeText(entry.docType) === "EXIT" ? "exit" : "arrival",
+      validatedAt: String(entry.validatedAt || ""),
+      validatedAtMs: Date.parse(String(entry.validatedAt || "")),
+    }))
+    .filter((entry) => entry.personId && Number.isFinite(entry.validatedAtMs));
+
+  if (!signedRequests.length) {
+    return;
+  }
+
+  const latestValidatedAtMs = signedRequests.reduce(
+    (max, entry) => Math.max(max, entry.validatedAtMs),
+    0
+  );
+  const latestBatchWindowMs = 2 * 60 * 1000;
+  const latestBatch = signedRequests.filter(
+    (entry) => latestValidatedAtMs - entry.validatedAtMs <= latestBatchWindowMs
+  );
+
   const labels = [];
-  (state.data.personnes || []).forEach((person) => {
-    ["arrival", "exit"].forEach((docType) => {
-      if (!isDocumentFullySigned(person, docType)) {
-        return;
-      }
-      const key = `${person.id}:${docType}:${getDocumentFingerprint(person, docType)}`;
-      if (state.signedDocumentsPopupSeenKeys.has(key)) {
-        return;
-      }
-      state.signedDocumentsPopupSeenKeys.add(key);
-      labels.push(`${getDocumentTypeLabel(docType)} - ${person.nom || ""} ${person.prenom || ""}`.trim());
-    });
+  latestBatch.forEach((entry) => {
+    const person = (state.data.personnes || []).find((candidate) => String(candidate.id || "") === entry.personId);
+    if (!person || !isDocumentFullySigned(person, entry.docType)) {
+      return;
+    }
+    const key = `${person.id}:${entry.docType}:${getDocumentFingerprint(person, entry.docType)}`;
+    if (state.signedDocumentsPopupSeenKeys.has(key)) {
+      return;
+    }
+    state.signedDocumentsPopupSeenKeys.add(key);
+    labels.push(`${getDocumentTypeLabel(entry.docType)} - ${person.nom || ""} ${person.prenom || ""}`.trim());
   });
+
   if (!labels.length) {
     return;
   }
