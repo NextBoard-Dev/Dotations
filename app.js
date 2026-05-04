@@ -2995,15 +2995,15 @@ function notifyFullySignedDocumentsOnReload(previousSignatureValidationMap = new
   }
 
   if (person && latestRequest?.docType) {
-    setCurrentPersonId(person.id, "replace");
-    const pagePath = getDocumentPagePath(latestRequest.docType);
-    navigateWithAutoSave(`${pagePath}?personId=${encodeURIComponent(person.id)}&focusPdf=${encodeURIComponent(latestRequest.docType)}`);
     reminderSnoozeMap[snoozeKey] = Date.now() + 90 * 1000;
     try {
       localStorage.setItem(PENDING_PDF_REMINDER_SNOOZE_KEY, JSON.stringify(reminderSnoozeMap));
     } catch (error) {
       // ignore storage failures
     }
+    setCurrentPersonId(person.id, "replace");
+    const pagePath = getDocumentPagePath(latestRequest.docType);
+    navigateWithAutoSave(`${pagePath}?personId=${encodeURIComponent(person.id)}&focusPdf=${encodeURIComponent(latestRequest.docType)}`);
     window.alert("DOCUMENT OUVERT - GENERER LE PDF");
   }
 }
