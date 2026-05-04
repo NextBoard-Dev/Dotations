@@ -2725,6 +2725,37 @@ async function openPdfDocument(docType, personId) {
   }
 }
 
+function applyRequestedPdfFocus() {
+  const params = new URLSearchParams(window.location.search);
+  const requestedDocType = normalizeText(params.get("focusPdf") || "");
+  if (!requestedDocType) {
+    return;
+  }
+
+  const targetDocType = requestedDocType === "EXIT" ? "exit" : "arrival";
+  const targetPage = targetDocType === "exit" ? "exit-document" : "arrival-document";
+  if ((document.body.dataset.page || "") !== targetPage) {
+    return;
+  }
+
+  const button = document.querySelector(`.js-open-pdf[data-doc-type="${targetDocType}"]`);
+  if (!(button instanceof HTMLButtonElement)) {
+    return;
+  }
+
+  const nextUrl = new URL(window.location.href);
+  nextUrl.searchParams.delete("focusPdf");
+  window.history.replaceState({}, "", nextUrl);
+
+  button.focus();
+  button.classList.remove("button--pdf-attention");
+  void button.offsetWidth;
+  button.classList.add("button--pdf-attention");
+  window.setTimeout(() => {
+    button.classList.remove("button--pdf-attention");
+  }, 2600);
+}
+
 async function generatePdfArchiveSilently(person, docType) {
   if (!person || !isDocumentFullySigned(person, docType)) {
     return false;
@@ -2860,17 +2891,48 @@ function notifyFullySignedDocumentsOnReload(previousSignatureValidationMap = new
     }
     newEvents.push({ personId, docType, signer, validatedAt, validatedAtMs });
   });
-
-  if (!newEvents.length) {
-    return;
-  }
-
-  const latestRequest = newEvents.reduce((latest, entry) => {
+  const latestRequestFromNewEvent = newEvents.reduce((latest, entry) => {
     if (!latest || entry.validatedAtMs > latest.validatedAtMs) {
       return entry;
     }
     return latest;
   }, null);
+
+  const pendingPdfCandidates = [];
+  (state.data.personnes || []).forEach((person) => {
+    ["arrival", "exit"].forEach((docType) => {
+      if (!isDocumentFullySigned(person, docType)) {
+        return;
+      }
+      if (findReusableArchivedDocument(person, docType)) {
+        return;
+      }
+      const personnelAt = Date.parse(getSignatureValidationDate(person, docType, "personnel") || "");
+      const representantAt = Date.parse(getSignatureValidationDate(person, docType, "representant") || "");
+      const validatedAtMs = Math.max(
+        Number.isFinite(personnelAt) ? personnelAt : 0,
+        Number.isFinite(representantAt) ? representantAt : 0
+      );
+      if (!Number.isFinite(validatedAtMs) || validatedAtMs <= 0) {
+        return;
+      }
+      pendingPdfCandidates.push({
+        personId: String(person.id || ""),
+        docType,
+        signer: "representant",
+        validatedAt: new Date(validatedAtMs).toISOString(),
+        validatedAtMs,
+      });
+    });
+  });
+  const latestPendingPdf = pendingPdfCandidates.reduce((latest, entry) => {
+    if (!latest || entry.validatedAtMs > latest.validatedAtMs) {
+      return entry;
+    }
+    return latest;
+  }, null);
+
+  const latestRequest = latestRequestFromNewEvent || latestPendingPdf;
   if (!latestRequest) {
     return;
   }
@@ -2882,13 +2944,17 @@ function notifyFullySignedDocumentsOnReload(previousSignatureValidationMap = new
   if (person && isDocumentFullySigned(person, latestRequest.docType)) {
     const signatureDate = getSignatureValidationDate(person, latestRequest.docType, latestRequest.signer);
     if (String(signatureDate || "") === String(latestRequest.validatedAt || "")) {
+      const hasArchive = Boolean(findReusableArchivedDocument(person, latestRequest.docType));
       const key = `SIG:${person.id}:${latestRequest.docType}:${latestRequest.signer}:${latestRequest.validatedAt}`;
-      if (!state.signedDocumentsPopupSeenKeys.has(key)) {
-        state.signedDocumentsPopupSeenKeys.add(key);
-        labels.push(
-          `${getDocumentTypeLabel(latestRequest.docType)} - ${person.nom || ""} ${person.prenom || ""}`.trim()
-        );
+      if (hasArchive && state.signedDocumentsPopupSeenKeys.has(key)) {
+        return;
       }
+      if (hasArchive) {
+        state.signedDocumentsPopupSeenKeys.add(key);
+      }
+      labels.push(
+        `${getDocumentTypeLabel(latestRequest.docType)} - ${person.nom || ""} ${person.prenom || ""}`.trim()
+      );
     }
   }
 
@@ -2913,7 +2979,7 @@ function notifyFullySignedDocumentsOnReload(previousSignatureValidationMap = new
     "OK = OUVRIR LE DOCUMENT",
   ];
 
-  const shouldOpenDocument = window.confirm(`${messageLines.join("\n")}\n\nOK = OUVRIR LE DOCUMENT`);
+  const shouldOpenDocument = window.confirm(messageLines.join("\n"));
   if (!shouldOpenDocument) {
     window.alert("VOTRE BASE N'EST PAS A JOUR");
     return;
@@ -2922,7 +2988,7 @@ function notifyFullySignedDocumentsOnReload(previousSignatureValidationMap = new
   if (person && latestRequest?.docType) {
     setCurrentPersonId(person.id, "replace");
     const pagePath = getDocumentPagePath(latestRequest.docType);
-    navigateWithAutoSave(`${pagePath}?personId=${encodeURIComponent(person.id)}`);
+    navigateWithAutoSave(`${pagePath}?personId=${encodeURIComponent(person.id)}&focusPdf=${encodeURIComponent(latestRequest.docType)}`);
     window.alert("DOCUMENT OUVERT - GENERER LE PDF");
   }
 }
@@ -7715,6 +7781,7 @@ function renderArrivalDocument(personId) {
   updateSortableHeaders("arrivalEffects");
   syncDocumentMobileSignatureLink("arrival", person.id, "personnel");
   syncDocumentMobileSignatureLink("arrival", person.id, "representant");
+  applyRequestedPdfFocus();
 }
 
 function renderArrivalCostsTable(headNode, bodyNode) {
@@ -7948,6 +8015,7 @@ function renderExitDocument(personId) {
   updateSortableHeaders("exitEffects");
   syncDocumentMobileSignatureLink("exit", person.id, "personnel");
   syncDocumentMobileSignatureLink("exit", person.id, "representant");
+  applyRequestedPdfFocus();
 }
 
 function bindDocumentEffectActions() {

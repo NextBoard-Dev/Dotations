@@ -2111,6 +2111,12 @@ body[data-page="global"] .form-actions--filters {
   gap: 5px;
 }
 
+.button--pdf.button--pdf-attention {
+  animation: pdf-attention-pulse 0.9s ease-out 0s 2;
+  box-shadow: 0 0 0 3px rgba(217, 137, 106, 0.32), 0 0 0 7px rgba(217, 137, 106, 0.14);
+  border-color: rgba(217, 137, 106, 0.9);
+}
+
 .button-pdf__icon {
   display: inline-flex;
   align-items: center;
@@ -2130,6 +2136,12 @@ body[data-page="global"] .form-actions--filters {
 .button-pdf__label {
   display: inline-block;
   line-height: 1;
+}
+
+@keyframes pdf-attention-pulse {
+  0% { transform: scale(1); }
+  35% { transform: scale(1.03); }
+  100% { transform: scale(1); }
 }
 
 .person-sheet {
