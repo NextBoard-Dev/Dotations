@@ -46,6 +46,7 @@ const state = {
   autoPdfGenerationInFlight: false,
   autoPdfGeneratedKeys: new Set(),
   signedDocumentsPopupSeenKeys: new Set(),
+  previousSignatureValidationMap: new Map(),
 };
 
 const WORKING_DATA_KEY = "dashboard-working-data";
@@ -1465,6 +1466,7 @@ async function reloadData(statusText = "RECHARGEMENT DES DONNEES...") {
   showDataStatus(statusText);
 
   try {
+    const previousSignatureValidationMap = new Map(state.previousSignatureValidationMap || []);
     const json = await fetchLatestDataSnapshot();
     state.data = json;
     migrateDataModel();
@@ -1478,8 +1480,9 @@ async function reloadData(statusText = "RECHARGEMENT DES DONNEES...") {
     showDataStatus(
       getDataBackendMode() === "SUPABASE" ? "DONNEES SUPABASE CHARGEES" : "DONNEES LOCALES CHARGEES"
     );
+    state.previousSignatureValidationMap = buildSignatureValidationMap(state.data);
     window.setTimeout(() => {
-      notifyFullySignedDocumentsOnReload();
+      notifyFullySignedDocumentsOnReload(previousSignatureValidationMap);
     }, 0);
     window.setTimeout(() => {
       autoGenerateSignedDocumentsPdfIfMissing().catch((error) => {
@@ -2816,7 +2819,23 @@ async function autoGenerateSignedDocumentsPdfIfMissing() {
   }
 }
 
-function notifyFullySignedDocumentsOnReload() {
+function buildSignatureValidationMap(data) {
+  const map = new Map();
+  (data?.personnes || []).forEach((person) => {
+    ["arrival", "exit"].forEach((docType) => {
+      ["personnel", "representant"].forEach((signer) => {
+        const validatedAt = getSignatureValidationDate(person, docType, signer);
+        if (!validatedAt) {
+          return;
+        }
+        map.set(`${person.id}:${docType}:${signer}`, String(validatedAt));
+      });
+    });
+  });
+  return map;
+}
+
+function notifyFullySignedDocumentsOnReload(previousSignatureValidationMap = new Map()) {
   if (!state.data) {
     return;
   }
@@ -2828,23 +2847,25 @@ function notifyFullySignedDocumentsOnReload() {
   } catch (error) {
     // ignore invalid session payload
   }
-  const signedRequests = (state.data.demandesSignatureMobile || [])
-    .filter((entry) => normalizeText(entry?.status) === "SIGNEE" && String(entry?.validatedAt || "").trim())
-    .map((entry) => ({
-      requestId: String(entry.id || ""),
-      personId: String(entry.personId || ""),
-      docType: normalizeText(entry.docType) === "EXIT" ? "exit" : "arrival",
-      signer: normalizeMobileSignatureSigner(entry.signer || ""),
-      validatedAt: String(entry.validatedAt || ""),
-      validatedAtMs: Date.parse(String(entry.validatedAt || "")),
-    }))
-    .filter((entry) => entry.personId && Number.isFinite(entry.validatedAtMs));
+  const currentSignatureValidationMap = buildSignatureValidationMap(state.data);
+  const newEvents = [];
+  currentSignatureValidationMap.forEach((validatedAt, key) => {
+    if (previousSignatureValidationMap.get(key) === validatedAt) {
+      return;
+    }
+    const [personId, docType, signer] = String(key).split(":");
+    const validatedAtMs = Date.parse(String(validatedAt || ""));
+    if (!personId || !docType || !signer || !Number.isFinite(validatedAtMs)) {
+      return;
+    }
+    newEvents.push({ personId, docType, signer, validatedAt, validatedAtMs });
+  });
 
-  if (!signedRequests.length) {
+  if (!newEvents.length) {
     return;
   }
 
-  const latestRequest = signedRequests.reduce((latest, entry) => {
+  const latestRequest = newEvents.reduce((latest, entry) => {
     if (!latest || entry.validatedAtMs > latest.validatedAtMs) {
       return entry;
     }
@@ -2861,9 +2882,7 @@ function notifyFullySignedDocumentsOnReload() {
   if (person && isDocumentFullySigned(person, latestRequest.docType)) {
     const signatureDate = getSignatureValidationDate(person, latestRequest.docType, latestRequest.signer);
     if (String(signatureDate || "") === String(latestRequest.validatedAt || "")) {
-      const key = latestRequest.requestId
-        ? `REQ:${latestRequest.requestId}:${latestRequest.validatedAt}`
-        : `${person.id}:${latestRequest.docType}:${getDocumentFingerprint(person, latestRequest.docType)}`;
+      const key = `SIG:${person.id}:${latestRequest.docType}:${latestRequest.signer}:${latestRequest.validatedAt}`;
       if (!state.signedDocumentsPopupSeenKeys.has(key)) {
         state.signedDocumentsPopupSeenKeys.add(key);
         labels.push(
