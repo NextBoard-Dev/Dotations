@@ -69,6 +69,7 @@ const SUPABASE_APP_STATE_ID = "main";
 const DEFAULT_SUPABASE_PDF_BUCKET = "pdf";
 const DEFAULT_SUPABASE_SIGNATURES_BUCKET = "signatures";
 const NAVIGATION_CONTEXT_KEY = "dotations-navigation-context";
+const SIGNED_POPUP_SEEN_SESSION_KEY = "dotations-signed-popup-seen";
 const PDF_LAYOUT_VERSION = "2026-03-14-exit-layout-fix-3";
 const PDF_FORMAT_LOCK = "v1";
 let pdfModalCleanupBound = false;
@@ -2819,11 +2820,21 @@ function notifyFullySignedDocumentsOnReload() {
   if (!state.data) {
     return;
   }
+  try {
+    const persisted = JSON.parse(sessionStorage.getItem(SIGNED_POPUP_SEEN_SESSION_KEY) || "[]");
+    if (Array.isArray(persisted)) {
+      persisted.forEach((entry) => state.signedDocumentsPopupSeenKeys.add(String(entry || "")));
+    }
+  } catch (error) {
+    // ignore invalid session payload
+  }
   const signedRequests = (state.data.demandesSignatureMobile || [])
     .filter((entry) => normalizeText(entry?.status) === "SIGNEE" && String(entry?.validatedAt || "").trim())
     .map((entry) => ({
+      requestId: String(entry.id || ""),
       personId: String(entry.personId || ""),
       docType: normalizeText(entry.docType) === "EXIT" ? "exit" : "arrival",
+      signer: normalizeMobileSignatureSigner(entry.signer || ""),
       validatedAt: String(entry.validatedAt || ""),
       validatedAtMs: Date.parse(String(entry.validatedAt || "")),
     }))
@@ -2833,31 +2844,45 @@ function notifyFullySignedDocumentsOnReload() {
     return;
   }
 
-  const latestValidatedAtMs = signedRequests.reduce(
-    (max, entry) => Math.max(max, entry.validatedAtMs),
-    0
-  );
-  const latestBatchWindowMs = 2 * 60 * 1000;
-  const latestBatch = signedRequests.filter(
-    (entry) => latestValidatedAtMs - entry.validatedAtMs <= latestBatchWindowMs
-  );
+  const latestRequest = signedRequests.reduce((latest, entry) => {
+    if (!latest || entry.validatedAtMs > latest.validatedAtMs) {
+      return entry;
+    }
+    return latest;
+  }, null);
+  if (!latestRequest) {
+    return;
+  }
 
   const labels = [];
-  latestBatch.forEach((entry) => {
-    const person = (state.data.personnes || []).find((candidate) => String(candidate.id || "") === entry.personId);
-    if (!person || !isDocumentFullySigned(person, entry.docType)) {
-      return;
+  const person = (state.data.personnes || []).find(
+    (candidate) => String(candidate.id || "") === latestRequest.personId
+  );
+  if (person && isDocumentFullySigned(person, latestRequest.docType)) {
+    const signatureDate = getSignatureValidationDate(person, latestRequest.docType, latestRequest.signer);
+    if (String(signatureDate || "") === String(latestRequest.validatedAt || "")) {
+      const key = latestRequest.requestId
+        ? `REQ:${latestRequest.requestId}:${latestRequest.validatedAt}`
+        : `${person.id}:${latestRequest.docType}:${getDocumentFingerprint(person, latestRequest.docType)}`;
+      if (!state.signedDocumentsPopupSeenKeys.has(key)) {
+        state.signedDocumentsPopupSeenKeys.add(key);
+        labels.push(
+          `${getDocumentTypeLabel(latestRequest.docType)} - ${person.nom || ""} ${person.prenom || ""}`.trim()
+        );
+      }
     }
-    const key = `${person.id}:${entry.docType}:${getDocumentFingerprint(person, entry.docType)}`;
-    if (state.signedDocumentsPopupSeenKeys.has(key)) {
-      return;
-    }
-    state.signedDocumentsPopupSeenKeys.add(key);
-    labels.push(`${getDocumentTypeLabel(entry.docType)} - ${person.nom || ""} ${person.prenom || ""}`.trim());
-  });
+  }
 
   if (!labels.length) {
     return;
+  }
+  try {
+    sessionStorage.setItem(
+      SIGNED_POPUP_SEEN_SESSION_KEY,
+      JSON.stringify(Array.from(state.signedDocumentsPopupSeenKeys))
+    );
+  } catch (error) {
+    // ignore storage failures
   }
   window.alert(`DOCUMENT SIGNE (2 SIGNATURES VALIDEES) :\n${labels.join("\n")}`);
 }
