@@ -69,7 +69,7 @@ const SUPABASE_APP_STATE_ID = "main";
 const DEFAULT_SUPABASE_PDF_BUCKET = "pdf";
 const DEFAULT_SUPABASE_SIGNATURES_BUCKET = "signatures";
 const NAVIGATION_CONTEXT_KEY = "dotations-navigation-context";
-const SIGNED_POPUP_SEEN_SESSION_KEY = "dotations-signed-popup-seen";
+const SIGNED_POPUP_SEEN_STORAGE_KEY = "dotations-signed-popup-seen";
 const PDF_LAYOUT_VERSION = "2026-03-14-exit-layout-fix-3";
 const PDF_FORMAT_LOCK = "v1";
 let pdfModalCleanupBound = false;
@@ -2821,7 +2821,7 @@ function notifyFullySignedDocumentsOnReload() {
     return;
   }
   try {
-    const persisted = JSON.parse(sessionStorage.getItem(SIGNED_POPUP_SEEN_SESSION_KEY) || "[]");
+    const persisted = JSON.parse(localStorage.getItem(SIGNED_POPUP_SEEN_STORAGE_KEY) || "[]");
     if (Array.isArray(persisted)) {
       persisted.forEach((entry) => state.signedDocumentsPopupSeenKeys.add(String(entry || "")));
     }
@@ -2877,8 +2877,8 @@ function notifyFullySignedDocumentsOnReload() {
     return;
   }
   try {
-    sessionStorage.setItem(
-      SIGNED_POPUP_SEEN_SESSION_KEY,
+    localStorage.setItem(
+      SIGNED_POPUP_SEEN_STORAGE_KEY,
       JSON.stringify(Array.from(state.signedDocumentsPopupSeenKeys))
     );
   } catch (error) {
