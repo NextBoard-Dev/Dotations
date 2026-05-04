@@ -2971,6 +2971,14 @@ function notifyFullySignedDocumentsOnReload(previousSignatureValidationMap = new
   }
   const personLabel = person ? `${person.nom || ""} ${person.prenom || ""}`.trim() : "";
   const docLabel = latestRequest?.docType === "exit" ? "SORTIE" : "ENTREE";
+  const expectedPage = latestRequest?.docType === "exit" ? "exit-document" : "arrival-document";
+  const isAlreadyOnTargetDocument =
+    person &&
+    (document.body.dataset.page || "") === expectedPage &&
+    String(getCurrentPersonId() || "") === String(person.id || "");
+  if (isAlreadyOnTargetDocument) {
+    return;
+  }
   const messageLines = [
     "DOCUMENT SIGNE (2 SIGNATURES VALIDEES) :",
     ...labels,
