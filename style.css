@@ -2112,8 +2112,8 @@ body[data-page="global"] .form-actions--filters {
 }
 
 .button--pdf.button--pdf-attention {
-  animation: pdf-attention-pulse 0.9s ease-out 0s 2;
-  box-shadow: 0 0 0 3px rgba(217, 137, 106, 0.32), 0 0 0 7px rgba(217, 137, 106, 0.14);
+  animation: pdf-attention-pulse 1.6s ease-in-out 0s 4;
+  box-shadow: 0 0 0 4px rgba(217, 137, 106, 0.42), 0 0 0 10px rgba(217, 137, 106, 0.2);
   border-color: rgba(217, 137, 106, 0.9);
 }
 
@@ -2139,9 +2139,10 @@ body[data-page="global"] .form-actions--filters {
 }
 
 @keyframes pdf-attention-pulse {
-  0% { transform: scale(1); }
-  35% { transform: scale(1.03); }
-  100% { transform: scale(1); }
+  0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(217, 137, 106, 0.45); }
+  25% { transform: scale(1.05); box-shadow: 0 0 0 8px rgba(217, 137, 106, 0.22); }
+  55% { transform: scale(1.02); box-shadow: 0 0 0 14px rgba(217, 137, 106, 0.08); }
+  100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(217, 137, 106, 0); }
 }
 
 .person-sheet {

@@ -2748,12 +2748,13 @@ function applyRequestedPdfFocus() {
   window.history.replaceState({}, "", nextUrl);
 
   button.focus();
+  button.scrollIntoView({ behavior: "smooth", block: "center" });
   button.classList.remove("button--pdf-attention");
   void button.offsetWidth;
   button.classList.add("button--pdf-attention");
   window.setTimeout(() => {
     button.classList.remove("button--pdf-attention");
-  }, 2600);
+  }, 6200);
 }
 
 async function generatePdfArchiveSilently(person, docType) {
@@ -2917,6 +2918,7 @@ function notifyFullySignedDocumentsOnReload(previousSignatureValidationMap = new
         return;
       }
       pendingPdfCandidates.push({
+        source: "pending",
         personId: String(person.id || ""),
         docType,
         signer: "representant",
@@ -2943,7 +2945,8 @@ function notifyFullySignedDocumentsOnReload(previousSignatureValidationMap = new
   );
   if (person && isDocumentFullySigned(person, latestRequest.docType)) {
     const signatureDate = getSignatureValidationDate(person, latestRequest.docType, latestRequest.signer);
-    if (String(signatureDate || "") === String(latestRequest.validatedAt || "")) {
+    const isPendingReminder = String(latestRequest.source || "") === "pending";
+    if (isPendingReminder || String(signatureDate || "") === String(latestRequest.validatedAt || "")) {
       const hasArchive = Boolean(findReusableArchivedDocument(person, latestRequest.docType));
       const key = `SIG:${person.id}:${latestRequest.docType}:${latestRequest.signer}:${latestRequest.validatedAt}`;
       if (hasArchive && state.signedDocumentsPopupSeenKeys.has(key)) {
