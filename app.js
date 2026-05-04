@@ -71,6 +71,7 @@ const DEFAULT_SUPABASE_PDF_BUCKET = "pdf";
 const DEFAULT_SUPABASE_SIGNATURES_BUCKET = "signatures";
 const NAVIGATION_CONTEXT_KEY = "dotations-navigation-context";
 const SIGNED_POPUP_SEEN_STORAGE_KEY = "dotations-signed-popup-seen";
+const PENDING_PDF_REMINDER_SNOOZE_KEY = "dotations-pending-pdf-reminder-snooze";
 const PDF_LAYOUT_VERSION = "2026-03-14-exit-layout-fix-3";
 const PDF_FORMAT_LOCK = "v1";
 let pdfModalCleanupBound = false;
@@ -2938,6 +2939,11 @@ function notifyFullySignedDocumentsOnReload(previousSignatureValidationMap = new
   if (!latestRequest) {
     return;
   }
+  const snoozeKey = `${latestRequest.personId}:${latestRequest.docType}`;
+  const snoozedUntil = Number(reminderSnoozeMap[snoozeKey] || 0);
+  if (Number.isFinite(snoozedUntil) && snoozedUntil > Date.now()) {
+    return;
+  }
 
   const labels = [];
   const person = (state.data.personnes || []).find(
@@ -2992,6 +2998,12 @@ function notifyFullySignedDocumentsOnReload(previousSignatureValidationMap = new
     setCurrentPersonId(person.id, "replace");
     const pagePath = getDocumentPagePath(latestRequest.docType);
     navigateWithAutoSave(`${pagePath}?personId=${encodeURIComponent(person.id)}&focusPdf=${encodeURIComponent(latestRequest.docType)}`);
+    reminderSnoozeMap[snoozeKey] = Date.now() + 90 * 1000;
+    try {
+      localStorage.setItem(PENDING_PDF_REMINDER_SNOOZE_KEY, JSON.stringify(reminderSnoozeMap));
+    } catch (error) {
+      // ignore storage failures
+    }
     window.alert("DOCUMENT OUVERT - GENERER LE PDF");
   }
 }
@@ -9847,3 +9859,9 @@ loadData();
 
 
 
+  let reminderSnoozeMap = {};
+  try {
+    reminderSnoozeMap = JSON.parse(localStorage.getItem(PENDING_PDF_REMINDER_SNOOZE_KEY) || "{}") || {};
+  } catch (error) {
+    reminderSnoozeMap = {};
+  }
