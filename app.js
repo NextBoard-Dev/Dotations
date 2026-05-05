@@ -76,7 +76,14 @@ const PENDING_PDF_TASK_STORAGE_KEY = "dotations-pending-pdf-task";
 const PDF_LAYOUT_VERSION = "2026-03-14-exit-layout-fix-3";
 const PDF_FORMAT_LOCK = "v1";
 let pdfModalCleanupBound = false;
+let reminderSnoozeMap = {};
 const signatureCanvases = new WeakMap();
+
+try {
+  reminderSnoozeMap = JSON.parse(localStorage.getItem(PENDING_PDF_REMINDER_SNOOZE_KEY) || "{}") || {};
+} catch (error) {
+  reminderSnoozeMap = {};
+}
 
 function getPendingPdfTaskFromStorage() {
   try {
@@ -942,6 +949,10 @@ function getCurrentPersonId() {
   }
   const context = getStoredNavigationContext();
   return String(context?.personId || "");
+}
+
+function getSheetTargetPersonId() {
+  return state.currentSheetPersonId || getCurrentPersonId();
 }
 
 function setCurrentPersonId(personId, mode = "replace") {
@@ -6845,7 +6856,7 @@ function renderPersonPicker() {
   picker.setAttribute("spellcheck", "false");
   picker.removeAttribute("list");
   const selectedPerson = currentPersonId
-    ? state.data.personnes.find((person) => person.id === currentPersonId) || null
+    ? state.data.personnes.find((person) => String(person?.id || "") === String(currentPersonId || "")) || null
     : null;
 
   const pickerIsFocused = document.activeElement === picker;
@@ -7477,7 +7488,10 @@ function renderPersonSheet(personId) {
     return;
   }
 
-  const person = state.data?.personnes?.find((entry) => entry.id === personId);
+  const requestedPersonId = String(personId || getCurrentPersonId() || state.currentSheetPersonId || "");
+  const person = (state.data?.personnes || []).find(
+    (entry) => String(entry?.id || "") === requestedPersonId
+  );
   if (!person) {
     state.currentSheetPersonId = "";
     nameNode.textContent = "AUCUNE PERSONNE SELECTIONNEE";
@@ -7501,7 +7515,7 @@ function renderPersonSheet(personId) {
     return;
   }
 
-  state.currentSheetPersonId = person.id;
+  state.currentSheetPersonId = String(person.id || "");
   nameNode.textContent = `${person.nom} ${person.prenom}`;
   metaNode.innerHTML = [
     getPersonSiteMarkup(person),
@@ -8430,7 +8444,10 @@ function findReferenceById(referenceId) {
 }
 
 function getCurrentPerson() {
-  return state.data?.personnes?.find((person) => person.id === getCurrentPersonId()) || null;
+  const currentPersonId = String(getCurrentPersonId() || "");
+  return (state.data?.personnes || []).find(
+    (person) => String(person?.id || "") === currentPersonId
+  ) || null;
 }
 
 function getTodayIsoDate() {
@@ -10006,39 +10023,3 @@ function renderDirtyState() {
 }
 
 loadData();
-  const getSheetTargetPersonId = () => state.currentSheetPersonId || getCurrentPersonId();
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-  let reminderSnoozeMap = {};
-  try {
-    reminderSnoozeMap = JSON.parse(localStorage.getItem(PENDING_PDF_REMINDER_SNOOZE_KEY) || "{}") || {};
-  } catch (error) {
-    reminderSnoozeMap = {};
-  }
