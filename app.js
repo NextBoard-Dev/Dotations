@@ -3542,6 +3542,17 @@ function bindPersonSheetForm() {
   if (exitPdfButton) {
     exitPdfButton.onclick = () => openPdfDocument("exit", getSheetTargetPersonId());
   }
+
+  if (deletePersonButton) {
+    deletePersonButton.onclick = () => {
+      const personId = getSheetTargetPersonId();
+      if (!personId) {
+        showDataStatus("AUCUNE PERSONNE SELECTIONNEE");
+        return;
+      }
+      deletePerson(personId);
+    };
+  }
 }
 
 function updateSheetDocumentButtons(person) {
