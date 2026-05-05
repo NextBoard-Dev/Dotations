@@ -5971,6 +5971,24 @@ function renderDocumentsArchivePage() {
   let totalArchives = 0;
   let totalArrivalArchives = 0;
   let totalExitArchives = 0;
+  const personsById = new Map(
+    (state.data?.personnes || []).map((person) => [String(person?.id || ""), person])
+  );
+  const resolveArchiveDisplayData = (entry) => {
+    const person = personsById.get(String(entry?.personId || ""));
+    if (!person) {
+      return {
+        nom: entry?.nom || "-",
+        prenom: entry?.prenom || "-",
+        sites: entry?.sites || "-",
+      };
+    }
+    return {
+      nom: person.nom || entry?.nom || "-",
+      prenom: person.prenom || entry?.prenom || "-",
+      sites: getPersonSiteLabel(person) || entry?.sites || "-",
+    };
+  };
   const signedArchives = (state.data?.documentsArchives || []).filter(
     (entry) => getDocumentArchiveSignatureStatus(entry) === "SIGNE"
   );
@@ -5995,11 +6013,12 @@ function renderDocumentsArchivePage() {
       return false;
     }
     if (search) {
+      const display = resolveArchiveDisplayData(entry);
       const haystack = [
-        entry.nom,
-        entry.prenom,
+        display.nom,
+        display.prenom,
         entry.typeDocument,
-        entry.sites,
+        display.sites,
         entry.typePersonnel,
         entry.typeContrat,
         entry.pdfPath,
@@ -6089,17 +6108,18 @@ function renderDocumentsArchivePage() {
   const rowsHtml = groupedArchives
     .map(
       (entry) => {
+        const display = resolveArchiveDisplayData(entry);
         const openPath = getDocumentArchiveOpenPath(entry);
         const typeLabel = normalizeText(entry.typeDocument || "");
         const typeIcon = typeLabel === "SORTIE" ? "🔴" : typeLabel === "ARRIVEE" ? "🟢" : "⚪";
         const typeTitle = typeLabel || "TYPE INCONNU";
         return `<tr>
-        <td>${escapeHtml(entry.nom || "-")}</td>
-        <td>${escapeHtml(entry.prenom || "-")}</td>
+        <td>${escapeHtml(display.nom)}</td>
+        <td>${escapeHtml(display.prenom)}</td>
         <td title="${escapeHtml(typeTitle)}" aria-label="${escapeHtml(typeTitle)}">${typeIcon}</td>
         <td>${escapeHtml(formatDate(entry.dateDocument) || "-")}</td>
         <td>${escapeHtml(formatTime(entry.dateArchivage) || "-")}</td>
-        <td>${escapeHtml(entry.sites || "-")}</td>
+        <td>${escapeHtml(display.sites)}</td>
         <td>${escapeHtml(getDocumentArchiveSignatureStatus(entry))}</td>
         <td>${escapeHtml(String(entry.totalEffets ?? "-"))}</td>
         <td>${formatAmountWithEuro(entry.totalFacturable || 0)}</td>
