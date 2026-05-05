@@ -5962,6 +5962,12 @@ function renderDocumentsArchivePage() {
     archiveSearchField.defaultValue = label;
   }
   const search = normalizeText(archiveSearchField?.value);
+  const searchTokens = search
+    ? search
+        .split(/[\s\-–—/]+/)
+        .map((token) => normalizeText(token))
+        .filter(Boolean)
+    : [];
   const typeDocument = normalizeText(filterForm?.elements?.archiveTypeDocument?.value);
   const site = normalizeText(filterForm?.elements?.archiveSite?.value);
   const statutSignature = normalizeText(filterForm?.elements?.archiveStatutSignature?.value);
@@ -6012,7 +6018,7 @@ function renderDocumentsArchivePage() {
     if (statutSignature && getDocumentArchiveSignatureStatus(entry) !== statutSignature) {
       return false;
     }
-    if (search) {
+    if (searchTokens.length) {
       const display = resolveArchiveDisplayData(entry);
       const haystack = [
         display.nom,
@@ -6025,7 +6031,8 @@ function renderDocumentsArchivePage() {
       ]
         .map(normalizeText)
         .join(" ");
-      if (!haystack.includes(search)) {
+      const matchesAllTokens = searchTokens.every((token) => haystack.includes(token));
+      if (!matchesAllTokens) {
         return false;
       }
     }
