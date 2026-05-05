@@ -8920,9 +8920,16 @@ function renderStockFormOptions() {
   }
   const values = Array.from(
     new Set(
-      (state.data?.listes?.referencesEffets || [])
-        .filter((reference) => isReferenceEffectActive(reference))
-        .map((reference) => normalizeText(reference.typeEffet))
+      []
+        .concat((state.data?.listes?.typesEffets || []).map(normalizeText))
+        .concat(
+          (state.data?.listes?.referencesEffets || [])
+            .filter((reference) => isReferenceEffectActive(reference))
+            .map((reference) => normalizeText(reference.typeEffet))
+        )
+        .concat(
+          getAllEffects(state.data?.personnes || []).map(({ effect }) => normalizeText(effect?.typeEffet || ""))
+        )
         .filter(Boolean)
     )
   ).sort((a, b) => normalizeText(a).localeCompare(normalizeText(b), "fr"));
@@ -8975,6 +8982,11 @@ function updateStockDesignationOptions() {
   const site = normalizeText(form.elements.stockSite?.value || "");
   const designationSelect = form.elements.stockReferenceId;
   if (!(designationSelect instanceof HTMLSelectElement)) {
+    return;
+  }
+  if (!typeEffet) {
+    designationSelect.innerHTML = `<option value="">SELECTIONNER</option>`;
+    designationSelect.disabled = true;
     return;
   }
   const references = (state.data?.listes?.referencesEffets || [])
