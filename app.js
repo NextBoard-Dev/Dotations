@@ -1191,6 +1191,10 @@ function createMobileSignatureRequest(personId, docType, signer = "personnel") {
   const createdAt = new Date();
   const expiresAt = new Date(createdAt.getTime() + MOBILE_SIGNATURE_REQUEST_TTL_MS);
   const normalizedSigner = normalizeMobileSignatureSigner(signer);
+  const normalizedDocType = normalizeText(docType) === "EXIT" ? "exit" : "arrival";
+  const person = (state.data?.personnes || []).find(
+    (entry) => String(entry?.id || "") === String(personId || "")
+  );
   const request = {
     id: getNextId("DSM", state.data?.demandesSignatureMobile || []),
     token: generateMobileSignatureToken(),
@@ -1202,6 +1206,9 @@ function createMobileSignatureRequest(personId, docType, signer = "personnel") {
     status: "EN ATTENTE",
     validatedAt: "",
   };
+  if (normalizedSigner === "representant" && person) {
+    request.representant = getRepresentativeInfo(person, normalizedDocType);
+  }
   state.data.demandesSignatureMobile.push(request);
   return request;
 }
@@ -1423,16 +1430,29 @@ async function openMobileSignatureRequest(docType, personId, signer = "personnel
     return;
   }
   const normalizedSigner = normalizeMobileSignatureSigner(signer);
-  if (normalizedSigner === "representant" && !hasRepresentativeIdentityForDocument(docType)) {
-    showDataStatus("IDENTITE DU REPRESENTANT OBLIGATOIRE AVANT VALIDATION");
-    window.alert("VOUS DEVEZ IDENTIFIER L'IDENTITE DU REPRESENTANT DE L'ETABLISSEMENT POUR VALIDATION.");
-    updateRepresentativeSignatureActionState(docType);
-    return;
+  const normalizedDocType = normalizeText(docType) === "EXIT" ? "exit" : "arrival";
+  const person = (state.data?.personnes || []).find(
+    (entry) => String(entry?.id || "") === String(personId || "")
+  );
+  if (normalizedSigner === "representant") {
+    persistRepresentativeIdentityFromDocumentUi(normalizedDocType, personId);
+    const representative = person ? getRepresentativeInfo(person, normalizedDocType) : null;
+    if (!normalizeText(representative?.nom) || !normalizeText(representative?.fonction)) {
+      showDataStatus("IDENTITE DU REPRESENTANT OBLIGATOIRE AVANT VALIDATION");
+      window.alert("VOUS DEVEZ IDENTIFIER L'IDENTITE DU REPRESENTANT DE L'ETABLISSEMENT POUR VALIDATION.");
+      updateRepresentativeSignatureActionState(normalizedDocType);
+      return;
+    }
   }
 
   let request = getActiveMobileSignatureRequest(personId, docType, normalizedSigner);
   if (!request) {
     request = createMobileSignatureRequest(personId, docType, normalizedSigner);
+  }
+  if (normalizedSigner === "representant" && person) {
+    request.representant = getRepresentativeInfo(person, normalizedDocType);
+  }
+  if (normalizedSigner === "representant" || request.status === "EN ATTENTE") {
     markDirty();
     await saveDataToFile({ silent: true });
   }
@@ -5339,8 +5359,10 @@ function effectMatchesSiteFilter(person, effect, site) {
 }
 
 function getCurrentPerson() {
-  const personId = getCurrentPersonId();
-  return state.data?.personnes?.find((entry) => entry.id === personId) || null;
+  const personId = String(getCurrentPersonId() || "");
+  return (state.data?.personnes || []).find(
+    (entry) => String(entry?.id || "") === personId
+  ) || null;
 }
 
 function sortDocumentsArchives() {
@@ -6230,15 +6252,38 @@ function populateRepresentativeSelect(select, selectedId = "") {
   select.value = currentValue;
 }
 
-function hasRepresentativeIdentityForDocument(docType) {
+function getRepresentativeIdentityFromDocumentUi(docType) {
   const nameInput = document.getElementById(`${docType}-signature-representant-name-input`);
   const functionInput = document.getElementById(`${docType}-signature-representant-function-input`);
-  return Boolean(
-    nameInput instanceof HTMLSelectElement &&
-      functionInput instanceof HTMLInputElement &&
-      normalizeText(nameInput.value) &&
-      normalizeText(functionInput.value)
+  if (!(nameInput instanceof HTMLSelectElement) || !(functionInput instanceof HTMLInputElement)) {
+    return { id: "", nom: "", fonction: "" };
+  }
+  const representative = findRepresentativeById(nameInput.value);
+  return {
+    id: String(representative?.id || nameInput.value || ""),
+    nom: normalizeText(representative?.nom || ""),
+    fonction: normalizeText(representative?.fonction || functionInput.value || ""),
+  };
+}
+
+function persistRepresentativeIdentityFromDocumentUi(docType, personId = getCurrentPersonId()) {
+  const person = (state.data?.personnes || []).find(
+    (entry) => String(entry?.id || "") === String(personId || "")
   );
+  if (!person) {
+    return false;
+  }
+  const representative = getRepresentativeIdentityFromDocumentUi(docType);
+  if (!normalizeText(representative.nom) || !normalizeText(representative.fonction)) {
+    return false;
+  }
+  setRepresentativeInfo(person, docType, representative);
+  return true;
+}
+
+function hasRepresentativeIdentityForDocument(docType) {
+  const representative = getRepresentativeIdentityFromDocumentUi(docType);
+  return Boolean(normalizeText(representative.nom) && normalizeText(representative.fonction));
 }
 
 function updateRepresentativeSignatureActionState(docType) {
@@ -6542,6 +6587,19 @@ function bindSignatureCanvases() {
         signatureStorageRef,
         signatureStoragePublicUrl
       );
+      if (signer === "representant") {
+        const request = document.body.dataset.page === "mobile-signature"
+          ? getCurrentMobileSignatureRequest()
+          : null;
+        const representativeFromRequest = request?.representant || null;
+        const currentRepresentative = getRepresentativeInfo(person, docType);
+        if (
+          representativeFromRequest &&
+          (!normalizeText(currentRepresentative.nom) || !normalizeText(currentRepresentative.fonction))
+        ) {
+          setRepresentativeInfo(person, docType, representativeFromRequest);
+        }
+      }
       if (docType === "arrival") {
         renderArrivalDocument(person.id);
       } else if (docType === "exit") {
@@ -6792,10 +6850,13 @@ function renderMobileSignaturePage() {
     identityLabelNode.textContent = signer === "representant" ? "REPRESENTANT" : "PERSONNEL";
   }
   if (personNode) {
-    const representative = person ? getRepresentativeInfo(person, normalizeText(docType) === "EXIT" ? "exit" : "arrival") : null;
+    const representative = person
+      ? getRepresentativeInfo(person, normalizeText(docType) === "EXIT" ? "exit" : "arrival")
+      : null;
+    const requestRepresentative = request?.representant || null;
     personNode.textContent =
       signer === "representant"
-        ? representative?.nom || "-"
+        ? representative?.nom || requestRepresentative?.nom || "-"
         : person
         ? `${person.nom || ""} ${person.prenom || ""}`.trim() || "-"
         : "-";
@@ -6805,8 +6866,13 @@ function renderMobileSignaturePage() {
   }
 
   const representative = person ? getRepresentativeInfo(person, normalizeText(docType) === "EXIT" ? "exit" : "arrival") : null;
+  const requestRepresentative = request?.representant || null;
   const representativeReady =
-    signer !== "representant" || Boolean(normalizeText(representative?.nom) && normalizeText(representative?.fonction));
+    signer !== "representant" ||
+    Boolean(
+      (normalizeText(representative?.nom) && normalizeText(representative?.fonction)) ||
+        (normalizeText(requestRepresentative?.nom) && normalizeText(requestRepresentative?.fonction))
+    );
   const valid = Boolean(
     person &&
       request &&
