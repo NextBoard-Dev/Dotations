@@ -8878,7 +8878,12 @@ function renderStockFormOptions() {
   }
   const typeSelect = form.elements.stockTypeEffet;
   const siteSelect = form.elements.stockSite;
-  if (!(typeSelect instanceof HTMLSelectElement) || !(siteSelect instanceof HTMLSelectElement)) {
+  const reasonSelect = form.elements.stockReason;
+  if (
+    !(typeSelect instanceof HTMLSelectElement) ||
+    !(siteSelect instanceof HTMLSelectElement) ||
+    !(reasonSelect instanceof HTMLSelectElement)
+  ) {
     return;
   }
   const values = (state.data?.listes?.typesEffets || []).slice().sort((a, b) => normalizeText(a).localeCompare(normalizeText(b), "fr"));
@@ -8888,7 +8893,26 @@ function renderStockFormOptions() {
     .slice()
     .sort((a, b) => normalizeText(a).localeCompare(normalizeText(b), "fr"));
   syncSelectOptions(siteSelect, sites, "SELECTIONNER");
+  syncSelectOptions(reasonSelect, getStockReasonOptions(), "SELECTIONNER");
   updateStockDesignationOptions();
+}
+
+function getStockReasonOptions() {
+  const baseCauses = Array.isArray(state.data?.listes?.causesRemplacement)
+    ? state.data.listes.causesRemplacement.map(normalizeText).filter(Boolean)
+    : [];
+  const defaults = [
+    "ACHAT",
+    "DOUBLE",
+    "CORRECTION INVENTAIRE",
+    "REBUT",
+    "DON",
+    "TRANSFERT INTERNE",
+    "REMPLACEMENT",
+  ];
+  return Array.from(new Set([...baseCauses, ...defaults])).sort((a, b) =>
+    normalizeText(a).localeCompare(normalizeText(b), "fr")
+  );
 }
 
 function updateStockDesignationOptions() {
@@ -9281,8 +9305,8 @@ function renderStockMovementsTable() {
     const qtyLabel = signedQty > 0 ? `+${signedQty}` : `${signedQty}`;
     return `<tr class="js-stock-movement-row" data-stock-movement-id="${escapeHtml(entry.id)}">
       <td>${escapeHtml(formatDate(entry.date) || entry.date || "-")}</td>
-      <td>${escapeHtml(entry.typeEffet || "-")}</td>
       <td>${escapeHtml(entry.site || "-")}</td>
+      <td>${escapeHtml(entry.typeEffet || "-")}</td>
       <td>${escapeHtml(entry.designation || "-")}</td>
       <td>${escapeHtml(entry.action || "-")}</td>
       <td>${escapeHtml(qtyLabel)}</td>
@@ -9307,8 +9331,8 @@ function renderStockSummaryTable() {
   const rowsHtml = rows.map((row) => {
     const manualDeltaLabel = row.manuelDelta > 0 ? `+${row.manuelDelta}` : String(row.manuelDelta);
     return `<tr>
-      <td>${escapeHtml(row.typeEffet)}</td>
       <td>${escapeHtml(row.site)}</td>
+      <td>${escapeHtml(row.typeEffet)}</td>
       <td>${escapeHtml(row.designation)}</td>
       <td>${row.dotes}</td>
       <td>${row.rendus}</td>

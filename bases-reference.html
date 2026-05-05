@@ -383,15 +383,15 @@
               <div class="section__subheading"><h4>AJUSTEMENT MANUEL DE STOCK</h4></div>
               <form class="reference-effect-form" id="stock-adjustment-form">
                 <label class="field">
-                  <span>TYPE D'EFFET</span>
-                  <select name="stockTypeEffet">
+                  <span>SITE</span>
+                  <select name="stockSite">
                     <option value="">SELECTIONNER</option>
                   </select>
                 </label>
 
                 <label class="field">
-                  <span>SITE</span>
-                  <select name="stockSite">
+                  <span>TYPE D'EFFET</span>
+                  <select name="stockTypeEffet">
                     <option value="">SELECTIONNER</option>
                   </select>
                 </label>
@@ -420,7 +420,9 @@
 
                 <label class="field">
                   <span>MOTIF</span>
-                  <input type="text" name="stockReason" placeholder="ACHAT, DOUBLE, CORRECTION, REBUT..." />
+                  <select name="stockReason">
+                    <option value="">SELECTIONNER</option>
+                  </select>
                 </label>
 
                 <label class="field">
@@ -441,8 +443,8 @@
                   <thead>
                     <tr>
                       <th>DATE</th>
-                      <th>TYPE</th>
                       <th>SITE</th>
+                      <th>TYPE</th>
                       <th>DESIGNATION</th>
                       <th>MOUVEMENT</th>
                       <th>QTE</th>
@@ -464,8 +466,8 @@
               <table class="data-table">
                 <thead>
                   <tr>
-                    <th>TYPE D'EFFET</th>
                     <th>SITE</th>
+                    <th>TYPE D'EFFET</th>
                     <th>DESIGNATION</th>
                     <th>DOTES</th>
                     <th>RENDUS</th>
@@ -538,7 +540,7 @@
       </main>
     </div>
 
-    <script src="app.js?v=20260505-2225"></script>
+    <script src="app.js?v=20260505-2245"></script>
   </body>
 </html>
 
