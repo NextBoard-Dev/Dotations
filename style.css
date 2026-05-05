@@ -3514,6 +3514,19 @@ button.btn-click-ack,
   filter: brightness(0.94) saturate(1.04) !important;
 }
 
+.stock-row-focus {
+  animation: stockRowPulse 1400ms ease-out 1;
+}
+
+@keyframes stockRowPulse {
+  0% {
+    background: rgba(255, 193, 7, 0.34);
+  }
+  100% {
+    background: transparent;
+  }
+}
+
 
 
 

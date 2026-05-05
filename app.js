@@ -47,6 +47,8 @@ const state = {
   autoPdfGeneratedKeys: new Set(),
   signedDocumentsPopupSeenKeys: new Set(),
   previousSignatureValidationMap: new Map(),
+  stockTableFilters: { site: "", typeEffet: "", referenceEffetId: "" },
+  stockHighlightKey: "",
 };
 
 const WORKING_DATA_KEY = "dashboard-working-data";
@@ -4947,25 +4949,49 @@ function bindStockAdjustmentForm() {
       commentaire,
       date: getTodayIsoDate(),
     });
+    state.stockHighlightKey = `${typeEffet}__${site}__${designation}`;
     markDirty();
+    refreshStockTableFiltersFromForm();
     renderReferenceBases();
-    form.reset();
-    if (form.elements.stockAction) {
-      form.elements.stockAction.value = "ENTREE";
-    }
+    if (form.elements.stockAction) form.elements.stockAction.value = "ENTREE";
     if (form.elements.stockQuantity) {
       form.elements.stockQuantity.value = "1";
+    }
+    if (form.elements.stockComment) {
+      form.elements.stockComment.value = "";
     }
     showActionStatus("create", `MOUVEMENT STOCK ENREGISTRE : ${typeEffet} / ${designation}`);
   };
 
   const typeSelect = form.elements.stockTypeEffet;
   const siteSelect = form.elements.stockSite;
+  const referenceSelect = form.elements.stockReferenceId;
   if (typeSelect instanceof HTMLSelectElement) {
-    typeSelect.onchange = () => updateStockDesignationOptions();
+    typeSelect.onchange = () => {
+      updateStockDesignationOptions();
+      refreshStockTableFiltersFromForm();
+      renderStockMovementsTable();
+      renderStockSummaryTable();
+    };
   }
   if (siteSelect instanceof HTMLSelectElement) {
-    siteSelect.onchange = () => updateStockDesignationOptions();
+    siteSelect.onchange = () => {
+      updateStockDesignationOptions();
+      refreshStockTableFiltersFromForm();
+      renderStockMovementsTable();
+      renderStockSummaryTable();
+    };
+  }
+  if (referenceSelect instanceof HTMLSelectElement) {
+    referenceSelect.onchange = () => {
+      refreshStockTableFiltersFromForm();
+      renderStockMovementsTable();
+      renderStockSummaryTable();
+    };
+  }
+  const resetButton = document.getElementById("stock-reset-filters");
+  if (resetButton instanceof HTMLButtonElement) {
+    resetButton.onclick = () => resetStockTableFiltersFromForm();
   }
 }
 
@@ -8895,6 +8921,7 @@ function renderStockFormOptions() {
   syncSelectOptions(siteSelect, sites, "SELECTIONNER");
   syncSelectOptions(reasonSelect, getStockReasonOptions(), "SELECTIONNER");
   updateStockDesignationOptions();
+  refreshStockTableFiltersFromForm();
 }
 
 function getStockReasonOptions() {
@@ -8945,6 +8972,32 @@ function updateStockDesignationOptions() {
     designationSelect.value = currentValue;
   }
   designationSelect.disabled = references.length === 0;
+}
+
+function refreshStockTableFiltersFromForm() {
+  const form = document.getElementById("stock-adjustment-form");
+  if (!(form instanceof HTMLFormElement)) {
+    return;
+  }
+  state.stockTableFilters = {
+    site: normalizeText(form.elements.stockSite?.value || ""),
+    typeEffet: normalizeText(form.elements.stockTypeEffet?.value || ""),
+    referenceEffetId: String(form.elements.stockReferenceId?.value || ""),
+  };
+}
+
+function resetStockTableFiltersFromForm() {
+  const form = document.getElementById("stock-adjustment-form");
+  if (!(form instanceof HTMLFormElement)) {
+    return;
+  }
+  if (form.elements.stockSite) form.elements.stockSite.value = "";
+  if (form.elements.stockTypeEffet) form.elements.stockTypeEffet.value = "";
+  updateStockDesignationOptions();
+  if (form.elements.stockReferenceId) form.elements.stockReferenceId.value = "";
+  refreshStockTableFiltersFromForm();
+  renderStockMovementsTable();
+  renderStockSummaryTable();
 }
 
 function renderMobileSignatureSettings() {
@@ -9293,7 +9346,20 @@ function renderStockMovementsTable() {
   if (!body) {
     return;
   }
+  const filters = state.stockTableFilters || { site: "", typeEffet: "", referenceEffetId: "" };
   const entries = (state.data?.stocksEffetsManuels || [])
+    .filter((entry) => {
+      if (filters.site && normalizeText(entry.site) !== filters.site) {
+        return false;
+      }
+      if (filters.typeEffet && normalizeText(entry.typeEffet) !== filters.typeEffet) {
+        return false;
+      }
+      if (filters.referenceEffetId && String(entry.referenceEffetId || "") !== String(filters.referenceEffetId || "")) {
+        return false;
+      }
+      return true;
+    })
     .slice()
     .sort((a, b) => String(b.date || "").localeCompare(String(a.date || ""), "fr"));
   if (!entries.length) {
@@ -9323,14 +9389,34 @@ function renderStockSummaryTable() {
   if (!body) {
     return;
   }
-  const rows = getStockSummaryRows();
+  const filters = state.stockTableFilters || { site: "", typeEffet: "", referenceEffetId: "" };
+  const rows = getStockSummaryRows().filter((row) => {
+    if (filters.site && normalizeText(row.site) !== filters.site) {
+      return false;
+    }
+    if (filters.typeEffet && normalizeText(row.typeEffet) !== filters.typeEffet) {
+      return false;
+    }
+    if (filters.referenceEffetId) {
+      const reference = (state.data?.listes?.referencesEffets || []).find(
+        (entry) => String(entry.id || "") === String(filters.referenceEffetId || "")
+      );
+      const referenceDesignation = normalizeText(reference?.designation || "");
+      if (referenceDesignation && normalizeText(row.designation) !== referenceDesignation) {
+        return false;
+      }
+    }
+    return true;
+  });
   if (!rows.length) {
     body.innerHTML = buildEmptyTableRow(body, "AUCUN STOCK CALCULE", 12);
     return;
   }
   const rowsHtml = rows.map((row) => {
     const manualDeltaLabel = row.manuelDelta > 0 ? `+${row.manuelDelta}` : String(row.manuelDelta);
-    return `<tr>
+    const rowKey = `${normalizeText(row.typeEffet)}__${normalizeText(row.site)}__${normalizeText(row.designation)}`;
+    const focusClass = rowKey === String(state.stockHighlightKey || "") ? " stock-row-focus" : "";
+    return `<tr class="${focusClass}">
       <td>${escapeHtml(row.site)}</td>
       <td>${escapeHtml(row.typeEffet)}</td>
       <td>${escapeHtml(row.designation)}</td>
@@ -9346,6 +9432,11 @@ function renderStockSummaryTable() {
     </tr>`;
   });
   renderTableRowsProgressively(body, rowsHtml, buildEmptyTableRow(body, "AUCUN STOCK CALCULE", 12), 24);
+  if (state.stockHighlightKey) {
+    window.setTimeout(() => {
+      state.stockHighlightKey = "";
+    }, 1200);
+  }
 }
 
 function renderTableRowsProgressively(body, rowsHtml, emptyMarkup = "", batchSize = 40) {
