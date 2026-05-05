@@ -3245,23 +3245,34 @@ function bindArchiveFilterForm() {
     return;
   }
 
-  const applyArchiveReset = () => {
+  const resetArchiveFilters = () => {
     clearFormSearchFields(form);
-    form.reset();
-    window.setTimeout(() => {
-      renderDocumentsArchivePage();
-    }, 0);
+    const searchField = form.elements.archiveSearch;
+    if (searchField instanceof HTMLInputElement) {
+      searchField.value = "";
+      searchField.defaultValue = "";
+    }
+    ["archiveTypeDocument", "archiveSite", "archiveStatutSignature"].forEach((fieldName) => {
+      const field = form.elements[fieldName];
+      if (field instanceof HTMLSelectElement) {
+        field.value = "";
+      }
+    });
+  };
+
+  const applyArchiveReset = () => {
+    resetArchiveFilters();
+    renderDocumentsArchivePage();
   };
 
   form.oninput = () => {
     renderDocumentsArchivePage();
   };
 
-  form.onreset = () => {
-    clearFormSearchFields(form);
-    window.setTimeout(() => {
-      renderDocumentsArchivePage();
-    }, 0);
+  form.onreset = (event) => {
+    event.preventDefault();
+    resetArchiveFilters();
+    renderDocumentsArchivePage();
   };
 
   const searchField = form.elements.archiveSearch;
