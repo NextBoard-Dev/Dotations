@@ -2476,6 +2476,15 @@ function sortReferencesForTable(references, tableName, renderContext = null) {
     if (primary !== 0) {
       return sort.dir === "asc" ? primary : -primary;
     }
+    if (sort.key === "site") {
+      const designationCompare = compareTextValues(
+        String(left?.designation || ""),
+        String(right?.designation || "")
+      );
+      if (designationCompare !== 0) {
+        return sort.dir === "asc" ? designationCompare : -designationCompare;
+      }
+    }
     return compareTextValues(String(left?.id || ""), String(right?.id || ""));
   });
 }
