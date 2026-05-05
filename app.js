@@ -3261,6 +3261,7 @@ function bindArchiveFilterForm() {
   };
 
   const applyArchiveReset = () => {
+    setCurrentPersonId("", "replace");
     resetArchiveFilters();
     renderDocumentsArchivePage();
   };
@@ -3271,6 +3272,7 @@ function bindArchiveFilterForm() {
 
   form.onreset = (event) => {
     event.preventDefault();
+    setCurrentPersonId("", "replace");
     resetArchiveFilters();
     renderDocumentsArchivePage();
   };
@@ -5941,7 +5943,16 @@ function renderDocumentsArchivePage() {
   }
 
   const filterForm = document.getElementById("documents-archives-filter-form");
+  const lockedPersonId = String(getCurrentPersonId() || "");
+  const lockedPerson = lockedPersonId
+    ? (state.data?.personnes || []).find((person) => String(person?.id || "") === lockedPersonId) || null
+    : null;
   const archiveSearchField = filterForm?.elements?.archiveSearch;
+  if (archiveSearchField instanceof HTMLInputElement && lockedPerson && !String(archiveSearchField.value || "").trim()) {
+    const label = getPersonPickerLabel(lockedPerson);
+    archiveSearchField.value = label;
+    archiveSearchField.defaultValue = label;
+  }
   const search = normalizeText(archiveSearchField?.value);
   const typeDocument = normalizeText(filterForm?.elements?.archiveTypeDocument?.value);
   const site = normalizeText(filterForm?.elements?.archiveSite?.value);
@@ -5962,6 +5973,9 @@ function renderDocumentsArchivePage() {
     }
     if (normalizeText(entry.typeDocument) === "SORTIE") {
       totalExitArchives += 1;
+    }
+    if (lockedPersonId && String(entry?.personId || "") !== lockedPersonId) {
+      return false;
     }
     if (typeDocument && normalizeText(entry.typeDocument) !== typeDocument) {
       return false;
