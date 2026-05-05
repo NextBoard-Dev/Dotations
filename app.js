@@ -5945,6 +5945,38 @@ function renderDocumentsArchivePage() {
     exitNode.textContent = String(totalExitArchives);
   }
 
+  const storageArrivalNode = document.getElementById("archive-storage-arrival");
+  const storageExitNode = document.getElementById("archive-storage-exit");
+  const storageMetadataNode = document.getElementById("archive-storage-metadata");
+  const storageLastUpdateNode = document.getElementById("archive-storage-last-update");
+  const allSignedArchives = signedArchives;
+  const arrivalStorageCount = allSignedArchives.filter(
+    (entry) => normalizeText(entry?.typeDocument) === "ARRIVEE"
+  ).length;
+  const exitStorageCount = allSignedArchives.filter(
+    (entry) => normalizeText(entry?.typeDocument) === "SORTIE"
+  ).length;
+  const metadataStorageCount = allSignedArchives.filter((entry) => String(entry?.metadataPath || "").trim()).length;
+  const latestArchiveMs = allSignedArchives.reduce((latest, entry) => {
+    const ms = Date.parse(String(entry?.dateArchivage || ""));
+    if (!Number.isFinite(ms)) {
+      return latest;
+    }
+    return ms > latest ? ms : latest;
+  }, 0);
+  if (storageArrivalNode) {
+    storageArrivalNode.textContent = String(arrivalStorageCount);
+  }
+  if (storageExitNode) {
+    storageExitNode.textContent = String(exitStorageCount);
+  }
+  if (storageMetadataNode) {
+    storageMetadataNode.textContent = String(metadataStorageCount);
+  }
+  if (storageLastUpdateNode) {
+    storageLastUpdateNode.textContent = latestArchiveMs > 0 ? formatSignatureTimestamp(new Date(latestArchiveMs).toISOString()) : "AUCUNE";
+  }
+
   if (!archives.length) {
     body.innerHTML = buildEmptyTableRow(body, "AUCUN DOCUMENT ARCHIVE", 11);
     return;

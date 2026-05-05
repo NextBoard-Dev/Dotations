@@ -151,16 +151,17 @@
 
         <section class="section">
           <div class="section__heading">
-            <h3>STOCKAGE STRUCTURE PREVU</h3>
-            <p>ARBORESCENCE PREPAREE POUR LE STOCKAGE LOCAL, PUIS PLUS TARD POUR SUPABASE.</p>
+            <h3>STOCKAGE ARCHIVES (ETAT REEL)</h3>
+            <p>ETAT CALCULE SUR LES DOCUMENTS ARCHIVES ACTUELLEMENT CHARGES.</p>
           </div>
 
           <div class="card">
             <div class="document-clauses">
-              <p><strong>ARRIVEE :</strong> `archives/pdf/arrivee/`</p>
-              <p><strong>SORTIE :</strong> `archives/pdf/sortie/`</p>
-              <p><strong>METADONNEES :</strong> `archives/metadata/`</p>
-              <p><strong>REGLE :</strong> UN FUTUR PDF SIGNE DEVRA ETRE CLASSE PAR TYPE DE DOCUMENT, PUIS PAR NOM DE PERSONNE ET DATE.</p>
+              <p><strong>ARRIVEE :</strong> <span id="archive-storage-arrival">0</span> PDF</p>
+              <p><strong>SORTIE :</strong> <span id="archive-storage-exit">0</span> PDF</p>
+              <p><strong>METADONNEES :</strong> <span id="archive-storage-metadata">0</span> FICHIER(S)</p>
+              <p><strong>DERNIERE MISE A JOUR :</strong> <span id="archive-storage-last-update">AUCUNE</span></p>
+              <p><strong>REGLE ACTIVE :</strong> ARCHIVAGE PAR TYPE DE DOCUMENT, NOM/PRENOM ET DATE.</p>
             </div>
           </div>
         </section>
