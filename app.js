@@ -6034,10 +6034,13 @@ function renderDocumentsArchivePage() {
     .map(
       (entry) => {
         const openPath = getDocumentArchiveOpenPath(entry);
+        const typeLabel = normalizeText(entry.typeDocument || "");
+        const typeIcon = typeLabel === "SORTIE" ? "🔴" : typeLabel === "ARRIVEE" ? "🟢" : "⚪";
+        const typeTitle = typeLabel || "TYPE INCONNU";
         return `<tr>
         <td>${escapeHtml(entry.nom || "-")}</td>
         <td>${escapeHtml(entry.prenom || "-")}</td>
-        <td>${escapeHtml(entry.typeDocument || "-")}</td>
+        <td title="${escapeHtml(typeTitle)}" aria-label="${escapeHtml(typeTitle)}">${typeIcon}</td>
         <td>${escapeHtml(formatDate(entry.dateDocument) || "-")}</td>
         <td>${escapeHtml(formatTime(entry.dateArchivage) || "-")}</td>
         <td>${escapeHtml(entry.sites || "-")}</td>
