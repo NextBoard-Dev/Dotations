@@ -902,7 +902,7 @@ function saveNavigationContext(partial = {}) {
 function restoreNavigationContext() {
   const context = getStoredNavigationContext();
   const params = new URLSearchParams(window.location.search);
-  const personIdInQuery = params.get("personId") || "";
+  const personIdInQuery = params.get("personId") || params.get("personld") || "";
 
   state.urgentMode = Boolean(context?.urgentMode);
   state.filters = {
@@ -912,6 +912,12 @@ function restoreNavigationContext() {
   state.filters.search = "";
 
   if (personIdInQuery) {
+    if (!params.get("personId") && params.get("personld")) {
+      const nextUrl = new URL(window.location.href);
+      nextUrl.searchParams.set("personId", personIdInQuery);
+      nextUrl.searchParams.delete("personld");
+      window.history.replaceState({}, "", nextUrl);
+    }
     saveNavigationContext({ personId: personIdInQuery, filters: state.filters });
     return;
   }
@@ -924,8 +930,14 @@ function restoreNavigationContext() {
 
 function getCurrentPersonId() {
   const params = new URLSearchParams(window.location.search);
-  const personIdInQuery = params.get("personId") || "";
+  const personIdInQuery = params.get("personId") || params.get("personld") || "";
   if (personIdInQuery) {
+    if (!params.get("personId") && params.get("personld")) {
+      const nextUrl = new URL(window.location.href);
+      nextUrl.searchParams.set("personId", personIdInQuery);
+      nextUrl.searchParams.delete("personld");
+      window.history.replaceState({}, "", nextUrl);
+    }
     return personIdInQuery;
   }
   const context = getStoredNavigationContext();
