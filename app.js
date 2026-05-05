@@ -5979,6 +5979,34 @@ function renderDocumentsArchivePage() {
     }
     return true;
   });
+  const groupedArchives = archives.slice().sort((left, right) => {
+    const leftPersonKey = String(left.personId || "")
+      || `${normalizeText(left.nom)}|${normalizeText(left.prenom)}`;
+    const rightPersonKey = String(right.personId || "")
+      || `${normalizeText(right.nom)}|${normalizeText(right.prenom)}`;
+    const personCompare = leftPersonKey.localeCompare(rightPersonKey, "fr");
+    if (personCompare !== 0) {
+      return personCompare;
+    }
+
+    const typeRank = (entry) => {
+      const type = normalizeText(entry?.typeDocument || "");
+      if (type === "ARRIVEE") return 0;
+      if (type === "SORTIE") return 1;
+      return 2;
+    };
+    const rankCompare = typeRank(left) - typeRank(right);
+    if (rankCompare !== 0) {
+      return rankCompare;
+    }
+
+    const leftDate = Date.parse(String(left?.dateDocument || "")) || 0;
+    const rightDate = Date.parse(String(right?.dateDocument || "")) || 0;
+    if (leftDate !== rightDate) {
+      return leftDate - rightDate;
+    }
+    return String(left?.id || "").localeCompare(String(right?.id || ""), "fr");
+  });
 
   const totalNode = document.getElementById("archive-count-total");
   const arrivalNode = document.getElementById("archive-count-arrival");
@@ -6025,12 +6053,12 @@ function renderDocumentsArchivePage() {
     storageLastUpdateNode.textContent = latestArchiveMs > 0 ? formatSignatureTimestamp(new Date(latestArchiveMs).toISOString()) : "AUCUNE";
   }
 
-  if (!archives.length) {
+  if (!groupedArchives.length) {
     body.innerHTML = buildEmptyTableRow(body, "AUCUN DOCUMENT ARCHIVE", 11);
     return;
   }
 
-  const rowsHtml = archives
+  const rowsHtml = groupedArchives
     .map(
       (entry) => {
         const openPath = getDocumentArchiveOpenPath(entry);
