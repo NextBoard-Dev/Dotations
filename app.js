@@ -5998,6 +5998,22 @@ function renderDocumentsArchivePage() {
   const signedArchives = (state.data?.documentsArchives || []).filter(
     (entry) => getDocumentArchiveSignatureStatus(entry) === "SIGNE"
   );
+  const archiveMatchesLockedPerson = (entry) => {
+    if (!lockedPersonId) {
+      return true;
+    }
+    const entryPersonId = String(entry?.personId || "").trim();
+    if (entryPersonId && entryPersonId === String(lockedPersonId).trim()) {
+      return true;
+    }
+    if (!lockedPerson) {
+      return false;
+    }
+    return (
+      normalizeText(entry?.nom || "") === normalizeText(lockedPerson.nom || "") &&
+      normalizeText(entry?.prenom || "") === normalizeText(lockedPerson.prenom || "")
+    );
+  };
   const archives = signedArchives.filter((entry) => {
     totalArchives += 1;
     if (normalizeText(entry.typeDocument) === "ARRIVEE") {
@@ -6006,7 +6022,7 @@ function renderDocumentsArchivePage() {
     if (normalizeText(entry.typeDocument) === "SORTIE") {
       totalExitArchives += 1;
     }
-    if (lockedPersonId && String(entry?.personId || "") !== lockedPersonId) {
+    if (!archiveMatchesLockedPerson(entry)) {
       return false;
     }
     if (typeDocument && normalizeText(entry.typeDocument) !== typeDocument) {
