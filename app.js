@@ -5942,8 +5942,16 @@ function renderDocumentsArchivePage() {
     return;
   }
 
+  const params = new URLSearchParams(window.location.search);
+  const personIdFromQuery = String(params.get("personId") || params.get("personld") || "");
+  if (!params.get("personId") && params.get("personld")) {
+    const nextUrl = new URL(window.location.href);
+    nextUrl.searchParams.set("personId", personIdFromQuery);
+    nextUrl.searchParams.delete("personld");
+    window.history.replaceState({}, "", nextUrl.toString());
+  }
   const filterForm = document.getElementById("documents-archives-filter-form");
-  const lockedPersonId = String(getCurrentPersonId() || "");
+  const lockedPersonId = personIdFromQuery || String(getCurrentPersonId() || "");
   const lockedPerson = lockedPersonId
     ? (state.data?.personnes || []).find((person) => String(person?.id || "") === lockedPersonId) || null
     : null;
