@@ -3346,6 +3346,7 @@ function bindPersonSheetForm() {
   const exitDocumentButton = document.getElementById("sheet-open-exit-document");
   const arrivalPdfButton = document.getElementById("sheet-open-arrival-pdf");
   const exitPdfButton = document.getElementById("sheet-open-exit-pdf");
+  const deletePersonButton = document.getElementById("sheet-delete-person");
   const typeContratField = form.elements.sheetTypeContrat;
 
   const setSheetFieldMissingState = (fieldName, isMissing) => {
@@ -5146,7 +5147,12 @@ function renderPage() {
   }
 
   if (page === "person-sheet" || page === "arrival-document" || page === "exit-document") {
-    renderPersonPicker();
+    try {
+      renderPersonPicker();
+    } catch (error) {
+      console.error("Erreur affichage recherche personne", error);
+      showDataStatus("FICHE CHARGEE - RECHERCHE PERSONNE INDISPONIBLE");
+    }
   }
 
   if (page === "mobile-signature") {
@@ -5155,9 +5161,14 @@ function renderPage() {
   }
 
   if (page === "person-sheet") {
-    renderPersonSheet(currentPersonId);
-    bindEffectTableSorting();
-    updateSortableHeaders("sheetEffects");
+    try {
+      renderPersonSheet(currentPersonId);
+      bindEffectTableSorting();
+      updateSortableHeaders("sheetEffects");
+    } catch (error) {
+      console.error("Erreur affichage fiche personne", error);
+      showDataStatus("ERREUR AFFICHAGE FICHE PERSONNE - VOIR CONSOLE");
+    }
   }
 
   if (page === "arrival-document") {
