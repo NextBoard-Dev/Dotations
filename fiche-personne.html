@@ -405,7 +405,19 @@
       </main>
     </div>
 
-    <script src="app.js?v=20260505-1745"></script>
+    <script>
+      (function () {
+        var url = new URL(window.location.href);
+        var legacy = url.searchParams.get("personld");
+        var current = url.searchParams.get("personId");
+        if (!current && legacy) {
+          url.searchParams.set("personId", legacy);
+          url.searchParams.delete("personld");
+          window.history.replaceState({}, "", url.toString());
+        }
+      })();
+    </script>
+    <script src="app.js?v=20260505-1805"></script>
   </body>
 </html>
 
