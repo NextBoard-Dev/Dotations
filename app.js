@@ -1712,6 +1712,8 @@ function migrateDataModel() {
     .map((entry, index) => ({
       id: String(entry.id || `STKM${String(index + 1).padStart(4, "0")}`),
       typeEffet: normalizeText(entry.typeEffet),
+      site: normalizeText(entry.site),
+      referenceEffetId: String(entry.referenceEffetId || ""),
       designation: normalizeText(entry.designation),
       action: normalizeText(entry.action),
       quantite: Math.max(1, Number.parseInt(String(entry.quantite || 1), 10) || 1),
@@ -4914,14 +4916,21 @@ function bindStockAdjustmentForm() {
     }
     const formData = new FormData(form);
     const typeEffet = normalizeText(formData.get("stockTypeEffet"));
-    const designation = normalizeText(formData.get("stockDesignation"));
+    const site = normalizeText(formData.get("stockSite"));
+    const referenceEffetId = String(formData.get("stockReferenceId") || "");
+    const reference = findReferenceById(referenceEffetId);
+    const designation = normalizeText(reference?.designation || "");
     const action = normalizeText(formData.get("stockAction"));
     const quantite = Math.max(1, Number.parseInt(String(formData.get("stockQuantity") || "1"), 10) || 1);
     const motif = normalizeText(formData.get("stockReason"));
     const commentaire = normalizeText(formData.get("stockComment"));
 
-    if (!typeEffet || !designation || !action) {
-      showDataStatus("TYPE, DESIGNATION ET MOUVEMENT OBLIGATOIRES");
+    if (!typeEffet || !site || !reference || !designation || !action) {
+      showDataStatus("TYPE, SITE, DESIGNATION BASE ET MOUVEMENT OBLIGATOIRES");
+      return;
+    }
+    if (!isReferenceEffectActive(reference)) {
+      showDataStatus("REFERENCE EFFET DESACTIVEE - MOUVEMENT BLOQUE");
       return;
     }
 
@@ -4929,6 +4938,8 @@ function bindStockAdjustmentForm() {
     state.data.stocksEffetsManuels.push({
       id: getNextId("STKM", state.data.stocksEffetsManuels),
       typeEffet,
+      site,
+      referenceEffetId: String(reference.id || ""),
       designation,
       action,
       quantite,
@@ -4947,6 +4958,15 @@ function bindStockAdjustmentForm() {
     }
     showActionStatus("create", `MOUVEMENT STOCK ENREGISTRE : ${typeEffet} / ${designation}`);
   };
+
+  const typeSelect = form.elements.stockTypeEffet;
+  const siteSelect = form.elements.stockSite;
+  if (typeSelect instanceof HTMLSelectElement) {
+    typeSelect.onchange = () => updateStockDesignationOptions();
+  }
+  if (siteSelect instanceof HTMLSelectElement) {
+    siteSelect.onchange = () => updateStockDesignationOptions();
+  }
 }
 
 function bindStockMovementActions() {
@@ -4967,6 +4987,11 @@ function bindStockMovementActions() {
     const movementId = String(deleteButton.dataset.stockMovementId || "");
     const movement = (state.data?.stocksEffetsManuels || []).find((entry) => String(entry.id || "") === movementId);
     if (!movement) {
+      return;
+    }
+    const linkedReference = movement.referenceEffetId ? findReferenceById(movement.referenceEffetId) : null;
+    if (!linkedReference) {
+      showDataStatus("MOUVEMENT STOCK VERROUILLE : REFERENCE ABSENTE EN BASE");
       return;
     }
     if (!window.confirm(`SUPPRIMER LE MOUVEMENT STOCK : ${movement.typeEffet} / ${movement.designation} ?`)) {
@@ -8839,20 +8864,63 @@ function renderReferenceBases() {
   renderRepresentativesTable(state.referenceRenderContext);
   renderReferenceEffectsTable(state.referenceRenderContext);
   renderReplacementCostsTable();
-  renderStockTypeEffetOptions();
+  renderStockFormOptions();
   renderStockMovementsTable();
   renderStockSummaryTable();
   renderReferenceCounts();
   renderMobileSignatureSettings();
 }
 
-function renderStockTypeEffetOptions() {
-  const select = document.querySelector('#stock-adjustment-form select[name="stockTypeEffet"]');
-  if (!(select instanceof HTMLSelectElement)) {
+function renderStockFormOptions() {
+  const form = document.getElementById("stock-adjustment-form");
+  if (!(form instanceof HTMLFormElement)) {
+    return;
+  }
+  const typeSelect = form.elements.stockTypeEffet;
+  const siteSelect = form.elements.stockSite;
+  if (!(typeSelect instanceof HTMLSelectElement) || !(siteSelect instanceof HTMLSelectElement)) {
     return;
   }
   const values = (state.data?.listes?.typesEffets || []).slice().sort((a, b) => normalizeText(a).localeCompare(normalizeText(b), "fr"));
-  syncSelectOptions(select, values, "SELECTIONNER");
+  syncSelectOptions(typeSelect, values, "SELECTIONNER");
+  const sites = (state.data?.listes?.sites || [])
+    .filter((site) => normalizeText(site) !== ALL_SITES_VALUE)
+    .slice()
+    .sort((a, b) => normalizeText(a).localeCompare(normalizeText(b), "fr"));
+  syncSelectOptions(siteSelect, sites, "SELECTIONNER");
+  updateStockDesignationOptions();
+}
+
+function updateStockDesignationOptions() {
+  const form = document.getElementById("stock-adjustment-form");
+  if (!(form instanceof HTMLFormElement)) {
+    return;
+  }
+  const typeEffet = normalizeText(form.elements.stockTypeEffet?.value || "");
+  const site = normalizeText(form.elements.stockSite?.value || "");
+  const designationSelect = form.elements.stockReferenceId;
+  if (!(designationSelect instanceof HTMLSelectElement)) {
+    return;
+  }
+  const references = (state.data?.listes?.referencesEffets || [])
+    .filter((reference) => isReferenceEffectActive(reference))
+    .filter((reference) => !typeEffet || normalizeText(reference.typeEffet) === typeEffet)
+    .filter((reference) => !site || referenceHasSite(reference, site))
+    .sort((a, b) => normalizeText(a.designation).localeCompare(normalizeText(b.designation), "fr"));
+
+  const currentValue = designationSelect.value;
+  designationSelect.innerHTML = [`<option value="">SELECTIONNER</option>`]
+    .concat(
+      references.map(
+        (reference) =>
+          `<option value="${escapeHtml(String(reference.id || ""))}">${escapeHtml(reference.designation || "-")}</option>`
+      )
+    )
+    .join("");
+  if (currentValue && references.some((entry) => String(entry.id || "") === currentValue)) {
+    designationSelect.value = currentValue;
+  }
+  designationSelect.disabled = references.length === 0;
 }
 
 function renderMobileSignatureSettings() {
@@ -9131,12 +9199,13 @@ function getStockMovementSignedQuantity(entry) {
 
 function getStockSummaryRows() {
   const rowsByKey = new Map();
-  const ensureRow = (typeEffet, designation) => {
-    const key = `${normalizeText(typeEffet)}__${normalizeText(designation)}`;
+  const ensureRow = (typeEffet, site, designation) => {
+    const key = `${normalizeText(typeEffet)}__${normalizeText(site)}__${normalizeText(designation)}`;
     if (!rowsByKey.has(key)) {
       rowsByKey.set(key, {
         key,
         typeEffet: normalizeText(typeEffet),
+        site: normalizeText(site) || "SANS SITE",
         designation: normalizeText(designation),
         dotes: 0,
         rendus: 0,
@@ -9153,11 +9222,12 @@ function getStockSummaryRows() {
 
   getAllEffects(state.data?.personnes || []).forEach(({ person, effect }) => {
     const typeEffet = normalizeText(effect?.typeEffet || "");
+    const site = normalizeText(getEffectDisplaySite(effect) || getPersonSiteLabel(person) || "SANS SITE");
     const designation = normalizeText(getEffectDisplayDesignation(effect) || effect?.designation || typeEffet || "SANS DESIGNATION");
     if (!typeEffet || !designation) {
       return;
     }
-    const row = ensureRow(typeEffet, designation);
+    const row = ensureRow(typeEffet, site, designation);
     const status = normalizeText(getEffectStatus(person, effect));
     row.dotes += 1;
     if (status === "RESTITUE") row.rendus += 1;
@@ -9170,11 +9240,12 @@ function getStockSummaryRows() {
 
   (state.data?.stocksEffetsManuels || []).forEach((entry) => {
     const typeEffet = normalizeText(entry?.typeEffet || "");
+    const site = normalizeText(entry?.site || "SANS SITE");
     const designation = normalizeText(entry?.designation || "");
     if (!typeEffet || !designation) {
       return;
     }
-    const row = ensureRow(typeEffet, designation);
+    const row = ensureRow(typeEffet, site, designation);
     row.manuelDelta += getStockMovementSignedQuantity(entry);
   });
 
@@ -9187,8 +9258,8 @@ function getStockSummaryRows() {
       };
     })
     .sort((left, right) => {
-      const a = `${normalizeText(left.typeEffet)} ${normalizeText(left.designation)}`;
-      const b = `${normalizeText(right.typeEffet)} ${normalizeText(right.designation)}`;
+      const a = `${normalizeText(left.typeEffet)} ${normalizeText(left.site)} ${normalizeText(left.designation)}`;
+      const b = `${normalizeText(right.typeEffet)} ${normalizeText(right.site)} ${normalizeText(right.designation)}`;
       return a.localeCompare(b, "fr");
     });
 }
@@ -9202,7 +9273,7 @@ function renderStockMovementsTable() {
     .slice()
     .sort((a, b) => String(b.date || "").localeCompare(String(a.date || ""), "fr"));
   if (!entries.length) {
-    body.innerHTML = buildEmptyTableRow(body, "AUCUN MOUVEMENT MANUEL", 7);
+    body.innerHTML = buildEmptyTableRow(body, "AUCUN MOUVEMENT MANUEL", 8);
     return;
   }
   const rowsHtml = entries.map((entry) => {
@@ -9211,6 +9282,7 @@ function renderStockMovementsTable() {
     return `<tr class="js-stock-movement-row" data-stock-movement-id="${escapeHtml(entry.id)}">
       <td>${escapeHtml(formatDate(entry.date) || entry.date || "-")}</td>
       <td>${escapeHtml(entry.typeEffet || "-")}</td>
+      <td>${escapeHtml(entry.site || "-")}</td>
       <td>${escapeHtml(entry.designation || "-")}</td>
       <td>${escapeHtml(entry.action || "-")}</td>
       <td>${escapeHtml(qtyLabel)}</td>
@@ -9218,7 +9290,7 @@ function renderStockMovementsTable() {
       <td><button type="button" class="table-link js-delete-stock-movement" data-stock-movement-id="${escapeHtml(entry.id)}">SUPPRIMER</button></td>
     </tr>`;
   });
-  renderTableRowsProgressively(body, rowsHtml, buildEmptyTableRow(body, "AUCUN MOUVEMENT MANUEL", 7), 24);
+  renderTableRowsProgressively(body, rowsHtml, buildEmptyTableRow(body, "AUCUN MOUVEMENT MANUEL", 8), 24);
   bindStockMovementActions();
 }
 
@@ -9229,13 +9301,14 @@ function renderStockSummaryTable() {
   }
   const rows = getStockSummaryRows();
   if (!rows.length) {
-    body.innerHTML = buildEmptyTableRow(body, "AUCUN STOCK CALCULE", 11);
+    body.innerHTML = buildEmptyTableRow(body, "AUCUN STOCK CALCULE", 12);
     return;
   }
   const rowsHtml = rows.map((row) => {
     const manualDeltaLabel = row.manuelDelta > 0 ? `+${row.manuelDelta}` : String(row.manuelDelta);
     return `<tr>
       <td>${escapeHtml(row.typeEffet)}</td>
+      <td>${escapeHtml(row.site)}</td>
       <td>${escapeHtml(row.designation)}</td>
       <td>${row.dotes}</td>
       <td>${row.rendus}</td>
@@ -9248,7 +9321,7 @@ function renderStockSummaryTable() {
       <td><strong>${row.stockCourant}</strong></td>
     </tr>`;
   });
-  renderTableRowsProgressively(body, rowsHtml, buildEmptyTableRow(body, "AUCUN STOCK CALCULE", 11), 24);
+  renderTableRowsProgressively(body, rowsHtml, buildEmptyTableRow(body, "AUCUN STOCK CALCULE", 12), 24);
 }
 
 function renderTableRowsProgressively(body, rowsHtml, emptyMarkup = "", batchSize = 40) {
@@ -10109,8 +10182,8 @@ function resetUiWithoutData() {
     { id: "reference-causesRemplacement-body", colspan: 2 },
     { id: "reference-effects-table-body", colspan: 5 },
     { id: "replacement-costs-body", colspan: 4 },
-    { id: "stock-movements-table-body", colspan: 7 },
-    { id: "stock-summary-table-body", colspan: 11 },
+    { id: "stock-movements-table-body", colspan: 8 },
+    { id: "stock-summary-table-body", colspan: 12 },
   ];
 
   targets.forEach(({ id, colspan }) => {

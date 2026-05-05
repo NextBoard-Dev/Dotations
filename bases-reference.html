@@ -390,8 +390,17 @@
                 </label>
 
                 <label class="field">
-                  <span>DESIGNATION</span>
-                  <input type="text" name="stockDesignation" placeholder="EX: BADGE INTRUSION / CLE / TELECOMMANDE" />
+                  <span>SITE</span>
+                  <select name="stockSite">
+                    <option value="">SELECTIONNER</option>
+                  </select>
+                </label>
+
+                <label class="field">
+                  <span>DESIGNATION (BASE)</span>
+                  <select name="stockReferenceId">
+                    <option value="">SELECTIONNER</option>
+                  </select>
                 </label>
 
                 <label class="field">
@@ -433,6 +442,7 @@
                     <tr>
                       <th>DATE</th>
                       <th>TYPE</th>
+                      <th>SITE</th>
                       <th>DESIGNATION</th>
                       <th>MOUVEMENT</th>
                       <th>QTE</th>
@@ -441,7 +451,7 @@
                     </tr>
                   </thead>
                   <tbody id="stock-movements-table-body">
-                    <tr><td colspan="7" class="table-empty">CHARGEMENT...</td></tr>
+                    <tr><td colspan="8" class="table-empty">CHARGEMENT...</td></tr>
                   </tbody>
                 </table>
               </div>
@@ -455,6 +465,7 @@
                 <thead>
                   <tr>
                     <th>TYPE D'EFFET</th>
+                    <th>SITE</th>
                     <th>DESIGNATION</th>
                     <th>DOTES</th>
                     <th>RENDUS</th>
@@ -468,7 +479,7 @@
                   </tr>
                 </thead>
                 <tbody id="stock-summary-table-body">
-                  <tr><td colspan="11" class="table-empty">CHARGEMENT...</td></tr>
+                  <tr><td colspan="12" class="table-empty">CHARGEMENT...</td></tr>
                 </tbody>
               </table>
             </div>
@@ -527,7 +538,7 @@
       </main>
     </div>
 
-    <script src="app.js?v=20260505-2205"></script>
+    <script src="app.js?v=20260505-2225"></script>
   </body>
 </html>
 
