@@ -55,6 +55,8 @@ const WORKING_DATA_KEY = "dashboard-working-data";
 const LEGACY_CONTRACT_TYPES = ["CDI", "CDD", "INTERIMAIRE"];
 const MAX_UNDO_STACK = 30;
 const ALL_SITES_VALUE = "TOUS SITES";
+const ALL_TYPES_VALUE = "TOUS TYPES";
+const ALL_DESIGNATIONS_VALUE = "__ALL_DESIGNATIONS__";
 const EFFECT_STATUS_CAUSES = ["HS", "PERTE", "VOL", "NON RENDU", "DETRUIT"];
 const BILLABLE_EFFECT_CAUSES = ["PERTE", "VOL", "NON RENDU", "DETRUIT"];
 const NON_RENDU_REFERENCE_COSTS = {
@@ -4920,7 +4922,7 @@ function bindStockAdjustmentForm() {
     const typeEffet = normalizeText(formData.get("stockTypeEffet"));
     const site = normalizeText(formData.get("stockSite"));
     const referenceEffetId = String(formData.get("stockReferenceId") || "");
-    const reference = findReferenceById(referenceEffetId);
+    const reference = referenceEffetId === ALL_DESIGNATIONS_VALUE ? null : findReferenceById(referenceEffetId);
     const designation = normalizeText(reference?.designation || "");
     const action = normalizeText(formData.get("stockAction"));
     const quantite = Math.max(1, Number.parseInt(String(formData.get("stockQuantity") || "1"), 10) || 1);
@@ -4929,6 +4931,10 @@ function bindStockAdjustmentForm() {
 
     if (!typeEffet || !site || !reference || !designation || !action) {
       showDataStatus("TYPE, SITE, DESIGNATION BASE ET MOUVEMENT OBLIGATOIRES");
+      return;
+    }
+    if (typeEffet === ALL_TYPES_VALUE || site === ALL_SITES_VALUE || referenceEffetId === ALL_DESIGNATIONS_VALUE) {
+      showDataStatus("POUR ENREGISTRER : CHOISIR SITE/TYPE/DESIGNATION PRECIS");
       return;
     }
     if (!isReferenceEffectActive(reference)) {
@@ -8912,13 +8918,31 @@ function renderStockFormOptions() {
   ) {
     return;
   }
-  const values = (state.data?.listes?.typesEffets || []).slice().sort((a, b) => normalizeText(a).localeCompare(normalizeText(b), "fr"));
-  syncSelectOptions(typeSelect, values, "SELECTIONNER");
+  const values = Array.from(
+    new Set(
+      (state.data?.listes?.referencesEffets || [])
+        .filter((reference) => isReferenceEffectActive(reference))
+        .map((reference) => normalizeText(reference.typeEffet))
+        .filter(Boolean)
+    )
+  ).sort((a, b) => normalizeText(a).localeCompare(normalizeText(b), "fr"));
+  const currentType = String(typeSelect.value || "");
+  typeSelect.innerHTML = [`<option value="">SELECTIONNER</option>`, `<option value="${ALL_TYPES_VALUE}">${ALL_TYPES_VALUE}</option>`]
+    .concat(values.map((entry) => `<option value="${escapeHtml(entry)}">${escapeHtml(entry)}</option>`))
+    .join("");
+  if (currentType && Array.from(typeSelect.options).some((opt) => opt.value === currentType)) {
+    typeSelect.value = currentType;
+  }
   const sites = (state.data?.listes?.sites || [])
-    .filter((site) => normalizeText(site) !== ALL_SITES_VALUE)
     .slice()
     .sort((a, b) => normalizeText(a).localeCompare(normalizeText(b), "fr"));
-  syncSelectOptions(siteSelect, sites, "SELECTIONNER");
+  const currentSite = String(siteSelect.value || "");
+  siteSelect.innerHTML = [`<option value="">SELECTIONNER</option>`, `<option value="${ALL_SITES_VALUE}">${ALL_SITES_VALUE}</option>`]
+    .concat(sites.map((entry) => `<option value="${escapeHtml(entry)}">${escapeHtml(entry)}</option>`))
+    .join("");
+  if (currentSite && Array.from(siteSelect.options).some((opt) => opt.value === currentSite)) {
+    siteSelect.value = currentSite;
+  }
   syncSelectOptions(reasonSelect, getStockReasonOptions(), "SELECTIONNER");
   updateStockDesignationOptions();
   refreshStockTableFiltersFromForm();
@@ -8955,12 +8979,12 @@ function updateStockDesignationOptions() {
   }
   const references = (state.data?.listes?.referencesEffets || [])
     .filter((reference) => isReferenceEffectActive(reference))
-    .filter((reference) => !typeEffet || normalizeText(reference.typeEffet) === typeEffet)
-    .filter((reference) => !site || referenceHasSite(reference, site))
+    .filter((reference) => !typeEffet || typeEffet === ALL_TYPES_VALUE || normalizeText(reference.typeEffet) === typeEffet)
+    .filter((reference) => !site || site === ALL_SITES_VALUE || referenceHasSite(reference, site))
     .sort((a, b) => normalizeText(a.designation).localeCompare(normalizeText(b.designation), "fr"));
 
   const currentValue = designationSelect.value;
-  designationSelect.innerHTML = [`<option value="">SELECTIONNER</option>`]
+  designationSelect.innerHTML = [`<option value="">SELECTIONNER</option>`, `<option value="${ALL_DESIGNATIONS_VALUE}">TOUTES DESIGNATIONS</option>`]
     .concat(
       references.map(
         (reference) =>
@@ -9349,13 +9373,17 @@ function renderStockMovementsTable() {
   const filters = state.stockTableFilters || { site: "", typeEffet: "", referenceEffetId: "" };
   const entries = (state.data?.stocksEffetsManuels || [])
     .filter((entry) => {
-      if (filters.site && normalizeText(entry.site) !== filters.site) {
+      if (filters.site && filters.site !== ALL_SITES_VALUE && normalizeText(entry.site) !== filters.site) {
         return false;
       }
-      if (filters.typeEffet && normalizeText(entry.typeEffet) !== filters.typeEffet) {
+      if (filters.typeEffet && filters.typeEffet !== ALL_TYPES_VALUE && normalizeText(entry.typeEffet) !== filters.typeEffet) {
         return false;
       }
-      if (filters.referenceEffetId && String(entry.referenceEffetId || "") !== String(filters.referenceEffetId || "")) {
+      if (
+        filters.referenceEffetId &&
+        filters.referenceEffetId !== ALL_DESIGNATIONS_VALUE &&
+        String(entry.referenceEffetId || "") !== String(filters.referenceEffetId || "")
+      ) {
         return false;
       }
       return true;
@@ -9391,13 +9419,13 @@ function renderStockSummaryTable() {
   }
   const filters = state.stockTableFilters || { site: "", typeEffet: "", referenceEffetId: "" };
   const rows = getStockSummaryRows().filter((row) => {
-    if (filters.site && normalizeText(row.site) !== filters.site) {
+    if (filters.site && filters.site !== ALL_SITES_VALUE && normalizeText(row.site) !== filters.site) {
       return false;
     }
-    if (filters.typeEffet && normalizeText(row.typeEffet) !== filters.typeEffet) {
+    if (filters.typeEffet && filters.typeEffet !== ALL_TYPES_VALUE && normalizeText(row.typeEffet) !== filters.typeEffet) {
       return false;
     }
-    if (filters.referenceEffetId) {
+    if (filters.referenceEffetId && filters.referenceEffetId !== ALL_DESIGNATIONS_VALUE) {
       const reference = (state.data?.listes?.referencesEffets || []).find(
         (entry) => String(entry.id || "") === String(filters.referenceEffetId || "")
       );
