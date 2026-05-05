@@ -766,6 +766,10 @@ function getReferenceSiteLabel(reference) {
   return sites.length ? sites.join(" / ") : "";
 }
 
+function isReferenceEffectActive(reference) {
+  return reference?.active !== false;
+}
+
 function referenceHasSite(reference, site) {
   const normalizedSite = normalizeText(site);
   if (!normalizedSite) {
@@ -1784,6 +1788,7 @@ function migrateDataModel() {
       sitesAffectation: getReferenceSites(reference),
       typeEffet: normalizeText(reference.typeEffet),
       designation: normalizeText(reference.designation),
+      active: reference?.active !== false,
     }))
     .map((reference) => {
       const nextSites =
@@ -8175,6 +8180,9 @@ function getReferenceSitesForType(typeEffet) {
 
   const sites = state.data.listes.referencesEffets
     .filter((reference) => {
+      if (!isReferenceEffectActive(reference)) {
+        return false;
+      }
       if (normalizeText(reference.typeEffet) !== getReferenceCatalogType(normalizedTypeEffet)) {
         return false;
       }
@@ -8240,6 +8248,9 @@ function hydrateReferenceSelect(siteSource, typeEffet = "", selectedId = "", ref
   const visibleSiteCount = getReferenceSitesForType(normalizedTypeEffet).length;
   const options = state.data.listes.referencesEffets
     .filter((reference) => {
+      if (!isReferenceEffectActive(reference)) {
+        return false;
+      }
       if (normalizedReferenceSite && !referenceHasSite(reference, normalizedReferenceSite)) {
         return false;
       }
@@ -8719,11 +8730,12 @@ function renderReferenceEffectsTable(renderContext = null) {
       return `<tr class="js-reference-effect-row" data-reference-id="${reference.id}">
         <td>${escapeHtml(getReferenceSiteLabel(reference))}</td>
         <td>${escapeHtml(reference.typeEffet)}</td>
-        <td>${escapeHtml(reference.designation)}</td>
+        <td>${escapeHtml(reference.designation)}${isReferenceEffectActive(reference) ? "" : ' <span class="table-muted">(DESACTIVEE)</span>'}</td>
         <td>${usage}</td>
         <td>
           <button type="button" class="table-link js-edit-reference-effect" data-reference-id="${reference.id}">MODIFIER</button>
-          <button type="button" class="table-link js-delete-reference-effect" data-reference-id="${reference.id}">SUPPRIMER</button>
+          <button type="button" class="table-link js-delete-reference-effect" data-reference-id="${reference.id}">${isReferenceEffectActive(reference) ? "DESACTIVER" : "REACTIVER"}</button>
+          <button type="button" class="table-link js-hard-delete-reference-effect" data-reference-id="${reference.id}">SUPPRIMER</button>
         </td>
       </tr>`;
     });
@@ -9024,6 +9036,14 @@ function bindReferenceEffectActions() {
       return;
     }
 
+    const hardDeleteButton = target.closest(".js-hard-delete-reference-effect");
+    if (hardDeleteButton instanceof HTMLElement) {
+      event.preventDefault();
+      event.stopPropagation();
+      hardDeleteReferenceEffect(hardDeleteButton.dataset.referenceId || "");
+      return;
+    }
+
     const deleteButton = target.closest(".js-delete-reference-effect");
     if (deleteButton instanceof HTMLElement) {
       event.preventDefault();
@@ -9184,21 +9204,62 @@ function deleteReferenceEffect(referenceId) {
     return;
   }
 
-  const usage = getReferenceEffectUsage(referenceId);
-  if (usage > 0) {
-    showDataStatus("SUPPRESSION BLOQUEE - REFERENCE DEJA UTILISEE");
-    window.alert("SUPPRESSION IMPOSSIBLE : REFERENCE DEJA UTILISEE");
+  const reference = findReferenceById(referenceId);
+  if (!reference) {
     return;
   }
 
+  const nextActive = !isReferenceEffectActive(reference);
+  const actionLabel = nextActive ? "REACTIVER" : "DESACTIVER";
+  const confirmDelete = window.confirm(`${actionLabel} LA REFERENCE : ${reference.designation || referenceId} ?`);
+  if (!confirmDelete) {
+    return;
+  }
+
+  if (!nextActive) {
+    const usage = getReferenceEffectUsage(referenceId);
+    if (usage > 0) {
+      const forceDisable = window.confirm(
+        "REFERENCE DEJA UTILISEE DANS DES DOSSIERS. DESACTIVER QUAND MEME ?"
+      );
+      if (!forceDisable) {
+        return;
+      }
+    }
+  }
+
+  pushUndoSnapshot("SUPPRESSION REFERENCE");
+  reference.active = nextActive;
+  if (state.editingReferenceId === referenceId) {
+    state.editingReferenceId = "";
+    resetReferenceEffectForm();
+  }
+  markDirty();
+  renderPage();
+  showActionStatus("update", `REFERENCE ${nextActive ? "REACTIVEE" : "DESACTIVEE"} : ${reference.designation || referenceId}`);
+}
+
+function hardDeleteReferenceEffect(referenceId) {
+  if (!state.data?.listes?.referencesEffets) {
+    return;
+  }
   const reference = findReferenceById(referenceId);
+  if (!reference) {
+    return;
+  }
+  const usage = getReferenceEffectUsage(referenceId);
+  if (usage > 0) {
+    showDataStatus("SUPPRESSION DEFINITIVE BLOQUEE - REFERENCE DEJA UTILISEE");
+    window.alert("SUPPRESSION DEFINITIVE IMPOSSIBLE : REFERENCE DEJA UTILISEE");
+    return;
+  }
   const confirmDelete = window.confirm(
-    `SUPPRIMER DEFINITIVEMENT : ${reference?.designation || referenceId} ?`
+    `SUPPRIMER DEFINITIVEMENT : ${reference.designation || referenceId} ?`
   );
   if (!confirmDelete) {
     return;
   }
-  pushUndoSnapshot("SUPPRESSION REFERENCE");
+  pushUndoSnapshot("SUPPRESSION DEFINITIVE REFERENCE");
   state.data.listes.referencesEffets = state.data.listes.referencesEffets.filter(
     (entry) => entry.id !== referenceId
   );
@@ -9208,7 +9269,7 @@ function deleteReferenceEffect(referenceId) {
   }
   markDirty();
   renderPage();
-  showActionStatus("delete", `REFERENCE SUPPRIMEE : ${reference?.designation || referenceId}`);
+  showActionStatus("delete", `REFERENCE SUPPRIMEE DEFINITIVEMENT : ${reference.designation || referenceId}`);
 }
 
 function startEditReferenceEffect(referenceId) {
