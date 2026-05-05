@@ -72,10 +72,51 @@ const DEFAULT_SUPABASE_SIGNATURES_BUCKET = "signatures";
 const NAVIGATION_CONTEXT_KEY = "dotations-navigation-context";
 const SIGNED_POPUP_SEEN_STORAGE_KEY = "dotations-signed-popup-seen";
 const PENDING_PDF_REMINDER_SNOOZE_KEY = "dotations-pending-pdf-reminder-snooze";
+const PENDING_PDF_TASK_STORAGE_KEY = "dotations-pending-pdf-task";
 const PDF_LAYOUT_VERSION = "2026-03-14-exit-layout-fix-3";
 const PDF_FORMAT_LOCK = "v1";
 let pdfModalCleanupBound = false;
 const signatureCanvases = new WeakMap();
+
+function getPendingPdfTaskFromStorage() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(PENDING_PDF_TASK_STORAGE_KEY) || "null");
+    if (!raw || typeof raw !== "object") {
+      return null;
+    }
+    const personId = String(raw.personId || "");
+    const docType = String(raw.docType || "");
+    const validatedAt = String(raw.validatedAt || "");
+    if (!personId || !docType || !validatedAt) {
+      return null;
+    }
+    return { personId, docType, validatedAt };
+  } catch (error) {
+    return null;
+  }
+}
+
+function setPendingPdfTaskToStorage(task) {
+  try {
+    if (!task) {
+      localStorage.removeItem(PENDING_PDF_TASK_STORAGE_KEY);
+      return;
+    }
+    localStorage.setItem(PENDING_PDF_TASK_STORAGE_KEY, JSON.stringify(task));
+  } catch (error) {
+    // ignore storage failures
+  }
+}
+
+function clearPendingPdfTaskFor(personId, docType) {
+  const current = getPendingPdfTaskFromStorage();
+  if (!current) {
+    return;
+  }
+  if (String(current.personId) === String(personId) && String(current.docType) === String(docType)) {
+    setPendingPdfTaskToStorage(null);
+  }
+}
 
 function setKpiCountAnimated(node, nextValue) {
   if (!node) {
@@ -2670,6 +2711,7 @@ async function openPdfDocument(docType, personId) {
       popup.location.href = hostedUrl;
       if (person && shouldArchive) {
         await registerArchivedDocument(person, docType, hostedPath, "", archiveMode);
+        clearPendingPdfTaskFor(person.id, docType);
       }
       showDataStatus("DOCUMENT OUVERT - UTILISER IMPRIMER POUR GENERER LE PDF");
       return;
@@ -2711,6 +2753,7 @@ async function openPdfDocument(docType, personId) {
     popup.location.href = objectUrl;
     const finalArchivePath = hostedStoragePdfPath || archivePdfPath;
     if (person && finalArchivePath) {
+      clearPendingPdfTaskFor(person.id, docType);
       registerArchivedDocument(person, docType, finalArchivePath, archiveMetadataPath, archiveMode).catch((error) => {
         console.error(error);
         showDataStatus("ARCHIVAGE PDF IMPOSSIBLE");
@@ -2914,40 +2957,18 @@ function notifyFullySignedDocumentsOnReload(previousSignatureValidationMap = new
     return latest;
   }, null);
 
-  const pendingPdfCandidates = [];
-  (state.data.personnes || []).forEach((person) => {
-    ["arrival", "exit"].forEach((docType) => {
-      if (!isDocumentFullySigned(person, docType)) {
-        return;
-      }
-      if (findReusableArchivedDocument(person, docType)) {
-        return;
-      }
-      const personnelAt = Date.parse(getSignatureValidationDate(person, docType, "personnel") || "");
-      const representantAt = Date.parse(getSignatureValidationDate(person, docType, "representant") || "");
-      const validatedAtMs = Math.max(
-        Number.isFinite(personnelAt) ? personnelAt : 0,
-        Number.isFinite(representantAt) ? representantAt : 0
-      );
-      if (!Number.isFinite(validatedAtMs) || validatedAtMs <= 0) {
-        return;
-      }
-      pendingPdfCandidates.push({
-        source: "pending",
-        personId: String(person.id || ""),
-        docType,
-        signer: "representant",
-        validatedAt: new Date(validatedAtMs).toISOString(),
-        validatedAtMs,
-      });
-    });
-  });
-  const latestPendingPdf = pendingPdfCandidates.reduce((latest, entry) => {
-    if (!latest || entry.validatedAtMs > latest.validatedAtMs) {
-      return entry;
-    }
-    return latest;
-  }, null);
+  const pendingTask = getPendingPdfTaskFromStorage();
+  const latestPendingPdf =
+    pendingTask && pendingTask.personId && pendingTask.docType && pendingTask.validatedAt
+      ? {
+          source: "pending",
+          personId: String(pendingTask.personId),
+          docType: String(pendingTask.docType),
+          signer: "representant",
+          validatedAt: String(pendingTask.validatedAt),
+          validatedAtMs: Date.parse(String(pendingTask.validatedAt)),
+        }
+      : null;
 
   const latestRequest = latestRequestFromNewEvent || latestPendingPdf;
   if (!latestRequest) {
@@ -2969,12 +2990,13 @@ function notifyFullySignedDocumentsOnReload(previousSignatureValidationMap = new
     if (isPendingReminder || String(signatureDate || "") === String(latestRequest.validatedAt || "")) {
       const hasArchive = Boolean(findReusableArchivedDocument(person, latestRequest.docType));
       const key = `SIG:${person.id}:${latestRequest.docType}:${latestRequest.signer}:${latestRequest.validatedAt}`;
-      if (hasArchive && state.signedDocumentsPopupSeenKeys.has(key)) {
+      if (hasArchive) {
+        clearPendingPdfTaskFor(person.id, latestRequest.docType);
+      }
+      if (state.signedDocumentsPopupSeenKeys.has(key)) {
         return;
       }
-      if (hasArchive) {
-        state.signedDocumentsPopupSeenKeys.add(key);
-      }
+      state.signedDocumentsPopupSeenKeys.add(key);
       labels.push(
         `${getDocumentTypeLabel(latestRequest.docType)} - ${person.nom || ""} ${person.prenom || ""}`.trim()
       );
@@ -3004,12 +3026,28 @@ function notifyFullySignedDocumentsOnReload(previousSignatureValidationMap = new
 
   const shouldOpenDocument = window.confirm(messageLines.join("\n"));
   if (!shouldOpenDocument) {
+    reminderSnoozeMap[snoozeKey] = Date.now() + 120 * 1000;
+    setPendingPdfTaskToStorage({
+      personId: latestRequest.personId,
+      docType: latestRequest.docType,
+      validatedAt: latestRequest.validatedAt,
+    });
+    try {
+      localStorage.setItem(PENDING_PDF_REMINDER_SNOOZE_KEY, JSON.stringify(reminderSnoozeMap));
+    } catch (error) {
+      // ignore storage failures
+    }
     window.alert("VOTRE BASE N'EST PAS A JOUR");
     return;
   }
 
   if (person && latestRequest?.docType) {
-    reminderSnoozeMap[snoozeKey] = Date.now() + 90 * 1000;
+    reminderSnoozeMap[snoozeKey] = Date.now() + 180 * 1000;
+    setPendingPdfTaskToStorage({
+      personId: latestRequest.personId,
+      docType: latestRequest.docType,
+      validatedAt: latestRequest.validatedAt,
+    });
     try {
       localStorage.setItem(PENDING_PDF_REMINDER_SNOOZE_KEY, JSON.stringify(reminderSnoozeMap));
     } catch (error) {
