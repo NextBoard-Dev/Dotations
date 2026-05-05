@@ -1389,6 +1389,11 @@ function renderMobileSignatureLink(docType, signer, absoluteUrl) {
   if (!linkNode) {
     return;
   }
+  if (isPdfMode()) {
+    linkNode.hidden = true;
+    linkNode.innerHTML = "";
+    return;
+  }
   if (!absoluteUrl) {
     linkNode.hidden = true;
     linkNode.innerHTML = "";

@@ -3128,6 +3128,10 @@ body[data-pdf-mode="true"] .signature-box__status {
   display: none !important;
 }
 
+body[data-pdf-mode="true"] .signature-box__mobile-link {
+  display: none !important;
+}
+
 .signature-box__meta-grid {
   display: grid;
   gap: 4px;
