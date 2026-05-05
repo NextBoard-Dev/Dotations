@@ -374,6 +374,109 @@
 
         <section class="section">
           <div class="section__heading">
+            <h3>STOCKS D'EFFETS (TOUS TYPES)</h3>
+            <p>Pilotage manuel des stocks + lecture auto des mouvements de dotation (ajoute, rendu, perdu, vol, hs, detruit).</p>
+          </div>
+
+          <div class="reference-grid reference-grid--lists">
+            <article class="card reference-card">
+              <div class="section__subheading"><h4>AJUSTEMENT MANUEL DE STOCK</h4></div>
+              <form class="reference-effect-form" id="stock-adjustment-form">
+                <label class="field">
+                  <span>TYPE D'EFFET</span>
+                  <select name="stockTypeEffet">
+                    <option value="">SELECTIONNER</option>
+                  </select>
+                </label>
+
+                <label class="field">
+                  <span>DESIGNATION</span>
+                  <input type="text" name="stockDesignation" placeholder="EX: BADGE INTRUSION / CLE / TELECOMMANDE" />
+                </label>
+
+                <label class="field">
+                  <span>MOUVEMENT</span>
+                  <select name="stockAction">
+                    <option value="ENTREE">ENTREE STOCK (+)</option>
+                    <option value="SORTIE">SORTIE STOCK (-)</option>
+                    <option value="AJUSTEMENT_PLUS">AJUSTEMENT +</option>
+                    <option value="AJUSTEMENT_MOINS">AJUSTEMENT -</option>
+                  </select>
+                </label>
+
+                <label class="field">
+                  <span>QUANTITE</span>
+                  <input type="number" name="stockQuantity" min="1" step="1" value="1" />
+                </label>
+
+                <label class="field">
+                  <span>MOTIF</span>
+                  <input type="text" name="stockReason" placeholder="ACHAT, DOUBLE, CORRECTION, REBUT..." />
+                </label>
+
+                <label class="field">
+                  <span>COMMENTAIRE</span>
+                  <input type="text" name="stockComment" placeholder="OPTIONNEL" />
+                </label>
+
+                <div class="form-actions">
+                  <button type="submit" class="button button--primary">ENREGISTRER MOUVEMENT STOCK</button>
+                </div>
+              </form>
+            </article>
+
+            <article class="card reference-card">
+              <div class="section__subheading"><h4>JOURNAL MOUVEMENTS MANUELS</h4></div>
+              <div class="table-wrap table-wrap--reference-medium">
+                <table class="data-table data-table--compact">
+                  <thead>
+                    <tr>
+                      <th>DATE</th>
+                      <th>TYPE</th>
+                      <th>DESIGNATION</th>
+                      <th>MOUVEMENT</th>
+                      <th>QTE</th>
+                      <th>MOTIF</th>
+                      <th>ACTION</th>
+                    </tr>
+                  </thead>
+                  <tbody id="stock-movements-table-body">
+                    <tr><td colspan="7" class="table-empty">CHARGEMENT...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </article>
+          </div>
+
+          <article class="card">
+            <div class="section__subheading"><h4>SYNTHESE STOCKS (AUTO + MANUEL)</h4></div>
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>TYPE D'EFFET</th>
+                    <th>DESIGNATION</th>
+                    <th>DOTES</th>
+                    <th>RENDUS</th>
+                    <th>NON RENDUS</th>
+                    <th>PERDUS</th>
+                    <th>VOLES</th>
+                    <th>HS</th>
+                    <th>DETRUITS</th>
+                    <th>DELTA MANUEL</th>
+                    <th>STOCK COURANT</th>
+                  </tr>
+                </thead>
+                <tbody id="stock-summary-table-body">
+                  <tr><td colspan="11" class="table-empty">CHARGEMENT...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </article>
+        </section>
+
+        <section class="section">
+          <div class="section__heading">
             <h3>COUTS DE REMPLACEMENT</h3>
             <p>Montants de reference factures selon le type d'effet et la cause.</p>
           </div>
@@ -424,7 +527,7 @@
       </main>
     </div>
 
-    <script src="app.js?v=20260505-2140"></script>
+    <script src="app.js?v=20260505-2205"></script>
   </body>
 </html>
 

@@ -1475,6 +1475,7 @@ async function loadData() {
   bindReferenceListForms();
   bindReferenceEffectForm();
   bindReplacementCostForm();
+  bindStockAdjustmentForm();
   bindRepresentativeSignatoryForm();
   bindMobileSignatureSettingsForm();
   bindReferenceFilters();
@@ -1645,6 +1646,9 @@ function migrateDataModel() {
   if (!Array.isArray(state.data.documentsArchives)) {
     state.data.documentsArchives = [];
   }
+  if (!Array.isArray(state.data.stocksEffetsManuels)) {
+    state.data.stocksEffetsManuels = [];
+  }
   if (!Array.isArray(state.data.demandesSignatureMobile)) {
     state.data.demandesSignatureMobile = [];
   }
@@ -1703,6 +1707,19 @@ function migrateDataModel() {
       fingerprint: isLegacyArrivalArchiveFingerprint(entry.fingerprint) ? "" : String(entry.fingerprint || ""),
     }))
     .filter((entry) => entry.personId && entry.typeDocument && entry.pdfPath);
+
+  state.data.stocksEffetsManuels = state.data.stocksEffetsManuels
+    .map((entry, index) => ({
+      id: String(entry.id || `STKM${String(index + 1).padStart(4, "0")}`),
+      typeEffet: normalizeText(entry.typeEffet),
+      designation: normalizeText(entry.designation),
+      action: normalizeText(entry.action),
+      quantite: Math.max(1, Number.parseInt(String(entry.quantite || 1), 10) || 1),
+      motif: normalizeText(entry.motif),
+      commentaire: normalizeText(entry.commentaire),
+      date: String(entry.date || getTodayIsoDate()),
+    }))
+    .filter((entry) => entry.typeEffet && entry.designation && entry.action);
 
   state.data.demandesSignatureMobile = state.data.demandesSignatureMobile
     .map((entry, index) => ({
@@ -4881,6 +4898,87 @@ function bindReplacementCostForm() {
     }
     showActionStatus("update", `COUT MIS A JOUR : ${typeEffet} / ${cause}`);
   };
+}
+
+function bindStockAdjustmentForm() {
+  const form = document.getElementById("stock-adjustment-form");
+  if (!(form instanceof HTMLFormElement)) {
+    return;
+  }
+
+  form.onsubmit = (event) => {
+    event.preventDefault();
+    if (!Array.isArray(state.data?.stocksEffetsManuels)) {
+      showDataStatus("DONNEES NON CHARGEES");
+      return;
+    }
+    const formData = new FormData(form);
+    const typeEffet = normalizeText(formData.get("stockTypeEffet"));
+    const designation = normalizeText(formData.get("stockDesignation"));
+    const action = normalizeText(formData.get("stockAction"));
+    const quantite = Math.max(1, Number.parseInt(String(formData.get("stockQuantity") || "1"), 10) || 1);
+    const motif = normalizeText(formData.get("stockReason"));
+    const commentaire = normalizeText(formData.get("stockComment"));
+
+    if (!typeEffet || !designation || !action) {
+      showDataStatus("TYPE, DESIGNATION ET MOUVEMENT OBLIGATOIRES");
+      return;
+    }
+
+    pushUndoSnapshot("MOUVEMENT STOCK MANUEL");
+    state.data.stocksEffetsManuels.push({
+      id: getNextId("STKM", state.data.stocksEffetsManuels),
+      typeEffet,
+      designation,
+      action,
+      quantite,
+      motif,
+      commentaire,
+      date: getTodayIsoDate(),
+    });
+    markDirty();
+    renderReferenceBases();
+    form.reset();
+    if (form.elements.stockAction) {
+      form.elements.stockAction.value = "ENTREE";
+    }
+    if (form.elements.stockQuantity) {
+      form.elements.stockQuantity.value = "1";
+    }
+    showActionStatus("create", `MOUVEMENT STOCK ENREGISTRE : ${typeEffet} / ${designation}`);
+  };
+}
+
+function bindStockMovementActions() {
+  const body = document.getElementById("stock-movements-table-body");
+  if (!body || body.dataset.bound === "true") {
+    return;
+  }
+  body.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+    const deleteButton = target.closest(".js-delete-stock-movement");
+    if (!(deleteButton instanceof HTMLElement)) {
+      return;
+    }
+    event.preventDefault();
+    const movementId = String(deleteButton.dataset.stockMovementId || "");
+    const movement = (state.data?.stocksEffetsManuels || []).find((entry) => String(entry.id || "") === movementId);
+    if (!movement) {
+      return;
+    }
+    if (!window.confirm(`SUPPRIMER LE MOUVEMENT STOCK : ${movement.typeEffet} / ${movement.designation} ?`)) {
+      return;
+    }
+    pushUndoSnapshot("SUPPRESSION MOUVEMENT STOCK");
+    state.data.stocksEffetsManuels = state.data.stocksEffetsManuels.filter((entry) => String(entry.id || "") !== movementId);
+    markDirty();
+    renderReferenceBases();
+    showActionStatus("delete", "MOUVEMENT STOCK SUPPRIME");
+  });
+  body.dataset.bound = "true";
 }
 
 function getReferenceCauseOptions() {
@@ -8741,8 +8839,20 @@ function renderReferenceBases() {
   renderRepresentativesTable(state.referenceRenderContext);
   renderReferenceEffectsTable(state.referenceRenderContext);
   renderReplacementCostsTable();
+  renderStockTypeEffetOptions();
+  renderStockMovementsTable();
+  renderStockSummaryTable();
   renderReferenceCounts();
   renderMobileSignatureSettings();
+}
+
+function renderStockTypeEffetOptions() {
+  const select = document.querySelector('#stock-adjustment-form select[name="stockTypeEffet"]');
+  if (!(select instanceof HTMLSelectElement)) {
+    return;
+  }
+  const values = (state.data?.listes?.typesEffets || []).slice().sort((a, b) => normalizeText(a).localeCompare(normalizeText(b), "fr"));
+  syncSelectOptions(select, values, "SELECTIONNER");
 }
 
 function renderMobileSignatureSettings() {
@@ -9009,6 +9119,136 @@ function renderReplacementCostsTable() {
   renderTableRowsProgressively(body, rowsHtml, buildEmptyTableRow(body, "AUCUN COUT", 4), 24);
 
   bindReplacementCostActions();
+}
+
+function getStockMovementSignedQuantity(entry) {
+  const qty = Math.max(1, Number.parseInt(String(entry?.quantite || 1), 10) || 1);
+  const action = normalizeText(entry?.action);
+  if (action === "ENTREE" || action === "AJUSTEMENT_PLUS") return qty;
+  if (action === "SORTIE" || action === "AJUSTEMENT_MOINS") return -qty;
+  return 0;
+}
+
+function getStockSummaryRows() {
+  const rowsByKey = new Map();
+  const ensureRow = (typeEffet, designation) => {
+    const key = `${normalizeText(typeEffet)}__${normalizeText(designation)}`;
+    if (!rowsByKey.has(key)) {
+      rowsByKey.set(key, {
+        key,
+        typeEffet: normalizeText(typeEffet),
+        designation: normalizeText(designation),
+        dotes: 0,
+        rendus: 0,
+        nonRendus: 0,
+        perdus: 0,
+        voles: 0,
+        hs: 0,
+        detruits: 0,
+        manuelDelta: 0,
+      });
+    }
+    return rowsByKey.get(key);
+  };
+
+  getAllEffects(state.data?.personnes || []).forEach(({ person, effect }) => {
+    const typeEffet = normalizeText(effect?.typeEffet || "");
+    const designation = normalizeText(getEffectDisplayDesignation(effect) || effect?.designation || typeEffet || "SANS DESIGNATION");
+    if (!typeEffet || !designation) {
+      return;
+    }
+    const row = ensureRow(typeEffet, designation);
+    const status = normalizeText(getEffectStatus(person, effect));
+    row.dotes += 1;
+    if (status === "RESTITUE") row.rendus += 1;
+    else if (status === "NON RENDU") row.nonRendus += 1;
+    else if (status === "PERDU") row.perdus += 1;
+    else if (status === "VOL") row.voles += 1;
+    else if (status === "HS") row.hs += 1;
+    else if (status === "DETRUIT") row.detruits += 1;
+  });
+
+  (state.data?.stocksEffetsManuels || []).forEach((entry) => {
+    const typeEffet = normalizeText(entry?.typeEffet || "");
+    const designation = normalizeText(entry?.designation || "");
+    if (!typeEffet || !designation) {
+      return;
+    }
+    const row = ensureRow(typeEffet, designation);
+    row.manuelDelta += getStockMovementSignedQuantity(entry);
+  });
+
+  return Array.from(rowsByKey.values())
+    .map((row) => {
+      const sortiesSansRetour = row.nonRendus + row.perdus + row.voles + row.hs + row.detruits;
+      return {
+        ...row,
+        stockCourant: row.manuelDelta + row.rendus - sortiesSansRetour,
+      };
+    })
+    .sort((left, right) => {
+      const a = `${normalizeText(left.typeEffet)} ${normalizeText(left.designation)}`;
+      const b = `${normalizeText(right.typeEffet)} ${normalizeText(right.designation)}`;
+      return a.localeCompare(b, "fr");
+    });
+}
+
+function renderStockMovementsTable() {
+  const body = document.getElementById("stock-movements-table-body");
+  if (!body) {
+    return;
+  }
+  const entries = (state.data?.stocksEffetsManuels || [])
+    .slice()
+    .sort((a, b) => String(b.date || "").localeCompare(String(a.date || ""), "fr"));
+  if (!entries.length) {
+    body.innerHTML = buildEmptyTableRow(body, "AUCUN MOUVEMENT MANUEL", 7);
+    return;
+  }
+  const rowsHtml = entries.map((entry) => {
+    const signedQty = getStockMovementSignedQuantity(entry);
+    const qtyLabel = signedQty > 0 ? `+${signedQty}` : `${signedQty}`;
+    return `<tr class="js-stock-movement-row" data-stock-movement-id="${escapeHtml(entry.id)}">
+      <td>${escapeHtml(formatDate(entry.date) || entry.date || "-")}</td>
+      <td>${escapeHtml(entry.typeEffet || "-")}</td>
+      <td>${escapeHtml(entry.designation || "-")}</td>
+      <td>${escapeHtml(entry.action || "-")}</td>
+      <td>${escapeHtml(qtyLabel)}</td>
+      <td>${escapeHtml(entry.motif || "-")}</td>
+      <td><button type="button" class="table-link js-delete-stock-movement" data-stock-movement-id="${escapeHtml(entry.id)}">SUPPRIMER</button></td>
+    </tr>`;
+  });
+  renderTableRowsProgressively(body, rowsHtml, buildEmptyTableRow(body, "AUCUN MOUVEMENT MANUEL", 7), 24);
+  bindStockMovementActions();
+}
+
+function renderStockSummaryTable() {
+  const body = document.getElementById("stock-summary-table-body");
+  if (!body) {
+    return;
+  }
+  const rows = getStockSummaryRows();
+  if (!rows.length) {
+    body.innerHTML = buildEmptyTableRow(body, "AUCUN STOCK CALCULE", 11);
+    return;
+  }
+  const rowsHtml = rows.map((row) => {
+    const manualDeltaLabel = row.manuelDelta > 0 ? `+${row.manuelDelta}` : String(row.manuelDelta);
+    return `<tr>
+      <td>${escapeHtml(row.typeEffet)}</td>
+      <td>${escapeHtml(row.designation)}</td>
+      <td>${row.dotes}</td>
+      <td>${row.rendus}</td>
+      <td>${row.nonRendus}</td>
+      <td>${row.perdus}</td>
+      <td>${row.voles}</td>
+      <td>${row.hs}</td>
+      <td>${row.detruits}</td>
+      <td>${escapeHtml(manualDeltaLabel)}</td>
+      <td><strong>${row.stockCourant}</strong></td>
+    </tr>`;
+  });
+  renderTableRowsProgressively(body, rowsHtml, buildEmptyTableRow(body, "AUCUN STOCK CALCULE", 11), 24);
 }
 
 function renderTableRowsProgressively(body, rowsHtml, emptyMarkup = "", batchSize = 40) {
@@ -9869,6 +10109,8 @@ function resetUiWithoutData() {
     { id: "reference-causesRemplacement-body", colspan: 2 },
     { id: "reference-effects-table-body", colspan: 5 },
     { id: "replacement-costs-body", colspan: 4 },
+    { id: "stock-movements-table-body", colspan: 7 },
+    { id: "stock-summary-table-body", colspan: 11 },
   ];
 
   targets.forEach(({ id, colspan }) => {
