@@ -5094,9 +5094,18 @@ function renderPage() {
   const page = document.body.dataset.page || "";
   const persons = getFilteredPersons();
   let currentPersonId = getCurrentPersonId();
+  const personExists = (state.data?.personnes || []).some(
+    (entry) => String(entry?.id || "") === String(currentPersonId || "")
+  );
 
-  if (page === "person-sheet" && !currentPersonId && persons.length) {
-    setCurrentPersonId(String(persons[0].id || ""), "replace");
+  if (page === "person-sheet" && (!currentPersonId || !personExists)) {
+    const fallbackPerson =
+      (state.data?.personnes || [])[0] ||
+      persons[0] ||
+      null;
+    if (fallbackPerson?.id) {
+      setCurrentPersonId(String(fallbackPerson.id || ""), "replace");
+    }
     currentPersonId = getCurrentPersonId();
   }
 
