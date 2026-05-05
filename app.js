@@ -2952,14 +2952,6 @@ function notifyFullySignedDocumentsOnReload(previousSignatureValidationMap = new
   if (!state.data) {
     return;
   }
-  try {
-    const persisted = JSON.parse(localStorage.getItem(SIGNED_POPUP_SEEN_STORAGE_KEY) || "[]");
-    if (Array.isArray(persisted)) {
-      persisted.forEach((entry) => state.signedDocumentsPopupSeenKeys.add(String(entry || "")));
-    }
-  } catch (error) {
-    // ignore invalid session payload
-  }
   const currentSignatureValidationMap = buildSignatureValidationMap(state.data);
   const newEvents = [];
   currentSignatureValidationMap.forEach((validatedAt, key) => {
@@ -3015,11 +3007,12 @@ function notifyFullySignedDocumentsOnReload(previousSignatureValidationMap = new
       const key = `SIG:${person.id}:${latestRequest.docType}:${latestRequest.signer}:${latestRequest.validatedAt}`;
       if (hasArchive) {
         clearPendingPdfTaskFor(person.id, latestRequest.docType);
+        state.signedDocumentsPopupSeenKeys.add(key);
+        return;
       }
       if (state.signedDocumentsPopupSeenKeys.has(key)) {
         return;
       }
-      state.signedDocumentsPopupSeenKeys.add(key);
       labels.push(
         `${getDocumentTypeLabel(latestRequest.docType)} - ${person.nom || ""} ${person.prenom || ""}`.trim()
       );
@@ -3028,14 +3021,6 @@ function notifyFullySignedDocumentsOnReload(previousSignatureValidationMap = new
 
   if (!labels.length) {
     return;
-  }
-  try {
-    localStorage.setItem(
-      SIGNED_POPUP_SEEN_STORAGE_KEY,
-      JSON.stringify(Array.from(state.signedDocumentsPopupSeenKeys))
-    );
-  } catch (error) {
-    // ignore storage failures
   }
   const personLabel = person ? `${person.nom || ""} ${person.prenom || ""}`.trim() : "";
   const docLabel = latestRequest?.docType === "exit" ? "SORTIE" : "ENTREE";
@@ -3079,6 +3064,8 @@ function notifyFullySignedDocumentsOnReload(previousSignatureValidationMap = new
     setCurrentPersonId(person.id, "replace");
     const pagePath = getDocumentPagePath(latestRequest.docType);
     navigateWithAutoSave(`${pagePath}?personId=${encodeURIComponent(person.id)}&focusPdf=${encodeURIComponent(latestRequest.docType)}`);
+    const seenKey = `SIG:${person.id}:${latestRequest.docType}:${latestRequest.signer}:${latestRequest.validatedAt}`;
+    state.signedDocumentsPopupSeenKeys.add(seenKey);
     window.alert("DOCUMENT OUVERT - GENERER LE PDF");
   }
 }
