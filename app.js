@@ -5093,7 +5093,12 @@ function populateSelect(selector, values) {
 function renderPage() {
   const page = document.body.dataset.page || "";
   const persons = getFilteredPersons();
-  const currentPersonId = getCurrentPersonId();
+  let currentPersonId = getCurrentPersonId();
+
+  if (page === "person-sheet" && !currentPersonId && persons.length) {
+    setCurrentPersonId(String(persons[0].id || ""), "replace");
+    currentPersonId = getCurrentPersonId();
+  }
 
   if (page === "overview") {
     renderOverview(persons);
