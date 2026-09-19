@@ -9,7 +9,7 @@ import { getCurrentSession, onAuthStateChange, supabase } from "@/lib/supabaseCl
 import { buildUiOverviewAlerts } from "@/lib/businessRules";
 
 const MOBILE_WINDOW_SESSION_KEY = "dotations_mobile_window_open";
-const MOBILE_BRAND_LOGO_URL = "https://dphrvdhqhgycmllietuk.supabase.co/storage/v1/object/public/ui-assets/sidebar/bandeau-nextboard-sidebar-detoure.png";
+const MOBILE_BRAND_LOGO_URL = import.meta.env.BASE_URL + "branding/nextboard-logo-v3.png";
 const MOBILE_ADMIN_CONTACT_EMAIL = "sebastien.duc@outlook.fr";
 const MOBILE_PASSWORD_RESET_COOLDOWN_KEY = "dotations_mobile_reset_password_last_sent_at";
 const MOBILE_PASSWORD_RESET_COOLDOWN_MS = 70 * 1000;
@@ -750,7 +750,7 @@ export default function Mobile() {
     <div style={{ minHeight: "100vh", background: "linear-gradient(180deg, #ebe6dc 0%, #d9e2e7 100%)", display: "flex", flexDirection: "column", maxWidth: 480, margin: "0 auto", position: "relative" }}>
       <div style={{ background: "linear-gradient(180deg, #c2d2da 0%, #d9e2e7 100%)", padding: "8px 10px 8px", borderBottom: "1px solid rgba(63,97,112,0.2)", display: "flex", flexDirection: "column", gap: 6 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, minHeight: 34 }}>
-          <div style={{ width: 112, height: 26, borderRadius: 6, overflow: "hidden", background: "#dce5eb", display: "grid", placeItems: "center" }}>
+          <div style={{ width: 112, height: 34, flexShrink: 0, position: "relative", overflow: "hidden", background: "transparent", display: "grid", placeItems: "center" }}>
             {!brandLogoReady ? (
               <span style={{ color: "#556d79", fontSize: 10, fontWeight: 700, letterSpacing: "0.04em", opacity: 0.68 }}>
                 NEXTBOARD
@@ -758,19 +758,22 @@ export default function Mobile() {
             ) : null}
             <img
               src={MOBILE_BRAND_LOGO_URL}
-              alt="NextBoard"
+              alt="NextBo@rd"
               loading="eager"
               decoding="async"
-              width={112}
-              height={26}
+              width={2800}
+              height={2114}
               onLoad={() => setBrandLogoReady(true)}
               onError={() => setBrandLogoReady(true)}
               style={{
                 width: 112,
-                height: 26,
-                borderRadius: 6,
+                height: "auto",
+                maxWidth: "none",
+                position: "absolute",
+                top: "50%",
+                left: 0,
+                transform: "translateY(-50%)",
                 objectFit: "contain",
-                objectPosition: "left center",
                 display: "block",
                 opacity: brandLogoReady ? 1 : 0,
                 transition: "opacity 0.25s ease",

@@ -5,5 +5,18 @@
   "display": "standalone",
   "background_color": "#f2f5f7",
   "theme_color": "#3f6478",
-  "icons": []
+  "icons": [
+    {
+      "src": "./branding/nextboard-app-v3-256.png",
+      "sizes": "256x256",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./branding/nextboard-app-v3-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
 }
