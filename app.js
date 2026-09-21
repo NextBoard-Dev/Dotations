@@ -5441,14 +5441,18 @@ function migrateDataModel(options = {}) {
         const currentEntry = person.signatures[docType][signer];
         if (currentEntry && typeof currentEntry === "object") {
           person.signatures[docType][signer] = {
-            image: String(currentEntry.image || ""),
+            image: String(currentEntry.image || currentEntry.storagePublicUrl || ""),
             validatedAt: String(currentEntry.validatedAt || ""),
+            storageRef: String(currentEntry.storageRef || ""),
+            storagePublicUrl: String(currentEntry.storagePublicUrl || ""),
           };
           return;
         }
         person.signatures[docType][signer] = {
           image: String(currentEntry || ""),
           validatedAt: "",
+          storageRef: "",
+          storagePublicUrl: "",
         };
       });
     });
@@ -19914,6 +19918,7 @@ window.resetNetworkDebug = () => {
 };
 
 loadData();
+
 
 
 
