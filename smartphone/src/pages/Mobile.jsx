@@ -9,7 +9,7 @@ import { getCurrentSession, onAuthStateChange, supabase } from "@/lib/supabaseCl
 import { buildUiOverviewAlerts } from "@/lib/businessRules";
 
 const MOBILE_WINDOW_SESSION_KEY = "dotations_mobile_window_open";
-const MOBILE_BRAND_LOGO_URL = import.meta.env.BASE_URL + "branding/nextboard-brand-v3.png";
+const MOBILE_BRAND_LOGO_URL = import.meta.env.BASE_URL + "branding/nextboard-mobile-header.png";
 const MOBILE_ADMIN_CONTACT_EMAIL = "sebastien.duc@outlook.fr";
 const MOBILE_PASSWORD_RESET_COOLDOWN_KEY = "dotations_mobile_reset_password_last_sent_at";
 const MOBILE_PASSWORD_RESET_COOLDOWN_MS = 70 * 1000;
@@ -756,18 +756,14 @@ export default function Mobile() {
               alt="NextBo@rd"
               loading="eager"
               decoding="async"
-              width={512}
-              height={512}
+              width={376}
+              height={87}
               onLoad={() => setBrandLogoReady(true)}
               onError={() => setBrandLogoReady(true)}
               style={{
-                width: 34,
-                height: 34,
-                maxWidth: "100%",
-                position: "absolute",
-                top: "50%",
-                left: "50%",
-                transform: "translate(-50%, -50%)",
+                width: 112,
+                height: "auto",
+                maxHeight: 34,
                 objectFit: "contain",
                 display: "block",
                 opacity: brandLogoReady ? 1 : 0,
