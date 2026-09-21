@@ -2900,7 +2900,7 @@ async function fetchSupabaseMobileSignatureRows(personId, docType) {
   const endpoint = `${normalizeHttpUrl(SUPABASE_PROJECT_URL)}/rest/v1/signatures`;
   const buildUrl = (schema = "snake") => {
     if (schema === "camel") {
-      return `${endpoint}?personId=eq.${encodeURIComponent(normalizedPersonId)}&docType=eq.${encodeURIComponent(normalizedDocType)}&select=*&order=updatedAt.desc,signedAt.desc&limit=30`;
+      return `${endpoint}?person_id=eq.${encodeURIComponent(normalizedPersonId)}&doc_type=eq.${encodeURIComponent(normalizedDocType)}&select=*&order=updated_at.desc,signed_at.desc&limit=30`;
     }
     return `${endpoint}?person_id=eq.${encodeURIComponent(normalizedPersonId)}&doc_type=eq.${encodeURIComponent(normalizedDocType)}&select=*&order=updated_at.desc,signed_at.desc&limit=30`;
   };
@@ -5880,6 +5880,14 @@ async function pollMobileSignatureRequest() {
         if (mergeSupabaseMobileSignatureRows(json, signatureRows, personId, docType)) {
           state.data = json;
           migrateDataModel({ suppressDirty: true });
+          state.isDirty = true;
+          await saveDataToFile({
+            silent: true,
+            reloadAfter: false,
+            promptDownload: false,
+            autoPushHosted: false,
+            successText: "SIGNATURE MOBILE HEBERGEE REPRISE",
+          });
           state.isDirty = false;
           state.lastPersistedDataSignature = computeDataPersistenceSignature(state.data);
           clearUndoStack();
@@ -6109,10 +6117,8 @@ function syncMobileSignaturePolling() {
   const docType = page === "exit-document" ? "exit" : "arrival";
   const hasActiveRequest = hasActiveMobileSignatureRequest(personId, docType);
   if (!hasActiveRequest) {
-    stopMobileSignaturePolling();
-    state.mobileSignaturePollSyncModeSignature = "";
-    setMobileSignaturePollStatus("Aucune signature mobile en attente sur ce document", "normal");
-    return;
+    state.mobileSignaturePollHasPendingRequest = false;
+    setMobileSignaturePollStatus("Verification de fond des signatures mobiles", "normal");
   }
   const now = Date.now();
   if (state.mobileSignaturePollLastSyncAt && now - state.mobileSignaturePollLastSyncAt < MOBILE_SIGNATURE_POLL_SYNC_MIN_GAP_MS) {
@@ -19872,3 +19878,4 @@ window.resetNetworkDebug = () => {
 };
 
 loadData();
+
