@@ -2581,9 +2581,6 @@ function getSupabaseProjectHost() {
 
 function isSafeArchiveHttpUrl(value) {
   const host = getSupabaseProjectHost();
-  if (!host) {
-    return false;
-  }
   let parsed;
   try {
     parsed = new URL(value);
@@ -2593,14 +2590,16 @@ function isSafeArchiveHttpUrl(value) {
   if (!["http:", "https:"].includes(parsed.protocol)) {
     return false;
   }
-  if (String(parsed.hostname || "").toLowerCase() !== host) {
+  const parsedHost = String(parsed.hostname || "").toLowerCase();
+  const path = String(parsed.pathname || "");
+  const isStoragePath = path.startsWith("/storage/v1/object/public/") || path.startsWith("/storage/v1/object/");
+  if (!isStoragePath) {
     return false;
   }
-  const path = String(parsed.pathname || "");
-  return (
-    path.startsWith("/storage/v1/object/public/") ||
-    path.startsWith("/storage/v1/object/")
-  );
+  if (host) {
+    return parsedHost === host;
+  }
+  return parsedHost.endsWith(".supabase.co");
 }
 
 function isSafeArchiveRelativePath(value) {
@@ -2979,12 +2978,26 @@ function mergeSupabaseMobileSignatureRows(data, rows, personId, docType) {
     const current = person.signatures[normalizedDocType][signer] || {};
     const currentMs = Date.parse(current.validatedAt || "") || 0;
     const nextMs = Date.parse(entry.validatedAt || "") || 0;
-    if ((!current.image || nextMs >= currentMs) && (current.image !== entry.image || current.validatedAt !== entry.validatedAt)) {
+        const currentImage = String(current.image || "").trim();
+    const currentStorageRef = String(current.storageRef || "").trim();
+    const currentStoragePublicUrl = String(current.storagePublicUrl || "").trim();
+    const nextImage = String(entry.image || "").trim();
+    const nextStorageRef = String(entry.storageRef || "").trim();
+    const nextStoragePublicUrl = String(entry.storagePublicUrl || "").trim();
+    const currentHasPayload = Boolean(currentImage || currentStorageRef || currentStoragePublicUrl);
+    const nextHasPayload = Boolean(nextImage || nextStorageRef || nextStoragePublicUrl);
+    const nextSignatureImage = nextImage || nextStoragePublicUrl || (nextStorageRef ? `storage://${DEFAULT_SUPABASE_SIGNATURES_BUCKET}/${nextStorageRef}` : "");
+    const payloadChanged =
+      currentImage !== nextSignatureImage ||
+      currentStorageRef !== nextStorageRef ||
+      currentStoragePublicUrl !== nextStoragePublicUrl ||
+      String(current.validatedAt || "") !== String(entry.validatedAt || "");
+    if (nextHasPayload && (!currentHasPayload || nextMs >= currentMs || payloadChanged)) {
       person.signatures[normalizedDocType][signer] = {
-        image: entry.image,
+        image: nextSignatureImage,
         validatedAt: entry.validatedAt,
-        storageRef: entry.storageRef,
-        storagePublicUrl: entry.storagePublicUrl,
+        storageRef: nextStorageRef,
+        storagePublicUrl: nextStoragePublicUrl,
       };
       changed = true;
     }
@@ -4355,7 +4368,7 @@ function buildFallbackMobileSignatureRequestFromUrl(token) {
     return null;
   }
   const params = new URLSearchParams(window.location.search);
-  const personId = String(params.get("personId") || "").trim();
+  const personId = String(params.get("personId") || params.get("personld") || "").trim();
   const docType = normalizeText(params.get("docType") || "");
   const signer = normalizeMobileSignatureSigner(params.get("signer") || "");
   if (!personId || !docType) {
@@ -5497,6 +5510,27 @@ function migrateDataModel(options = {}) {
     });
   });
 
+  let mobileSignatureStatusesReconciled = false;
+  const personsByIdForSignatures = new Map(
+    (state.data.personnes || []).map((person) => [String(person?.id || ""), person]).filter(([id]) => Boolean(id))
+  );
+  (state.data.demandesSignatureMobile || []).forEach((request) => {
+    const person = personsByIdForSignatures.get(String(request.personId || ""));
+    const docType = normalizeText(request.docType || "") === "EXIT" ? "exit" : "arrival";
+    const signer = normalizeMobileSignatureSigner(request.signer || "");
+    const signature = person?.signatures?.[docType]?.[signer];
+    if (!signature || !hasStoredSignaturePayload(signature) || !String(signature.validatedAt || "").trim()) {
+      return;
+    }
+    if (request.status !== "SIGNEE" || String(request.validatedAt || "") !== String(signature.validatedAt || "")) {
+      request.status = "SIGNEE";
+      request.validatedAt = String(signature.validatedAt || "");
+      mobileSignatureStatusesReconciled = true;
+    }
+  });
+  if (mobileSignatureStatusesReconciled && !suppressDirty) {
+    markDirty();
+  }
   if (!Array.isArray(state.data.listes.referencesEffets)) {
     state.data.listes.referencesEffets = [];
   }
@@ -13578,7 +13612,8 @@ function getCurrentMobileSignatureRequest() {
 
 function getMobileSignatureTargetPerson() {
   const request = getCurrentMobileSignatureRequest();
-  const personIdFromUrl = String(new URLSearchParams(window.location.search).get("personId") || "").trim();
+  const signatureParams = new URLSearchParams(window.location.search);
+  const personIdFromUrl = String(signatureParams.get("personId") || signatureParams.get("personld") || "").trim();
   const requestPersonId = String(request?.personId || "").trim();
   const targetPersonId = requestPersonId || personIdFromUrl;
 
@@ -13674,7 +13709,8 @@ function getMobileSignatureRuntimeStore() {
 
 function getMobileSignatureRuntimeKey(request, person, docType, signer) {
   const token = String(request?.token || getCurrentMobileSignatureToken() || "").trim();
-  const personId = String(person?.id || request?.personId || new URLSearchParams(window.location.search).get("personId") || "").trim();
+  const signatureParams = new URLSearchParams(window.location.search);
+  const personId = String(person?.id || request?.personId || signatureParams.get("personId") || signatureParams.get("personld") || "").trim();
   const normalizedDocType = normalizeText(docType) === "EXIT" ? "exit" : "arrival";
   const normalizedSigner = normalizeMobileSignatureSigner(signer || request?.signer || "");
   if (!token || !personId || !normalizedDocType || !normalizedSigner) {
@@ -19878,4 +19914,7 @@ window.resetNetworkDebug = () => {
 };
 
 loadData();
+
+
+
 
