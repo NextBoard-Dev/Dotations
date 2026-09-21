@@ -88,6 +88,26 @@ export default function MobileDocumentSortie({ persons, effets, selectedPerson, 
       );
     }
   }, [selectedPerson, effets]);
+  useEffect(() => {
+    if (!selectedPerson?.id) return;
+    let stopped = false;
+    const refreshSignatures = async () => {
+      if (document.visibilityState === "hidden") return;
+      try {
+        const sigs = await db.Signature.filter({ personId: selectedPerson.id, docType: "exit" });
+        if (!stopped) setSignatures(sigs);
+      } catch {}
+    };
+    const timer = window.setInterval(refreshSignatures, 3000);
+    window.addEventListener("focus", refreshSignatures);
+    document.addEventListener("visibilitychange", refreshSignatures);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refreshSignatures);
+      document.removeEventListener("visibilitychange", refreshSignatures);
+    };
+  }, [selectedPerson?.id]);
 
   useEffect(() => {
     setRepresentantId("");

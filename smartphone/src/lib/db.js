@@ -12,7 +12,7 @@ const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_2wYXnIDj4-c8daQZW8D5hA_2Py6k7z6
 const FILTERABLE_COLUMNS = {
   personnes: new Set(["id", "nom", "prenom", "fonction", "typePersonnel", "typeContrat", "dateEntree", "dateSortiePrevue", "dateSortieReelle", "statutDossier"]),
   effetsConfies: new Set(["id", "personId", "typeEffet", "designation", "siteReference", "numeroIdentification", "vehiculeImmatriculation", "dateRemise", "dateRetour", "statut", "cause", "dateRemplacement"]),
-  signatures: new Set(["id", "personId", "docType", "signer", "signedAt"]),
+  signatures: new Set(["id", "personId", "person_id", "docType", "doc_type", "signer", "signedAt", "signed_at"]),
 };
 let authContextCache = null;
 let authContextCacheTs = 0;
@@ -288,6 +288,73 @@ function sanitizeFilterObject(table, filters = {}) {
 function cleanDate(value) {
   const v = toString(value).trim();
   return v || "";
+}
+
+function getField(row = {}, ...names) {
+  for (const name of names) {
+    if (Object.prototype.hasOwnProperty.call(row, name) && row[name] != null) {
+      return row[name];
+    }
+  }
+  return "";
+}
+
+function normalizeSignatureRecord(row = {}) {
+  const personId = toString(getField(row, "personId", "person_id")).trim();
+  const docType = toString(getField(row, "docType", "doc_type")).trim();
+  const signer = toString(getField(row, "signer")).trim();
+  const signedAt = cleanDate(getField(row, "signedAt", "signed_at", "validatedAt", "validated_at_text", "updatedAt", "updated_at"));
+  return {
+    ...row,
+    id: toString(getField(row, "id")).trim() || `${personId}__${docType}__${signer}`,
+    personId,
+    docType,
+    signer,
+    signatureData: toString(getField(row, "signatureData", "signature_data", "image")),
+    signedAt,
+    signataireId: toString(getField(row, "signataireId", "signataire_id", "signer_id")).trim(),
+    signataireName: toString(getField(row, "signataireName", "signataire_name", "signer_name")).trim(),
+    signataireFunction: toString(getField(row, "signataireFunction", "signataire_function", "signer_function")).trim(),
+    storageRef: toString(getField(row, "storageRef", "storage_ref")),
+    storagePublicUrl: toString(getField(row, "storagePublicUrl", "storage_public_url")),
+    token: toString(getField(row, "token")).trim(),
+  };
+}
+
+function signatureRank(signature = {}) {
+  const direct = Date.parse(signature.signedAt || "");
+  if (Number.isFinite(direct)) return direct;
+  const updated = Date.parse(signature.updatedAt || signature.updated_at || "");
+  if (Number.isFinite(updated)) return updated;
+  const created = Date.parse(signature.createdAt || signature.created_at || "");
+  return Number.isFinite(created) ? created : 0;
+}
+
+function mergeSignatureRecords(...groups) {
+  const byKey = new Map();
+  groups.flat().map(normalizeSignatureRecord).forEach((signature) => {
+    if (!signature.personId || !signature.docType || !signature.signer) return;
+    if (!signature.signatureData && !signature.signedAt && !signature.signataireName && !signature.signataireFunction) return;
+    const key = `${signature.personId}__${signature.docType}__${signature.signer}`;
+    const current = byKey.get(key);
+    if (!current || signatureRank(signature) >= signatureRank(current)) {
+      byKey.set(key, signature);
+    }
+  });
+  return Array.from(byKey.values());
+}
+
+async function fetchSqlSignatureRecords(filters = {}) {
+  await requireAuthenticated("Lecture signatures");
+  let query = supabase.from("signatures").select("*").eq("is_deleted", false);
+  const personId = toString(filters.personId ?? filters.person_id).trim();
+  const docType = toString(filters.docType ?? filters.doc_type).trim();
+  const signer = toString(filters.signer).trim();
+  if (personId) query = query.eq("person_id", personId);
+  if (docType) query = query.eq("doc_type", docType);
+  if (signer) query = query.eq("signer", signer);
+  const rows = await runQuery(query.order("updated_at", { ascending: false }).limit(1000), "Lecture signatures impossible");
+  return ensureArray(rows).map(normalizeSignatureRecord);
 }
 
 function normalizeCause(value) {
@@ -782,22 +849,22 @@ function toSqlSignatureCreatePayload(data = {}) {
   const docType = ensureValidDocType(data?.docType);
   const signer = ensureValidSigner(data?.signer);
   return {
-    personId: toString(data?.personId),
-    docType,
+    person_id: toString(data?.personId),
+    doc_type: docType,
     signer,
-    signatureData: normalizeSignatureData(data?.signatureData),
-    signedAt: cleanDate(data?.signedAt),
-    signataireName: toString(data?.signataireName).trim(),
-    signataireFunction: toString(data?.signataireFunction).trim(),
+    signature_data: normalizeSignatureData(data?.signatureData),
+    signed_at: cleanDate(data?.signedAt) || new Date().toISOString(),
+    signer_name: toString(data?.signataireName).trim(),
+    signer_function: toString(data?.signataireFunction).trim(),
   };
 }
 
 function toSqlSignatureUpdatePayload(data = {}) {
   const out = {};
-  if (Object.prototype.hasOwnProperty.call(data, "signatureData")) out.signatureData = normalizeSignatureData(data.signatureData);
-  if (Object.prototype.hasOwnProperty.call(data, "signedAt")) out.signedAt = cleanDate(data.signedAt);
-  if (Object.prototype.hasOwnProperty.call(data, "signataireName")) out.signataireName = toString(data.signataireName).trim();
-  if (Object.prototype.hasOwnProperty.call(data, "signataireFunction")) out.signataireFunction = toString(data.signataireFunction).trim();
+  if (Object.prototype.hasOwnProperty.call(data, "signatureData")) out.signature_data = normalizeSignatureData(data.signatureData);
+  if (Object.prototype.hasOwnProperty.call(data, "signedAt")) out.signed_at = cleanDate(data.signedAt);
+  if (Object.prototype.hasOwnProperty.call(data, "signataireName")) out.signer_name = toString(data.signataireName).trim();
+  if (Object.prototype.hasOwnProperty.call(data, "signataireFunction")) out.signer_function = toString(data.signataireFunction).trim();
   return out;
 }
 
@@ -897,7 +964,7 @@ async function applySqlPersonCompletionFromSignatures(personId, docType) {
   const normalizedDocType = toString(docType).trim();
   if (!personId || (normalizedDocType !== "arrival" && normalizedDocType !== "exit")) return;
 
-  const signatures = await sqlSignature.filter({ personId: toString(personId), docType: normalizedDocType });
+  const signatures = await fetchSqlSignatureRecords({ personId: toString(personId), docType: normalizedDocType });
   const isSigned = (signer) => signatures.some((s) => s.signer === signer && cleanDate(s.signedAt));
   if (!isSigned("personnel") || !isSigned("representant")) return;
 
@@ -1125,15 +1192,23 @@ export const db = {
     async list(order = "-created_at", limit = 200) {
       const legacy = await tryLegacyData();
       if (legacy) {
-        const sigs = extractLegacySignatures(legacy.payload, {});
-        return sortAndLimit(sigs, order, limit);
+        const legacySigs = extractLegacySignatures(legacy.payload, {});
+        let sqlSigs = [];
+        try { sqlSigs = await fetchSqlSignatureRecords({}); } catch {}
+        return sortAndLimit(mergeSignatureRecords(legacySigs, sqlSigs), order, limit);
       }
-      return sqlSignature.list(order, limit);
+      const sqlSigs = await fetchSqlSignatureRecords({});
+      return sortAndLimit(sqlSigs, order, limit);
     },
     async filter(filters = {}) {
       const legacy = await tryLegacyData();
-      if (legacy) return extractLegacySignatures(legacy.payload, filters);
-      return sqlSignature.filter(filters);
+      if (legacy) {
+        const legacySigs = extractLegacySignatures(legacy.payload, filters);
+        let sqlSigs = [];
+        try { sqlSigs = await fetchSqlSignatureRecords(filters); } catch {}
+        return mergeSignatureRecords(legacySigs, sqlSigs);
+      }
+      return fetchSqlSignatureRecords(filters);
     },
     async create(data) {
       await requireRole("Creation signature", WRITE_ROLES);
@@ -1170,7 +1245,8 @@ export const db = {
         return saveLegacySignatureWithConflictRetry({ personId, docType, signer, data });
       }
       const updated = await sqlSignature.update(id, toSqlSignatureUpdatePayload(data));
-      await applySqlPersonCompletionFromSignatures(updated?.personId, updated?.docType);
+      const normalizedUpdated = normalizeSignatureRecord(updated || {});
+      await applySqlPersonCompletionFromSignatures(normalizedUpdated.personId, normalizedUpdated.docType);
       return updated;
     },
     async delete(id) {
