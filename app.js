@@ -6103,6 +6103,16 @@ async function pollMobileSignatureRequest() {
       setMobileSignaturePollStatus("");
     }
 
+    state.documentViewRenderCache[docType] = "";
+    state.pageRenderSignature = "";
+    if (docType === "arrival") {
+      renderArrivalDocument(personId);
+    } else {
+      renderExitDocument(personId);
+    }
+    refreshDocumentSignatureCanvases(docType, getPersonById(personId) || person);
+    updateDocumentPdfButtonsState();
+    renderDirtyState();
     schedulePageRender();
     queueAutoGenerateSignedDocumentsPdfIfMissing();
     const signedRepresentative = Array.from(nextRequestsByToken.values()).some(
@@ -10807,6 +10817,13 @@ function renderPage() {
 
   const nextPageRenderSignature = pageRenderSignatureParts.join("|");
   if (state.pageRenderSignature === nextPageRenderSignature) {
+    if (page === "arrival-document") {
+      refreshDocumentSignatureCanvases("arrival", getPersonById(currentPersonId));
+      syncMobileSignaturePolling();
+    } else if (page === "exit-document") {
+      refreshDocumentSignatureCanvases("exit", getPersonById(currentPersonId));
+      syncMobileSignaturePolling();
+    }
     return;
   }
   state.pageRenderSignature = nextPageRenderSignature;
@@ -16219,6 +16236,18 @@ function getCurrentPerson() {
   return (state.data?.personnes || []).find(
     (person) => String(person?.id || "") === currentPersonId
   ) || null;
+}
+
+function getPersonById(personId) {
+  const normalizedPersonId = String(personId || "").trim();
+  if (!normalizedPersonId) {
+    return null;
+  }
+  return (
+    (Array.isArray(state.data?.personnes) ? state.data.personnes : []).find(
+      (person) => String(person?.id || "") === normalizedPersonId
+    ) || null
+  );
 }
 
 function getTodayIsoDate() {
