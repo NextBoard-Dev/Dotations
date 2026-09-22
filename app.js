@@ -6094,7 +6094,6 @@ async function pollMobileSignatureRequest() {
     if (!anyPending && trackedRequestsLength === 0 && activeServerRequests.length === 0 && nextRequestsByToken.size === 0) {
       hideMobileSignatureRecoveryModal();
       setMobileSignaturePollStatus("");
-      return;
     }
 
     if (!anyPending) {
