@@ -6163,9 +6163,15 @@ function syncMobileSignaturePolling() {
   }
   const docType = page === "exit-document" ? "exit" : "arrival";
   const hasActiveRequest = hasActiveMobileSignatureRequest(personId, docType);
-  if (!hasActiveRequest) {
-    state.mobileSignaturePollHasPendingRequest = false;
+  const hasKnownRequest = hasMobileSignatureRequestForDocument(personId, docType);
+  const hasMissingSignature = hasMissingSignatureForMobileRequest(personId, docType);
+  const mustActivelyRecoverSignature = hasActiveRequest || (hasKnownRequest && hasMissingSignature);
+  state.mobileSignaturePollHasPendingRequest = Boolean(mustActivelyRecoverSignature);
+  if (!hasActiveRequest && !hasKnownRequest) {
     setMobileSignaturePollStatus("Verification de fond des signatures mobiles", "normal");
+  }
+  if (!mustActivelyRecoverSignature) {
+    setMobileSignaturePollStatus("Aucune signature en attente: verification de fond", "normal");
   }
   const now = Date.now();
   if (state.mobileSignaturePollLastSyncAt && now - state.mobileSignaturePollLastSyncAt < MOBILE_SIGNATURE_POLL_SYNC_MIN_GAP_MS) {
