@@ -7,13 +7,13 @@
   "theme_color": "#3f6478",
   "icons": [
     {
-      "src": "./branding/nextboard-app-v3-256.png",
+      "src": "./branding/nextboard-app-v4-256.png?v=20260928b",
       "sizes": "256x256",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "./branding/nextboard-app-v3-512.png",
+      "src": "./branding/nextboard-app-v4-512.png?v=20260928b",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"

@@ -9,7 +9,7 @@ import { getCurrentSession, onAuthStateChange, supabase } from "@/lib/supabaseCl
 import { buildUiOverviewAlerts } from "@/lib/businessRules";
 
 const MOBILE_WINDOW_SESSION_KEY = "dotations_mobile_window_open";
-const MOBILE_BRAND_LOGO_URL = import.meta.env.BASE_URL + "branding/nextboard-mobile-header-v3.png?v=20260928";
+const MOBILE_BRAND_LOGO_URL = import.meta.env.BASE_URL + "branding/nextboard-mobile-header-v4.png?v=20260928b";
 const MOBILE_ADMIN_CONTACT_EMAIL = "sebastien.duc@outlook.fr";
 const MOBILE_PASSWORD_RESET_COOLDOWN_KEY = "dotations_mobile_reset_password_last_sent_at";
 const MOBILE_PASSWORD_RESET_COOLDOWN_MS = 70 * 1000;
@@ -281,12 +281,9 @@ export default function Mobile() {
 
   useEffect(() => {
     let mounted = true;
+    let forcingFreshLogin = false;
     const isFreshWindowOpen = !window.sessionStorage.getItem(MOBILE_WINDOW_SESSION_KEY);
     window.sessionStorage.setItem(MOBILE_WINDOW_SESSION_KEY, "1");
-    if (isFreshWindowOpen) {
-      // Force a clean auth state on fresh window open so login is required again.
-      supabase.auth.signOut().catch(() => {});
-    }
 
     const cleanupWindowMarker = () => {
       try {
@@ -295,23 +292,38 @@ export default function Mobile() {
     };
     window.addEventListener("beforeunload", cleanupWindowMarker);
 
-    getCurrentSession()
-      .then((s) => {
+    const initialiseAuth = async () => {
+      try {
+        if (isFreshWindowOpen) {
+          forcingFreshLogin = true;
+          await supabase.auth.signOut().catch(() => {});
+          if (!mounted) return;
+          forcingFreshLogin = false;
+          setSession(null);
+          setLoginError("");
+          return;
+        }
+
+        const currentSession = await getCurrentSession();
         if (!mounted) return;
-        setSession(s);
-      })
-      .catch(() => {
+        setSession(currentSession);
+      } catch {
         if (!mounted) return;
         setSession(null);
-      })
-      .finally(() => {
+      } finally {
         if (!mounted) return;
         setAuthLoading(false);
-      });
+      }
+    };
+
+    initialiseAuth();
 
     const unsubscribe = onAuthStateChange((nextSession) => {
+      if (!mounted) return;
+      if (forcingFreshLogin && nextSession) return;
       setSession(nextSession);
       setLoginError("");
+      setAuthLoading(false);
     });
 
     return () => {
