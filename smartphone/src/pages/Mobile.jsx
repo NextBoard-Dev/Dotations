@@ -9,7 +9,7 @@ import { getCurrentSession, onAuthStateChange, supabase } from "@/lib/supabaseCl
 import { buildUiOverviewAlerts } from "@/lib/businessRules";
 
 const MOBILE_WINDOW_SESSION_KEY = "dotations_mobile_window_open";
-const MOBILE_BRAND_LOGO_URL = import.meta.env.BASE_URL + "branding/nextboard-mobile-header.png";
+const MOBILE_BRAND_LOGO_URL = import.meta.env.BASE_URL + "branding/nextboard-mobile-header-v3.png?v=20260928";
 const MOBILE_ADMIN_CONTACT_EMAIL = "sebastien.duc@outlook.fr";
 const MOBILE_PASSWORD_RESET_COOLDOWN_KEY = "dotations_mobile_reset_password_last_sent_at";
 const MOBILE_PASSWORD_RESET_COOLDOWN_MS = 70 * 1000;
