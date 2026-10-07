@@ -118,3 +118,14 @@ test("parcours PC: les commandes metier critiques restent presentes", () => {
   assert.match(mobileSignature, /class="signature-box__canvas js-signature-canvas"/);
   assert.match(mobileSignature, /class="button button--primary js-signature-save"/);
 });
+
+test("archives PC: la page affiche un wording de production", () => {
+  const archives = read("documents-archives.html");
+
+  assert.match(archives, /SUIVI DU STOCKAGE STRUCTURE DES PDF SIGNES/);
+  assert.match(archives, /RECHERCHE DES PDF ARCHIVES PAR PERSONNE/);
+  assert.match(archives, /RETROUVER ET OUVRIR LES PDF STOCKES/);
+  assert.doesNotMatch(archives, /FUTURS PDF ARCHIVES/);
+  assert.doesNotMatch(archives, /SERVIRA A TERME/);
+  assert.doesNotMatch(archives, /PREPARATION DU STOCKAGE/);
+});
