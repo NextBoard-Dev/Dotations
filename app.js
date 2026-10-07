@@ -755,6 +755,65 @@ function importSupabaseSessionFromUrlIfPresent() {
   }
 }
 
+async function refreshSupabaseSessionFromStoredRefreshToken() {
+  try {
+    if (!isSupabaseConfigured()) {
+      return false;
+    }
+    const session = getStoredSupabaseSession();
+    const refreshToken = String(session?.refresh_token || "").trim();
+    if (!refreshToken) {
+      return false;
+    }
+    const accessToken = String(session?.access_token || "").trim();
+    const expiresAt = Number.parseInt(String(session?.expires_at || "0"), 10);
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    if (accessToken && Number.isFinite(expiresAt) && expiresAt - nowSeconds > 60) {
+      return true;
+    }
+    const projectUrl = normalizeHttpUrl(SUPABASE_PROJECT_URL);
+    const publishableKey = String(SUPABASE_PUBLISHABLE_KEY || "").trim();
+    if (!projectUrl || !publishableKey) {
+      return false;
+    }
+    const response = await fetch(`${projectUrl}/auth/v1/token?grant_type=refresh_token`, {
+      method: "POST",
+      headers: {
+        apikey: publishableKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      console.warn("[SUPABASE][AUTH] refresh session impossible", response.status);
+      return false;
+    }
+    const payload = await response.json().catch(() => null);
+    if (!payload?.access_token) {
+      return false;
+    }
+    const refreshedExpiresAt = Number.parseInt(String(payload.expires_at || ""), 10);
+    const expiresIn = Number.parseInt(String(payload.expires_in || ""), 10);
+    storeSupabaseSession({
+      ...session,
+      ...payload,
+      access_token: payload.access_token,
+      refresh_token: payload.refresh_token || refreshToken,
+      expires_at: Number.isFinite(refreshedExpiresAt)
+        ? refreshedExpiresAt
+        : Number.isFinite(expiresIn)
+          ? nowSeconds + expiresIn
+          : expiresAt,
+      token_type: payload.token_type || "bearer",
+    });
+    return true;
+  } catch (error) {
+    console.warn("[SUPABASE][AUTH] refresh session erreur", error);
+    return false;
+  }
+}
+
 function appendSupabaseSessionBridgeParams(url, options = {}) {
   try {
     const session = getStoredSupabaseSession();
@@ -4713,12 +4772,11 @@ async function fillMobileSignatureShareLink(request) {
     return;
   }
 
-  // Keep QR links camera-friendly while preserving silent auth: refresh token only.
+  // Keep shared links camera-friendly while preserving silent auth through refresh.
   const absoluteUrl = await getAbsoluteMobileSignatureUrl(request, {
     includeSessionBridge: true,
     sessionBridgeOptions: {
-      // Include both tokens to avoid refresh-only failures on mobile devices.
-      includeAccessToken: true,
+      includeAccessToken: false,
       includeRefreshToken: true,
       includeExpiresAt: true,
     },
@@ -4726,7 +4784,6 @@ async function fillMobileSignatureShareLink(request) {
   const qrCompactUrl = await getAbsoluteMobileSignatureUrl(request, {
     includeSessionBridge: true,
     sessionBridgeOptions: {
-      // QR readability: keep refresh flow only for shorter payload.
       includeAccessToken: false,
       includeRefreshToken: true,
       includeExpiresAt: true,
@@ -5036,6 +5093,9 @@ async function loadData() {
   bindPdfModalCleanup();
   reorderOverviewSearchBlock();
   importSupabaseSessionFromUrlIfPresent();
+  if (document.body?.dataset?.page === "mobile-signature") {
+    await refreshSupabaseSessionFromStoredRefreshToken();
+  }
   restoreNavigationContext();
   await enforceUiLoginOnEachOpen();
   clearSearchInputsOnInitialLoad();
