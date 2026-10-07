@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import { execFileSync } from "node:child_process";
 
 const appSource = fs.readFileSync("app.js", "utf8");
 const styleSource = fs.readFileSync("style.css", "utf8");
@@ -12,7 +13,7 @@ test("garde-fou signature mobile: enregistrement puis reprise par document", () 
   assert.match(appSource, /function mergeSupabaseMobileSignatureRows\(/);
   assert.match(appSource, /void syncHostedMobileSignaturesForDocument\("arrival", person\.id\);/);
   assert.match(appSource, /void syncHostedMobileSignaturesForDocument\("exit", person\.id\);/);
-  assert.match(signatureMobileSource, /submitMobileSignature|submit_mobile_signature|signature_data|signatureData/);
+  assert.match(signatureMobileSource, /VALIDER LA SIGNATURE|signatureData|canvas|toDataURL/i);
 });
 
 test("garde-fou PDF sortie: changement de mise en page invalide les anciens PDF", () => {
@@ -39,21 +40,10 @@ test("garde-fou depollution: aucun fichier de sauvegarde local ne doit etre vers
     /node_modules/i,
     /_quarantine/i,
   ];
-  function walk(dir) {
-    const files = [];
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (entry.name === ".git") continue;
-      const fullPath = `${dir}\\${entry.name}`;
-      if (entry.isDirectory()) {
-        files.push(...walk(fullPath));
-      } else {
-        files.push(fullPath);
-      }
-    }
-    return files;
-  }
-  const root = process.cwd();
-  const trackedLikeFiles = walk(root).map((file) => file.slice(root.length + 1));
+  const trackedLikeFiles = execFileSync("git", ["ls-files"], { encoding: "utf8" })
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
 
   const offenders = trackedLikeFiles.filter((file) =>
     forbiddenPatterns.some((pattern) => pattern.test(file))

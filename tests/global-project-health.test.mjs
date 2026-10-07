@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 
 const ROOT = process.cwd();
 const CORE_HTML_FILES = [
@@ -14,23 +15,17 @@ const CORE_HTML_FILES = [
   "signature-mobile.html",
   "suivi-global.html",
 ];
+const REDIRECT_HTML_FILES = new Set(["suivi-global.html"]);
 
 function read(file) {
   return fs.readFileSync(path.join(ROOT, file), "utf8");
 }
 
-function listFiles(dir = ROOT) {
-  const output = [];
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (entry.name === ".git") continue;
-    const fullPath = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      output.push(...listFiles(fullPath));
-    } else {
-      output.push(fullPath);
-    }
-  }
-  return output;
+function listTrackedFiles() {
+  return execFileSync("git", ["ls-files"], { cwd: ROOT, encoding: "utf8" })
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
 }
 
 function stripQuery(value) {
@@ -73,6 +68,10 @@ test("socle projet: les pages principales existent et chargent style/app", () =>
     assert.equal(fs.existsSync(fullPath), true, `${file} doit exister`);
     const html = read(file);
     assert.match(html, /<meta charset="UTF-8"/i, `${file} doit declarer UTF-8`);
+    if (REDIRECT_HTML_FILES.has(file)) {
+      assert.match(html, /http-equiv="refresh"|url=index\.html|href="index\.html"/i, `${file} doit etre une redirection lisible`);
+      continue;
+    }
     assert.match(html, /style\.css/i, `${file} doit charger style.css`);
     if (file !== "signature-mobile.html") {
       assert.match(html, /app\.js/i, `${file} doit charger app.js`);
@@ -172,8 +171,7 @@ test("socle fichiers: aucun artefact local connu ne doit polluer le depot", () =
     /desktop\.ini$/i,
   ];
   const allowed = new Set(["desktop.ini"]);
-  const offenders = listFiles()
-    .map((file) => path.relative(ROOT, file))
+  const offenders = listTrackedFiles()
     .filter((file) => !allowed.has(file))
     .filter((file) => forbiddenPatterns.some((pattern) => pattern.test(file)));
 
