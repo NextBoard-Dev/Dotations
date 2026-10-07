@@ -13375,6 +13375,30 @@ function bindSignatureCanvases() {
       }
     };
 
+    const showValidatedSignatureState = (validatedAt = "") => {
+      const signatureBox = canvas.closest(".signature-box");
+      const statusNode = signatureBox?.querySelector(".signature-box__status");
+      const saveButton = signatureBox?.querySelector(".js-signature-save");
+      const clearButton = signatureBox?.querySelector(".js-signature-clear");
+      const validatedLabel = formatSignatureTimestamp(validatedAt) || formatCurrentUiTimestamp();
+      if (statusNode) {
+        statusNode.textContent = validatedLabel
+          ? `SIGNATURE ENREGISTREE LE ${validatedLabel}`
+          : "SIGNATURE ENREGISTREE";
+        statusNode.classList.add("is-signed");
+      }
+      if (saveButton instanceof HTMLButtonElement) {
+        saveButton.disabled = true;
+        saveButton.classList.add("is-disabled");
+        saveButton.classList.add("button--validated");
+        saveButton.textContent = "VALIDE";
+      }
+      if (clearButton instanceof HTMLButtonElement) {
+        clearButton.disabled = true;
+        clearButton.classList.add("is-disabled");
+      }
+    };
+
     const saveSignature = async () => {
       const isMobileSignaturePage = document.body.dataset.page === "mobile-signature";
       const person = getSignatureContextPerson(isMobileSignaturePage);
@@ -13526,6 +13550,9 @@ function bindSignatureCanvases() {
       if (document.body.dataset.page === "mobile-signature") {
         renderMobileSignaturePage();
         refreshDocumentSignatureCanvases(docType, person);
+        if (nextValue) {
+          showValidatedSignatureState(validatedAt);
+        }
         showDataStatus("SIGNATURE ENREGISTREE - VOUS POUVEZ FERMER CETTE PAGE");
       }
     };
