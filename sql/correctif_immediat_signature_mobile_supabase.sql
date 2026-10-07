@@ -77,5 +77,105 @@ with check (
   and signer in ('personnel', 'representant')
 );
 
+create or replace function public.submit_mobile_signature(
+  p_token text,
+  p_person_id text,
+  p_doc_type text,
+  p_signer text,
+  p_signature_data text,
+  p_validated_at_text text default null,
+  p_person_nom text default null,
+  p_person_prenom text default null,
+  p_signer_name text default null,
+  p_signer_function text default null
+)
+returns public.signatures
+language plpgsql
+as $$
+declare
+  saved public.signatures;
+begin
+  insert into public.signatures (
+    token,
+    person_id,
+    doc_type,
+    signer,
+    status,
+    signature_data,
+    validated_at_text,
+    signed_at,
+    person_nom,
+    person_prenom,
+    signer_name,
+    signer_function,
+    updated_at
+  )
+  values (
+    p_token,
+    p_person_id,
+    lower(p_doc_type),
+    lower(p_signer),
+    'SIGNEE',
+    p_signature_data,
+    coalesce(p_validated_at_text, now()::text),
+    now(),
+    p_person_nom,
+    p_person_prenom,
+    p_signer_name,
+    p_signer_function,
+    now()
+  )
+  on conflict (token) where token is not null
+  do update set
+    person_id = excluded.person_id,
+    doc_type = excluded.doc_type,
+    signer = excluded.signer,
+    status = excluded.status,
+    signature_data = excluded.signature_data,
+    validated_at_text = excluded.validated_at_text,
+    signed_at = excluded.signed_at,
+    person_nom = excluded.person_nom,
+    person_prenom = excluded.person_prenom,
+    signer_name = excluded.signer_name,
+    signer_function = excluded.signer_function,
+    updated_at = excluded.updated_at
+  returning * into saved;
+
+  return saved;
+end;
+$$;
+
+create or replace function public.fetch_mobile_signature_rows(p_tokens text[])
+returns setof public.signatures
+language sql
+stable
+as $$
+  select *
+  from public.signatures
+  where token = any(coalesce(p_tokens, array[]::text[]))
+  order by updated_at desc, signed_at desc
+$$;
+
+create or replace function public.fetch_mobile_signature_rows_for_document(
+  p_person_id text,
+  p_doc_type text
+)
+returns setof public.signatures
+language sql
+stable
+as $$
+  select *
+  from public.signatures
+  where person_id = p_person_id
+    and doc_type = lower(p_doc_type)
+    and signer in ('personnel', 'representant')
+    and signature_data is not null
+  order by updated_at desc, signed_at desc
+$$;
+
+grant execute on function public.submit_mobile_signature(text, text, text, text, text, text, text, text, text, text) to anon, authenticated;
+grant execute on function public.fetch_mobile_signature_rows(text[]) to anon, authenticated;
+grant execute on function public.fetch_mobile_signature_rows_for_document(text, text) to anon, authenticated;
+
 -- Test rapide : doit retourner une valeur md5, sans erreur digest().
 select public.jsonb_sha256('{"test":"ok"}'::jsonb) as checksum_test;
