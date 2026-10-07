@@ -3164,6 +3164,68 @@ function mergeSupabaseMobileSignatureRows(data, rows, personId, docType) {
   }
   return changed;
 }
+
+function getDocumentMobileSignatureSyncInFlight() {
+  if (!(state.documentMobileSignatureSyncInFlight instanceof Set)) {
+    state.documentMobileSignatureSyncInFlight = new Set();
+  }
+  return state.documentMobileSignatureSyncInFlight;
+}
+
+async function syncHostedMobileSignaturesForDocument(docType, personId) {
+  if (!state.data || !isSupabaseConfigured() || document.body?.dataset?.page === "mobile-signature") {
+    return false;
+  }
+  const normalizedPersonId = String(personId || "").trim();
+  const normalizedDocType = normalizeText(docType) === "EXIT" ? "exit" : "arrival";
+  if (!normalizedPersonId) return false;
+
+  const syncKey = `${normalizedPersonId}|${normalizedDocType}`;
+  const inFlight = getDocumentMobileSignatureSyncInFlight();
+  if (inFlight.has(syncKey)) return false;
+  inFlight.add(syncKey);
+
+  try {
+    const tokens = getMobileSignatureRequestTokensForContext(state.data, normalizedPersonId, normalizedDocType);
+    const rows = await fetchSupabaseMobileSignatureRows(normalizedPersonId, normalizedDocType, tokens);
+    const changed = mergeSupabaseMobileSignatureRows(state.data, rows, normalizedPersonId, normalizedDocType);
+    if (!changed) return false;
+
+    migrateDataModel({ suppressDirty: true });
+    state.isDirty = true;
+    state.documentViewRenderCache[normalizedDocType] = "";
+    state.pageRenderSignature = "";
+
+    await saveDataToFile({
+      silent: true,
+      reloadAfter: false,
+      promptDownload: false,
+      autoPushHosted: false,
+      successText: "SIGNATURE MOBILE REPRISE",
+    });
+    state.isDirty = false;
+    state.lastPersistedDataSignature = computeDataPersistenceSignature(state.data);
+    clearUndoStack();
+
+    const person = getPersonById(normalizedPersonId);
+    const page = document.body?.dataset?.page || "";
+    if (page === "arrival-document" && normalizedDocType === "arrival") {
+      renderArrivalDocument(normalizedPersonId);
+    } else if (page === "exit-document" && normalizedDocType === "exit") {
+      renderExitDocument(normalizedPersonId);
+    }
+    refreshDocumentSignatureCanvases(normalizedDocType, person);
+    updateDocumentPdfButtonsState();
+    renderDirtyState();
+    showDataStatus("SIGNATURE MOBILE REPRISE DANS LE DOCUMENT");
+    return true;
+  } catch (error) {
+    console.warn("Reprise signature mobile document impossible", error);
+    return false;
+  } finally {
+    inFlight.delete(syncKey);
+  }
+}
 async function fetchSupabaseStateData() {
   if (getDataBackendMode() === "LOCAL_API") {
     const response = await fetch(appendPdfTokenToUrl(`/api/state?ts=${Date.now()}`), { cache: "no-store" });
@@ -15717,6 +15779,7 @@ function renderArrivalDocument(personId) {
   bindDocumentEffectActions();
   updateSortableHeaders("arrivalEffects");
   syncDocumentMobileSignatureLinks("arrival", person.id);
+  void syncHostedMobileSignaturesForDocument("arrival", person.id);
   applyRequestedPdfFocus();
   return true;
 }
@@ -16138,6 +16201,7 @@ function renderExitDocument(personId) {
   bindDocumentEffectActions();
   updateSortableHeaders("exitEffects");
   syncDocumentMobileSignatureLinks("exit", person.id);
+  void syncHostedMobileSignaturesForDocument("exit", person.id);
   applyRequestedPdfFocus();
   return true;
 }
