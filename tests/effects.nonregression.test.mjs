@@ -270,5 +270,70 @@ test("CLOTURE conserve le total facturable mais met le reste à facturer à zér
   assert.equal(resteAFacturer, 15);
 });
 
+test("FACTURE conserve le total facturable mais sort du reste a facturer", () => {
+  const pc = loadPcBillingFns();
+  primePcCosts(pc);
+  const person = { dateSortieReelle: "2000-01-01" };
+  const billedEffect = {
+    typeEffet: "BADGE INTRUSION",
+    cause: "DETRUIT",
+    dateRetour: "",
+    etatFacturation: "FACTURE",
+  };
+  const pendingEffect = {
+    typeEffet: "BADGE INTRUSION",
+    cause: "DETRUIT",
+    dateRetour: "",
+    etatFacturation: "",
+  };
+
+  const totalFacturable =
+    pc.getEffectReplacementCost(person, billedEffect) + pc.getEffectReplacementCost(person, pendingEffect);
+  const resteAFacturer = [billedEffect, pendingEffect]
+    .filter((effect) => getEffectBillingStatus(effect, pc.getEffectReplacementCost(person, effect) > 0) === "A FACTURER")
+    .reduce((sum, effect) => sum + pc.getEffectReplacementCost(person, effect), 0);
+
+  assert.equal(getEffectBillingStatus(billedEffect, true), "FACTURE");
+  assert.equal(getEffectBillingStatus(pendingEffect, true), "A FACTURER");
+  assert.equal(totalFacturable, 30);
+  assert.equal(resteAFacturer, 15);
+});
+
+test("CLE CES reste tarifée CLE CES même si le type source est CLE", () => {
+  const pc = loadPcBillingFns();
+  primePcCosts(pc);
+  pc.state.data.listes.coutsRemplacement.push({ typeEffet: "CLE CES", cause: "NON RENDU", montant: 50 });
+  const person = { dateSortieReelle: "2000-01-01" };
+  const effect = {
+    typeEffet: "CLE",
+    designation: "CES-DE",
+    cause: "",
+    dateRetour: "",
+  };
+
+  assert.equal(pc.getEffectReplacementCause(person, effect), "NON RENDU");
+  assert.equal(pc.getEffectReplacementCost(person, effect), 50);
+  assert.equal(getEffectBillingCause(person, effect), "NON RENDU");
+  assert.equal(getReplacementCostValue(pricingRules, effect.typeEffet, "NON RENDU", effect.designation), 50);
+});
+
+test("Sortie non due: un effet actif sans retour ne devient pas automatiquement facturable", () => {
+  const pc = loadPcBillingFns();
+  primePcCosts(pc);
+  const person = { dateSortieReelle: "", dateSortiePrevue: "" };
+  const effect = {
+    typeEffet: "BADGE INTRUSION",
+    cause: "",
+    dateRetour: "",
+    etatFacturation: "",
+  };
+
+  assert.equal(pc.getEffectReplacementCause(person, effect), "");
+  assert.equal(pc.getEffectReplacementCost(person, effect), 0);
+  assert.equal(getEffectBillingCause(person, effect), "");
+  assert.equal(toSmartphoneCost(person, effect), 0);
+  assert.equal(getEffectBillingStatus(effect, false), "-");
+});
+
 
 

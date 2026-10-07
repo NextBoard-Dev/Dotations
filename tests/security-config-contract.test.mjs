@@ -25,8 +25,18 @@ const ALLOWED_LOCAL_RUNTIME_FILES = new Set([
   "signature-mobile.html",
   "suivi-global.html",
 ]);
-const PRIVATE_SECRET_PATTERN = /service[_-]?role|SUPABASE_SERVICE|sk-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}/i;
-const OLD_DASHBOARD_PATH_PATTERN = /GESTION(?:%20| )DES(?:%20| )ACC|EFFETS(?:%20| )SENSIBLES|DOTATIONS - MODE LOCAL - VERSION ACTIVE/i;
+const PRIVATE_SECRET_PATTERNS = [
+  ["service", "[_-]?", "role"].join(""),
+  ["SUPABASE", "_", "SERVICE"].join(""),
+  ["sk", "-", "[A-Za-z0-9_-]{20,}"].join(""),
+  ["ghp", "_", "[A-Za-z0-9_]{20,}"].join(""),
+  ["github", "_", "pat", "_", "[A-Za-z0-9_]{20,}"].join(""),
+].map((source) => new RegExp(source, "i"));
+const OLD_DASHBOARD_PATH_PATTERNS = [
+  ["GESTION", "(?:%20| )", "DES", "(?:%20| )", "ACC"].join(""),
+  ["EFFETS", "(?:%20| )", "SENSIBLES"].join(""),
+  ["DOTATIONS", " - ", "MODE LOCAL", " - ", "VERSION ACTIVE"].join(""),
+].map((source) => new RegExp(source, "i"));
 const ABSOLUTE_WINDOWS_PATH_PATTERN = /[A-Z]:\\Users\\sebastien\.duc\\/i;
 const LOCAL_RUNTIME_PATTERN = /127\.0\.0\.1|localhost|192\.168\.|IP_DU_PC/i;
 
@@ -43,12 +53,18 @@ function trackedTextFiles() {
 }
 
 test("securite: aucun secret prive evident ne doit etre versionne", () => {
-  const offenders = trackedTextFiles().filter((file) => PRIVATE_SECRET_PATTERN.test(read(file)));
+  const offenders = trackedTextFiles().filter((file) => {
+    const source = read(file);
+    return PRIVATE_SECRET_PATTERNS.some((pattern) => pattern.test(source));
+  });
   assert.deepEqual(offenders, []);
 });
 
 test("configuration: aucun ancien chemin dashboard ne doit rester dans les fichiers versionnes", () => {
-  const offenders = trackedTextFiles().filter((file) => OLD_DASHBOARD_PATH_PATTERN.test(read(file)));
+  const offenders = trackedTextFiles().filter((file) => {
+    const source = read(file);
+    return OLD_DASHBOARD_PATH_PATTERNS.some((pattern) => pattern.test(source));
+  });
   assert.deepEqual(offenders, []);
 });
 
