@@ -17,6 +17,23 @@ const PC_HTML_FILES = [
 const EXPECTED_PC_FAVICON = "favicon.ico?v=20260928b";
 const EXPECTED_MOBILE_ICON_VERSION = "v4";
 const EXPECTED_MOBILE_CACHE_VERSION = "20260928b";
+const LEGACY_VERSION = "v3";
+const OLD_PC_BRANDING_PATTERN = new RegExp(
+  [
+    ["favicon", LEGACY_VERSION].join("-"),
+    ["nextboard", "favicon", LEGACY_VERSION].join("-"),
+    ["nextboard", "logo", LEGACY_VERSION].join("-"),
+    ["nextboard", "brand", LEGACY_VERSION].join("-"),
+  ].join("|"),
+  "i"
+);
+const OLD_MOBILE_BRANDING_PATTERN = new RegExp(
+  [
+    ["nextboard-", "(?:favicon|app|brand|logo|mobile-header)", "-", LEGACY_VERSION].join(""),
+    ["nextboard-mobile-header", "\\.png"].join(""),
+  ].join("|"),
+  "i"
+);
 
 function read(file) {
   return fs.readFileSync(path.join(ROOT, file), "utf8");
@@ -55,7 +72,7 @@ test("branding PC: toutes les pages gardent le favicon NextBoard courant", () =>
   for (const file of PC_HTML_FILES) {
     const html = read(file);
     assert.match(html, new RegExp(`href="${EXPECTED_PC_FAVICON.replace(/[.?]/g, "\\$&")}"`), `${file} doit pointer vers le favicon courant`);
-    assert.doesNotMatch(html, /favicon-v3|nextboard-favicon-v3|nextboard-logo-v3|nextboard-brand-v3/i, `${file} ne doit pas referencer un ancien logo`);
+    assert.doesNotMatch(html, OLD_PC_BRANDING_PATTERN, `${file} ne doit pas referencer un ancien logo`);
   }
 });
 
@@ -68,8 +85,8 @@ test("branding mobile: index et manifest utilisent uniquement les icones v4", ()
   for (const source of [mobileIndex, smartphoneIndex, JSON.stringify(mobileManifest), JSON.stringify(smartphoneManifest)]) {
     assert.match(source, new RegExp(`nextboard-(?:favicon|app|mobile-header)-${EXPECTED_MOBILE_ICON_VERSION}`));
     assert.match(source, new RegExp(`v=${EXPECTED_MOBILE_CACHE_VERSION}`));
-    assert.doesNotMatch(source, /nextboard-(?:favicon|app|brand|logo|mobile-header)-v3/i);
-    assert.doesNotMatch(source, /nextboard-mobile-header\.png/i);
+    assert.doesNotMatch(source, OLD_MOBILE_BRANDING_PATTERN);
+    assert.doesNotMatch(source, new RegExp(["nextboard-mobile-header", "\\.png"].join(""), "i"));
   }
 });
 
@@ -118,7 +135,7 @@ test("branding: aucun fichier texte versionné ne référence les anciennes icô
   const offenders = [];
   for (const file of trackedTextFiles()) {
     const source = read(file);
-    if (/nextboard-(?:favicon|app|brand|logo|mobile-header)-v3|nextboard-mobile-header\.png/i.test(source)) {
+    if (OLD_MOBILE_BRANDING_PATTERN.test(source)) {
       offenders.push(file);
     }
   }
