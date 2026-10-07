@@ -19,5 +19,17 @@ if /I not "%ORIGIN%"=="https://github.com/NextBoard-Dev/Dotations.git" (
 )
 echo.
 echo OK - CONTEXTE DOTATIONS VALIDE
+echo.
+echo CONTROLES CRITIQUES...
+node --check app.js || goto :fail
+node --test tests/*.mjs || goto :fail
+echo.
+echo OK - CONTROLES CRITIQUES VALIDES
 popd >nul
 exit /b 0
+
+:fail
+echo.
+echo [ECHEC] CONTROLES CRITIQUES DOTATIONS
+popd >nul
+exit /b 1

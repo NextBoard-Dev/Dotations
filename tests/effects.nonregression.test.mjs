@@ -5,6 +5,7 @@ import vm from "node:vm";
 
 import {
   getEffectBillingCause,
+  getEffectBillingStatus,
   getReplacementCostValue,
   normalizeManualStatus,
 } from "../smartphone/src/lib/businessRules.js";
@@ -237,6 +238,36 @@ test("Coût aligné PC/smartphone pour mêmes typeEffet + cause", () => {
     assert.equal(pcCost, sample.expected);
     assert.equal(smCost, sample.expected);
   }
+});
+
+test("CLOTURE conserve le total facturable mais met le reste à facturer à zéro", () => {
+  const pc = loadPcBillingFns();
+  primePcCosts(pc);
+  const person = { dateSortieReelle: "2000-01-01" };
+  const closedEffect = {
+    typeEffet: "BADGE INTRUSION",
+    cause: "DETRUIT",
+    dateRetour: "",
+    etatFacturation: "CLOTURE",
+  };
+  const pendingEffect = {
+    typeEffet: "BADGE INTRUSION",
+    cause: "DETRUIT",
+    dateRetour: "",
+    etatFacturation: "A FACTURER",
+  };
+
+  const closedAmount = pc.getEffectReplacementCost(person, closedEffect);
+  const pendingAmount = pc.getEffectReplacementCost(person, pendingEffect);
+  const totalFacturable = closedAmount + pendingAmount;
+  const resteAFacturer = [closedEffect, pendingEffect]
+    .filter((effect) => getEffectBillingStatus(effect, true) === "A FACTURER")
+    .reduce((sum, effect) => sum + pc.getEffectReplacementCost(person, effect), 0);
+
+  assert.equal(closedAmount, 15);
+  assert.equal(pendingAmount, 15);
+  assert.equal(totalFacturable, 30);
+  assert.equal(resteAFacturer, 15);
 });
 
 
