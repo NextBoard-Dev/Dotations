@@ -173,3 +173,57 @@ test("signature mobile: les documents entree et sortie declenchent la reprise di
   assert.match(source, /syncDocumentMobileSignatureLinks\("exit", person\.id\);\s*void syncHostedMobileSignaturesForDocument\("exit", person\.id\);/);
   assert.match(source, /documentMobileSignatureSyncInFlight: new Set\(\)/);
 });
+
+test("signature mobile: la page autonome conserve les points d'ancrage critiques", () => {
+  const html = fs.readFileSync("signature-mobile.html", "utf8");
+
+  assert.match(html, /<body data-page="mobile-signature">/);
+  assert.match(html, /id="mobile-signature-request-status">CHARGEMENT\.\.\.<\/p>/);
+  assert.match(html, /id="mobile-signature-panel"/);
+  assert.match(html, /class="signature-box__canvas js-signature-canvas" data-doc-type="arrival" data-signer="personnel"/);
+  assert.match(html, /class="button button--primary js-signature-save" data-doc-type="arrival" data-signer="personnel"/);
+  assert.match(html, /id="mobile-signature-personnel-status">EN ATTENTE DE SIGNATURE<\/p>/);
+  assert.match(html, /id="mobile-costs-head"/);
+  assert.match(html, /id="mobile-costs-body"/);
+  assert.match(html, /href="favicon\.ico\?v=20260928b"/);
+  assert.match(html, /src="app\.js\?v=20261007-mobile-signature-chain-guard"/);
+});
+
+test("signature mobile: le bouton reste verrouille apres validation locale", () => {
+  const source = fs.readFileSync("app.js", "utf8");
+
+  assert.match(source, /const showValidatedSignatureState = \(validatedAt = ""\) => \{/);
+  assert.match(source, /statusNode\.textContent = validatedLabel\s*\?\s*`SIGNATURE ENREGISTREE LE \$\{validatedLabel\}`\s*:\s*"SIGNATURE ENREGISTREE";/);
+  assert.match(source, /saveButton\.disabled = true;\s*saveButton\.classList\.add\("is-disabled"\);\s*saveButton\.classList\.add\("button--validated"\);\s*saveButton\.textContent = "VALIDE";/);
+  assert.match(source, /clearButton\.disabled = true;\s*clearButton\.classList\.add\("is-disabled"\);/);
+  assert.match(source, /showValidatedSignatureState\(validatedAt\);/);
+  assert.match(source, /showDataStatus\("SIGNATURE ENREGISTREE - VOUS POUVEZ FERMER CETTE PAGE"\);/);
+});
+
+test("signature mobile: le relais Supabase est sauvegarde avant la reprise app_state", () => {
+  const source = fs.readFileSync("app.js", "utf8");
+  const relaySaveIndex = source.indexOf("signatureRecordSaved = await saveMobileSignatureRecordToSupabase");
+  const rebaseSaveIndex = source.indexOf("latestPayload = await saveSupabaseSignatureWithRebase", relaySaveIndex);
+  const relayFallbackIndex = source.indexOf("if (!signatureRecordSaved) {", rebaseSaveIndex);
+
+  assert.ok(relaySaveIndex > 0, "la sauvegarde relais signatures doit etre appelee");
+  assert.ok(rebaseSaveIndex > relaySaveIndex, "la reprise app_state doit arriver apres le relais");
+  assert.ok(relayFallbackIndex > rebaseSaveIndex, "un second essai relais non bloquant doit rester present");
+  assert.match(source, /if \(!signatureRecordSaved\) \{\s*throw stateSaveError;\s*\}/);
+  assert.match(source, /showDataStatus\("SIGNATURE ENREGISTREE - SYNCHRONISATION DOCUMENT EN COURS"\);/);
+  assert.match(source, /saveMobileSignatureRecordToSupabase\(\{\s*token: mobileRequestToken,/);
+  assert.match(source, /saveSupabaseSignatureWithRebase\(\{\s*personId: person\.id,/);
+});
+
+test("signature mobile: le rendu reutilise la signature runtime pour eviter un retour visuel vide", () => {
+  const source = fs.readFileSync("app.js", "utf8");
+
+  assert.match(source, /function getMobileSignatureRuntimeKey\(request, person, docType, signer\)/);
+  assert.match(source, /return \[token, personId, normalizedDocType, normalizedSigner\]\.join\("\|\|\|"\);/);
+  assert.match(source, /function rememberMobileSignatureRuntimeSignature\(request, person, docType, signer, image, validatedAt, storageRef = "", storagePublicUrl = ""\)/);
+  assert.match(source, /function getMobileSignatureRuntimeSignature\(request, person, docType, signer\)/);
+  assert.match(source, /const runtimeSignature = getMobileSignatureRuntimeSignature\(request, person, normalizedDocType, signer\);/);
+  assert.match(source, /const signatureValue = String\(runtimeSignature\?\.image \|\| person\?\.signatures\?\.\[normalizedDocType\]\?\.\[signer\]\?\.image \|\| ""\);/);
+  assert.match(source, /const isAlreadySigned = Boolean\(\(request && normalizeText\(request\.status\) === "SIGNEE"\) \|\| runtimeSignature\?\.image\);/);
+  assert.match(source, /if \(isAlreadySigned\) \{\s*saveButton\.disabled = true;/);
+});
