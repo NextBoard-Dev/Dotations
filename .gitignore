@@ -6,3 +6,6 @@ LATEST_MAJOR_SNAPSHOT.txt
 # Sauvegardes locales
 sauvegarde Github/
 sauvegarde Supabase/
+
+# Etat local Supabase CLI
+supabase/.temp/
