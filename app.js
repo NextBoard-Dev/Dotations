@@ -3022,7 +3022,24 @@ async function fetchSupabaseMobileSignatureRows(personId, docType, tokens = []) 
       throw new Error(`SUPABASE_SIGNATURE_ROWS_RPC_FAILED:${rpcResponse.status}:${detail.slice(0, 180)}`);
     }
     const rows = await rpcResponse.json().catch(() => []);
-    return Array.isArray(rows) ? rows : [];
+    if (Array.isArray(rows) && rows.length) {
+      return rows;
+    }
+  }
+  const documentRpcEndpoint = `${normalizeHttpUrl(SUPABASE_PROJECT_URL)}/rest/v1/rpc/fetch_mobile_signature_rows_for_document`;
+  const documentRpcResponse = await fetch(documentRpcEndpoint, {
+    method: "POST",
+    headers: getSupabaseHeaders({
+      "Content-Type": "application/json",
+    }),
+    body: JSON.stringify({ p_person_id: normalizedPersonId, p_doc_type: normalizedDocType }),
+    cache: "no-store",
+  });
+  if (documentRpcResponse.ok) {
+    const rows = await documentRpcResponse.json().catch(() => []);
+    if (Array.isArray(rows)) {
+      return rows;
+    }
   }
   const endpoint = `${normalizeHttpUrl(SUPABASE_PROJECT_URL)}/rest/v1/signatures`;
   const buildUrl = (schema = "snake") => {
