@@ -4338,14 +4338,23 @@ function findMobileSignatureRequestByToken(token) {
 
 function getMobileSignatureIdentityFromUrl() {
   const params = new URLSearchParams(window.location.search);
+  const firstPresentParam = (...names) => {
+    for (const name of names) {
+      const value = params.get(name);
+      if (String(value || "").trim()) {
+        return value;
+      }
+    }
+    return "";
+  };
   return {
-    personNom: normalizeText(params.get("personNom") || ""),
-    personPrenom: normalizeText(params.get("personPrenom") || ""),
-    personSite: normalizeText(params.get("personSite") || ""),
-    personTypePersonnel: normalizeText(params.get("personTypePersonnel") || ""),
-    personTypeContrat: normalizeText(params.get("personTypeContrat") || ""),
-    representativeNom: normalizeText(params.get("representativeNom") || ""),
-    representativeFonction: normalizeText(params.get("representativeFonction") || ""),
+    personNom: normalizeText(firstPresentParam("personNom", "personName", "nom", "name")),
+    personPrenom: normalizeText(firstPresentParam("personPrenom", "personFirstName", "personFirstname", "prenom", "firstName", "firstname")),
+    personSite: normalizeText(firstPresentParam("personSite", "site")),
+    personTypePersonnel: normalizeText(firstPresentParam("personTypePersonnel", "typePersonnel", "personType")),
+    personTypeContrat: normalizeText(firstPresentParam("personTypeContrat", "typeContrat", "contractType")),
+    representativeNom: normalizeText(firstPresentParam("representativeNom", "representativeName", "representantNom", "representantName", "repNom", "repName")),
+    representativeFonction: normalizeText(firstPresentParam("representativeFonction", "representativeFunction", "representantFonction", "representantFunction", "repFonction", "repFunction")),
   };
 }
 
@@ -5063,6 +5072,17 @@ async function loadData() {
   bindArchiveFilterForm();
   bindSignatureCanvases();
   bindRepresentativeFields();
+  if (document.body?.dataset?.page === "mobile-signature") {
+    if (!state.data) {
+      state.data = {
+        personnes: [],
+        demandesSignatureMobile: [],
+        listes: {},
+        documentsArchives: [],
+      };
+    }
+    schedulePageRender();
+  }
   if (getDataBackendMode() === "LOCAL_API") {
     console.info("MODE LOCAL DATA ACTIF");
   }
@@ -5164,8 +5184,19 @@ async function reloadData(statusText = "RECHARGEMENT DES DONNEES...") {
   } catch (error) {
     console.error(error);
     state.supabaseRevision = null;
-    state.data = null;
+    const isMobileSignaturePage = document.body?.dataset?.page === "mobile-signature";
+    state.data = isMobileSignaturePage
+      ? {
+          personnes: [],
+          demandesSignatureMobile: [],
+          listes: {},
+          documentsArchives: [],
+        }
+      : null;
     resetUiWithoutData();
+    if (isMobileSignaturePage) {
+      schedulePageRender();
+    }
     if (getDataBackendMode() === "HOSTED_NO_BACKEND") {
       showDataStatus("CONFIGURATION SUPABASE INCOMPLETE");
     } else {
@@ -13643,8 +13674,12 @@ function getMobileSignatureTargetPerson() {
   const requestPersonId = String(request?.personId || "").trim();
   const targetPersonId = requestPersonId || personIdFromUrl;
 
-  if (!targetPersonId || !Array.isArray(state.data?.personnes)) {
-    return getCurrentPerson();
+  if (!targetPersonId) {
+    return buildMobileSignaturePersonFromRequest(request, "") || getCurrentPerson();
+  }
+
+  if (!Array.isArray(state.data?.personnes)) {
+    return buildMobileSignaturePersonFromRequest(request, targetPersonId) || getCurrentPerson();
   }
 
   return (
@@ -13776,7 +13811,9 @@ function renderMobileSignaturePage() {
   const docLabel = normalizedDocType === "exit" ? "DOCUMENT DE SORTIE" : "DOCUMENT D'ARRIVEE";
   const representative = getMobileSignatureRepresentativeInfo(person, normalizedDocType, request);
   const representativeReady =
-    signer !== "representant" || Boolean(normalizeText(representative?.nom) && normalizeText(representative?.fonction));
+    signer !== "representant" ||
+    Boolean(normalizeText(representative?.nom) && normalizeText(representative?.fonction)) ||
+    Boolean(request?.fallbackFromUrl);
   const runtimeSignature = getMobileSignatureRuntimeSignature(request, person, normalizedDocType, signer);
   const signatureValidationDate = String(runtimeSignature?.validatedAt || getSignatureValidationDate(person, normalizedDocType, signer) || "");
   const signatureValue = String(runtimeSignature?.image || person?.signatures?.[normalizedDocType]?.[signer]?.image || "");
@@ -13869,7 +13906,7 @@ function renderMobileSignaturePage() {
   if (personNode) {
     personNode.textContent =
       signer === "representant"
-        ? representative?.nom || "-"
+        ? representative?.nom || "REPRESENTANT DE L'ETABLISSEMENT"
         : person
         ? `${person.nom || ""} ${person.prenom || ""}`.trim() || "-"
         : "-";
