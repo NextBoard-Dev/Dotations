@@ -13524,34 +13524,66 @@ function bindSignatureCanvases() {
       }
       if (isMobileSignaturePage && getDataBackendMode() === "SUPABASE" && nextValue) {
         const mobileRequestToken = String(currentMobileRequest?.token || getCurrentMobileSignatureToken() || "");
-        const latestPayload = await saveSupabaseSignatureWithRebase({
-          personId: person.id,
-          docType,
-          signer,
-          signatureValue: nextValue,
-          validatedAt,
-          storageRef: signatureStorageRef,
-          storagePublicUrl: signatureStoragePublicUrl,
-          mobileRequestToken,
-        });
-        const latestPerson = Array.isArray(latestPayload?.personnes)
-          ? latestPayload.personnes.find((entry) => String(entry?.id || "") === String(person.id || "")) || person
-          : person;
-        setTimeout(() => {
-          saveMobileSignatureRecordToSupabase({
+        let signatureRecordSaved = false;
+        try {
+          signatureRecordSaved = await saveMobileSignatureRecordToSupabase({
             token: mobileRequestToken,
             personId: person.id,
             docType,
             signer,
-            person: latestPerson,
+            person,
             signatureValue: nextValue,
             validatedAt,
             storageRef: signatureStorageRef,
             storagePublicUrl: signatureStoragePublicUrl,
-          }).catch((signatureRecordError) => {
-            console.warn("[SUPABASE][SIGNATURE] table signatures non bloquante", signatureRecordError);
           });
-        }, 0);
+        } catch (signatureRecordError) {
+          console.warn("[SUPABASE][SIGNATURE] table signatures indisponible", signatureRecordError);
+        }
+        let latestPayload = null;
+        try {
+          latestPayload = await saveSupabaseSignatureWithRebase({
+            personId: person.id,
+            docType,
+            signer,
+            signatureValue: nextValue,
+            validatedAt,
+            storageRef: signatureStorageRef,
+            storagePublicUrl: signatureStoragePublicUrl,
+            mobileRequestToken,
+          });
+        } catch (stateSaveError) {
+          if (!signatureRecordSaved) {
+            throw stateSaveError;
+          }
+          console.warn("[SUPABASE][SIGNATURE] app_state indisponible, relais signature conserve", stateSaveError);
+          clearWorkingData();
+          state.isDirty = false;
+          clearUndoStack();
+          renderDirtyState();
+          showDataStatus("SIGNATURE ENREGISTREE - SYNCHRONISATION DOCUMENT EN COURS");
+          return;
+        }
+        const latestPerson = Array.isArray(latestPayload?.personnes)
+          ? latestPayload.personnes.find((entry) => String(entry?.id || "") === String(person.id || "")) || person
+          : person;
+        if (!signatureRecordSaved) {
+          setTimeout(() => {
+            saveMobileSignatureRecordToSupabase({
+              token: mobileRequestToken,
+              personId: person.id,
+              docType,
+              signer,
+              person: latestPerson,
+              signatureValue: nextValue,
+              validatedAt,
+              storageRef: signatureStorageRef,
+              storagePublicUrl: signatureStoragePublicUrl,
+            }).catch((signatureRecordError) => {
+              console.warn("[SUPABASE][SIGNATURE] table signatures non bloquante", signatureRecordError);
+            });
+          }, 0);
+        }
         clearWorkingData();
         state.isDirty = false;
         clearUndoStack();
