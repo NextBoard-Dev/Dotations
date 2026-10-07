@@ -2979,11 +2979,51 @@ function isSupabaseSignatureSchemaMismatch(detail) {
   return /42703|column .* does not exist|person_id|doc_type|signature_data|storage_ref|signed_at|updated_at/i.test(text);
 }
 
-async function fetchSupabaseMobileSignatureRows(personId, docType) {
+function getMobileSignatureRequestTokensForContext(data, personId, docType) {
+  const normalizedPersonId = String(personId || "").trim();
+  const normalizedDocType = normalizeText(docType) === "EXIT" ? "EXIT" : "ARRIVAL";
+  if (!normalizedPersonId || !normalizedDocType || !Array.isArray(data?.demandesSignatureMobile)) {
+    return [];
+  }
+  return Array.from(
+    new Set(
+      data.demandesSignatureMobile
+        .filter(
+          (request) =>
+            String(request?.personId || "") === normalizedPersonId &&
+            normalizeText(request?.docType || "") === normalizedDocType &&
+            String(request?.token || "").trim()
+        )
+        .map((request) => String(request.token || "").trim())
+    )
+  );
+}
+
+async function fetchSupabaseMobileSignatureRows(personId, docType, tokens = []) {
   if (!isSupabaseConfigured()) return [];
   const normalizedPersonId = String(personId || "").trim();
   const normalizedDocType = normalizeText(docType) === "EXIT" ? "exit" : "arrival";
   if (!normalizedPersonId || !normalizedDocType) return [];
+  const safeTokens = Array.from(
+    new Set((Array.isArray(tokens) ? tokens : []).map((token) => String(token || "").trim()).filter(Boolean))
+  );
+  if (safeTokens.length) {
+    const rpcEndpoint = `${normalizeHttpUrl(SUPABASE_PROJECT_URL)}/rest/v1/rpc/fetch_mobile_signature_rows`;
+    const rpcResponse = await fetch(rpcEndpoint, {
+      method: "POST",
+      headers: getSupabaseHeaders({
+        "Content-Type": "application/json",
+      }),
+      body: JSON.stringify({ p_tokens: safeTokens }),
+      cache: "no-store",
+    });
+    if (!rpcResponse.ok) {
+      const detail = await rpcResponse.text().catch(() => "");
+      throw new Error(`SUPABASE_SIGNATURE_ROWS_RPC_FAILED:${rpcResponse.status}:${detail.slice(0, 180)}`);
+    }
+    const rows = await rpcResponse.json().catch(() => []);
+    return Array.isArray(rows) ? rows : [];
+  }
   const endpoint = `${normalizeHttpUrl(SUPABASE_PROJECT_URL)}/rest/v1/signatures`;
   const buildUrl = (schema = "snake") => {
     if (schema === "camel") {
@@ -6034,7 +6074,8 @@ async function pollMobileSignatureRequest() {
     }
     if (isSupabaseConfigured()) {
       try {
-        const signatureRows = await fetchSupabaseMobileSignatureRows(personId, docType);
+        const signatureTokens = getMobileSignatureRequestTokensForContext(json, personId, docType);
+        const signatureRows = await fetchSupabaseMobileSignatureRows(personId, docType, signatureTokens);
         if (mergeSupabaseMobileSignatureRows(json, signatureRows, personId, docType)) {
           state.data = json;
           migrateDataModel({ suppressDirty: true });
