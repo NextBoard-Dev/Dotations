@@ -46,6 +46,7 @@ const state = {
   mobileSignaturePollStateSignature: "",
   mobileSignaturePollSyncModeSignature: "",
   mobileSignaturePollStatusSignature: "",
+  documentMobileSignatureSyncInFlight: new Set(),
   mobileSignatureRecoveryModalOpen: false,
   mobileSignatureVisibilityBound: false,
   browserStorageQuotaLevel: 0,
@@ -3044,7 +3045,7 @@ async function fetchSupabaseMobileSignatureRows(personId, docType, tokens = []) 
   const endpoint = `${normalizeHttpUrl(SUPABASE_PROJECT_URL)}/rest/v1/signatures`;
   const buildUrl = (schema = "snake") => {
     if (schema === "camel") {
-      return `${endpoint}?person_id=eq.${encodeURIComponent(normalizedPersonId)}&doc_type=eq.${encodeURIComponent(normalizedDocType)}&select=*&order=updated_at.desc,signed_at.desc&limit=30`;
+      return `${endpoint}?personId=eq.${encodeURIComponent(normalizedPersonId)}&docType=eq.${encodeURIComponent(normalizedDocType)}&select=*&order=updatedAt.desc,signedAt.desc&limit=30`;
     }
     return `${endpoint}?person_id=eq.${encodeURIComponent(normalizedPersonId)}&doc_type=eq.${encodeURIComponent(normalizedDocType)}&select=*&order=updated_at.desc,signed_at.desc&limit=30`;
   };
