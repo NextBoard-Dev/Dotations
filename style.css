@@ -776,9 +776,7 @@ body[data-pdf-mode="true"][data-page="exit-document"] .arrival-document__block >
 body[data-pdf-mode="true"][data-page="exit-document"] .arrival-document__block > .table-wrap > .data-table:not(.data-table--document-costs) th:nth-child(10),
 body[data-pdf-mode="true"][data-page="exit-document"] .arrival-document__block > .table-wrap > .data-table:not(.data-table--document-costs) td:nth-child(10),
 body[data-pdf-mode="true"][data-page="exit-document"] .arrival-document__block > .table-wrap > .data-table:not(.data-table--document-costs) th:nth-child(11),
-body[data-pdf-mode="true"][data-page="exit-document"] .arrival-document__block > .table-wrap > .data-table:not(.data-table--document-costs) td:nth-child(11),
-body[data-pdf-mode="true"][data-page="exit-document"] .arrival-document__block > .table-wrap > .data-table:not(.data-table--document-costs) th:nth-child(12),
-body[data-pdf-mode="true"][data-page="exit-document"] .arrival-document__block > .table-wrap > .data-table:not(.data-table--document-costs) td:nth-child(12) {
+body[data-pdf-mode="true"][data-page="exit-document"] .arrival-document__block > .table-wrap > .data-table:not(.data-table--document-costs) td:nth-child(11) {
   display: none;
 }
 
