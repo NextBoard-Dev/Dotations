@@ -6,7 +6,13 @@ import { execFileSync } from "node:child_process";
 
 const ROOT = process.cwd();
 const TEXT_EXTENSIONS = new Set([".bat", ".css", ".html", ".js", ".json", ".md", ".mjs", ".sql", ".url"]);
-const MOJIBAKE_PATTERN = /�|Ã.|Â.|â€™|â€œ|â€|ACC�/;
+const MOJIBAKE_MARKERS = [
+  "\uFFFD",
+  "\u00C3",
+  "\u00C2",
+  "\u00E2\u20AC",
+  "ACC\uFFFD",
+];
 const HTML_ENTRYPOINTS = [
   "index.html",
   "fiche-personne.html",
@@ -33,7 +39,10 @@ function trackedTextFiles() {
 }
 
 test("texte: aucun fichier texte versionne ne contient d'encodage casse visible", () => {
-  const offenders = trackedTextFiles().filter((file) => MOJIBAKE_PATTERN.test(read(file)));
+  const offenders = trackedTextFiles().filter((file) => {
+    const source = read(file);
+    return MOJIBAKE_MARKERS.some((marker) => source.includes(marker));
+  });
   assert.deepEqual(offenders, []);
 });
 

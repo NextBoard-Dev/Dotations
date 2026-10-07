@@ -1,73 +1,73 @@
 [
   {
     "name": "bandeau-nextboard-sidebar-detoure.svg",
-    "path": "C:\\Users\\sebastien.duc\\CLOUD\\02_ARCHIVAGE PERSONNEL\\DASHBOARDS\\DOTATIONS - MODE LOCAL - VERSION ACTIVE\\assets\\sidebar\\bandeau-nextboard-sidebar-detoure.svg",
+    "path": "assets/sidebar/bandeau-nextboard-sidebar-detoure.svg",
     "size": 1304,
     "sha256": "146216F35EE1BFF117E13350408EC510493EA90E3F56F0AEA95CD32736D44F9D"
   },
   {
     "name": "icone-badge.png",
-    "path": "C:\\Users\\sebastien.duc\\CLOUD\\02_ARCHIVAGE PERSONNEL\\DASHBOARDS\\DOTATIONS - MODE LOCAL - VERSION ACTIVE\\assets\\sidebar\\icone-badge.png",
+    "path": "assets/sidebar/icone-badge.png",
     "size": 50188,
     "sha256": "393C402BA5363405144BE2180117A9CF56844D6DAE2BF8A615D478085B8A4A84"
   },
   {
     "name": "icone-badge.svg",
-    "path": "C:\\Users\\sebastien.duc\\CLOUD\\02_ARCHIVAGE PERSONNEL\\DASHBOARDS\\DOTATIONS - MODE LOCAL - VERSION ACTIVE\\assets\\sidebar\\icone-badge.svg",
+    "path": "assets/sidebar/icone-badge.svg",
     "size": 423,
     "sha256": "275004D6D599FC7CFA71E8C3B5B6A11F05FC01D44FB36F641A9D153B6DD0393F"
   },
   {
     "name": "icone-carte.png",
-    "path": "C:\\Users\\sebastien.duc\\CLOUD\\02_ARCHIVAGE PERSONNEL\\DASHBOARDS\\DOTATIONS - MODE LOCAL - VERSION ACTIVE\\assets\\sidebar\\icone-carte.png",
+    "path": "assets/sidebar/icone-carte.png",
     "size": 59185,
     "sha256": "54EA88F7A50FF4E4292E897355C0679568360FEBC645099A53172A40135C5E46"
   },
   {
     "name": "icone-carte.svg",
-    "path": "C:\\Users\\sebastien.duc\\CLOUD\\02_ARCHIVAGE PERSONNEL\\DASHBOARDS\\DOTATIONS - MODE LOCAL - VERSION ACTIVE\\assets\\sidebar\\icone-carte.svg",
+    "path": "assets/sidebar/icone-carte.svg",
     "size": 501,
     "sha256": "71DB54DE8851437D7FDA3BF7AC57AED84FD9C2345D42E6665EC11CBCBC6B803C"
   },
   {
     "name": "icone-cle.png",
-    "path": "C:\\Users\\sebastien.duc\\CLOUD\\02_ARCHIVAGE PERSONNEL\\DASHBOARDS\\DOTATIONS - MODE LOCAL - VERSION ACTIVE\\assets\\sidebar\\icone-cle.png",
+    "path": "assets/sidebar/icone-cle.png",
     "size": 37175,
     "sha256": "04BBCC3B68CEC2E02A478FA2930B74007A2F4E5C073412F315D5A2AE9974CEF7"
   },
   {
     "name": "icone-cle.svg",
-    "path": "C:\\Users\\sebastien.duc\\CLOUD\\02_ARCHIVAGE PERSONNEL\\DASHBOARDS\\DOTATIONS - MODE LOCAL - VERSION ACTIVE\\assets\\sidebar\\icone-cle.svg",
+    "path": "assets/sidebar/icone-cle.svg",
     "size": 386,
     "sha256": "09D8D4A1F5F91B1730BE766CCB47B77E0EAB8FE77138D6CFD00778BF3184D282"
   },
   {
     "name": "icone-cle-ces.png",
-    "path": "C:\\Users\\sebastien.duc\\CLOUD\\02_ARCHIVAGE PERSONNEL\\DASHBOARDS\\DOTATIONS - MODE LOCAL - VERSION ACTIVE\\assets\\sidebar\\icone-cle-ces.png",
+    "path": "assets/sidebar/icone-cle-ces.png",
     "size": 18972,
     "sha256": "422B2C9B86B25D5E629A4D91175F7B55823BAC95E98319FBE7207A1465C98E90"
   },
   {
     "name": "icone-cle-ces.svg",
-    "path": "C:\\Users\\sebastien.duc\\CLOUD\\02_ARCHIVAGE PERSONNEL\\DASHBOARDS\\DOTATIONS - MODE LOCAL - VERSION ACTIVE\\assets\\sidebar\\icone-cle-ces.svg",
+    "path": "assets/sidebar/icone-cle-ces.svg",
     "size": 385,
     "sha256": "C1B56AD51D728D7E96959E3CA9B618A9F200BBD2ACE4CD066C5E7D6172858E07"
   },
   {
     "name": "icone-telecommande.png",
-    "path": "C:\\Users\\sebastien.duc\\CLOUD\\02_ARCHIVAGE PERSONNEL\\DASHBOARDS\\DOTATIONS - MODE LOCAL - VERSION ACTIVE\\assets\\sidebar\\icone-telecommande.png",
+    "path": "assets/sidebar/icone-telecommande.png",
     "size": 31738,
     "sha256": "6979E63924ED00C3D372484A6F0AE616E42A73CCEC584C5CE000B2606B5D6F75"
   },
   {
     "name": "icone-telecommande.svg",
-    "path": "C:\\Users\\sebastien.duc\\CLOUD\\02_ARCHIVAGE PERSONNEL\\DASHBOARDS\\DOTATIONS - MODE LOCAL - VERSION ACTIVE\\assets\\sidebar\\icone-telecommande.svg",
+    "path": "assets/sidebar/icone-telecommande.svg",
     "size": 417,
     "sha256": "374F92EF762E62EF799D8C920C5ADA00DE1C8347849EAB0D49285B7AB1EFB2C2"
   },
   {
     "name": "bandeau-nextboard-sidebar-detoure.png",
-    "path": "C:\\Users\\sebastien.duc\\CLOUD\\02_ARCHIVAGE PERSONNEL\\DASHBOARDS\\DOTATIONS - MODE LOCAL - VERSION ACTIVE\\assets\\sidebar\\bandeau-nextboard-sidebar-detoure.png",
+    "path": "assets/sidebar/bandeau-nextboard-sidebar-detoure.png",
     "size": 16602,
     "sha256": "5FE26C4226989546F4765AA62C969E29FA22C5DFDEF1CE7EC19172BC8D97E495"
   }
