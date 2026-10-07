@@ -2919,6 +2919,35 @@ async function saveMobileSignatureRecordToSupabase({
     signerFunction: row.signer_function,
     updatedAt: row.updated_at,
   };
+  if (document.body?.dataset?.page === "mobile-signature") {
+    const rpcEndpoint = `${normalizeHttpUrl(SUPABASE_PROJECT_URL)}/rest/v1/rpc/submit_mobile_signature`;
+    const rpcResponse = await fetch(rpcEndpoint, {
+      method: "POST",
+      headers: getSupabaseHeaders({
+        "Content-Type": "application/json",
+      }),
+      body: JSON.stringify({
+        p_token: row.token,
+        p_person_id: row.person_id,
+        p_doc_type: row.doc_type,
+        p_signer: row.signer,
+        p_signature_data: row.signature_data,
+        p_validated_at_text: row.validated_at_text,
+        p_storage_ref: row.storage_ref,
+        p_storage_public_url: row.storage_public_url,
+        p_person_nom: row.person_nom,
+        p_person_prenom: row.person_prenom,
+        p_signer_name: row.signer_name,
+        p_signer_function: row.signer_function,
+      }),
+      cache: "no-store",
+    });
+    if (!rpcResponse.ok) {
+      const detail = await rpcResponse.text().catch(() => "");
+      throw new Error(`SUPABASE_SIGNATURE_RPC_FAILED:${rpcResponse.status}:${detail.slice(0, 220)}`);
+    }
+    return true;
+  }
   const endpoint = `${normalizeHttpUrl(SUPABASE_PROJECT_URL)}/rest/v1/signatures?on_conflict=token`;
   const requestOptions = (payload) => ({
     method: "POST",
