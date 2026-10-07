@@ -13197,7 +13197,9 @@ function refreshDocumentSignatureCanvases(docType, forcedPerson = null) {
           ? signatureValidatedAt
             ? `SIGNATURE ENREGISTREE LE ${signatureValidatedAt}`
             : "SIGNATURE ENREGISTREE"
-          : "AUCUNE SIGNATURE";
+          : isMobileSignaturePage
+            ? "EN ATTENTE DE SIGNATURE"
+            : "AUCUNE SIGNATURE";
         statusNode.textContent = statusText;
         statusNode.classList.toggle("is-signed", hasSignature);
       }
@@ -13218,7 +13220,9 @@ function refreshDocumentSignatureCanvases(docType, forcedPerson = null) {
         ? signatureValidatedAt
           ? `SIGNATURE ENREGISTREE LE ${signatureValidatedAt}`
           : "SIGNATURE ENREGISTREE"
-        : "AUCUNE SIGNATURE";
+        : isMobileSignaturePage
+          ? "EN ATTENTE DE SIGNATURE"
+          : "AUCUNE SIGNATURE";
       statusNode.textContent = statusText;
       statusNode.classList.toggle("is-signed", hasSignature);
     }
@@ -13356,6 +13360,9 @@ function bindSignatureCanvases() {
 
     const storePendingSignature = () => {
       stateRef.pendingDataUrl = canvas.toDataURL("image/png");
+      if (document.body.dataset.page === "mobile-signature" && stateRef.pendingDataUrl) {
+        showPendingSignatureStatus();
+      }
     };
 
     const showPendingSignatureStatus = () => {
