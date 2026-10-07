@@ -13399,6 +13399,37 @@ function bindSignatureCanvases() {
       }
     };
 
+    const showSavingSignatureState = () => {
+      const signatureBox = canvas.closest(".signature-box");
+      const statusNode = signatureBox?.querySelector(".signature-box__status");
+      const saveButton = signatureBox?.querySelector(".js-signature-save");
+      if (statusNode) {
+        statusNode.textContent = "SIGNATURE EN COURS D'ENREGISTREMENT...";
+        statusNode.classList.add("is-signed");
+      }
+      if (saveButton instanceof HTMLButtonElement) {
+        saveButton.disabled = true;
+        saveButton.classList.add("is-disabled");
+        saveButton.textContent = "ENREGISTREMENT...";
+      }
+    };
+
+    const showSignatureSaveErrorState = (message = "") => {
+      const signatureBox = canvas.closest(".signature-box");
+      const statusNode = signatureBox?.querySelector(".signature-box__status");
+      const saveButton = signatureBox?.querySelector(".js-signature-save");
+      if (statusNode) {
+        statusNode.textContent = message || "SIGNATURE NON ENREGISTREE - REESSAYER";
+        statusNode.classList.remove("is-signed");
+      }
+      if (saveButton instanceof HTMLButtonElement) {
+        saveButton.disabled = false;
+        saveButton.classList.remove("is-disabled");
+        saveButton.classList.remove("button--validated");
+        saveButton.textContent = saveButton.dataset.defaultLabel || "VALIDER LA SIGNATURE";
+      }
+    };
+
     const saveSignature = async () => {
       const isMobileSignaturePage = document.body.dataset.page === "mobile-signature";
       const person = getSignatureContextPerson(isMobileSignaturePage);
@@ -13664,7 +13695,22 @@ function bindSignatureCanvases() {
             return;
           }
         }
-        await saveSignature();
+        if (isMobileSignaturePage) {
+          showSavingSignatureState();
+        }
+        try {
+          await saveSignature();
+          if (isMobileSignaturePage) {
+            showValidatedSignatureState(getSignatureValidationDate(person, docType, signer));
+          }
+        } catch (error) {
+          const message = String(error?.message || "ERREUR ENREGISTREMENT SIGNATURE").slice(0, 180);
+          if (isMobileSignaturePage) {
+            showSignatureSaveErrorState(message);
+          }
+          showDataStatus(message);
+          window.alert(message);
+        }
       };
     }
 
