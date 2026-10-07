@@ -13358,6 +13358,16 @@ function bindSignatureCanvases() {
       stateRef.pendingDataUrl = canvas.toDataURL("image/png");
     };
 
+    const showPendingSignatureStatus = () => {
+      const statusNode = canvas
+        .closest(".signature-box")
+        ?.querySelector(".signature-box__status");
+      if (statusNode) {
+        statusNode.textContent = "SIGNATURE DESSINEE - VALIDER LA SIGNATURE";
+        statusNode.classList.add("is-signed");
+      }
+    };
+
     const saveSignature = async () => {
       const isMobileSignaturePage = document.body.dataset.page === "mobile-signature";
       const person = getSignatureContextPerson(isMobileSignaturePage);
@@ -13568,6 +13578,7 @@ function bindSignatureCanvases() {
       stateRef.pointerId = null;
       if (stateRef.moved) {
         storePendingSignature();
+        showPendingSignatureStatus();
         showDataStatus("SIGNATURE DESSINEE - CLIQUER SUR VALIDER LA SIGNATURE");
       }
       event.preventDefault();
