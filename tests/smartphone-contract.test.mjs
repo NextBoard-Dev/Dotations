@@ -34,6 +34,19 @@ test("smartphone package: la chaine de build reste autonome", () => {
   assert.equal(pkg.dependencies["react-dom"], "18.2.0");
 });
 
+test("smartphone package: le verrou npm reste synchronise", () => {
+  const pkg = JSON.parse(read("smartphone/package.json"));
+  const lock = JSON.parse(read("smartphone/package-lock.json"));
+  const rootPackage = lock.packages?.[""] || {};
+
+  assert.equal(lock.lockfileVersion, 3);
+  assert.equal(lock.name, pkg.name);
+  assert.equal(lock.version, pkg.version);
+  assert.deepEqual(rootPackage.dependencies || {}, pkg.dependencies || {});
+  assert.deepEqual(rootPackage.devDependencies || {}, pkg.devDependencies || {});
+  assert.equal(lock.packages?.["node_modules/@babel/generator/node_modules/jsesc"]?.version, pkg.overrides?.jsesc);
+});
+
 test("smartphone UI: navigation, marque et donnees critiques restent branchees", () => {
   const source = read("smartphone/src/pages/Mobile.jsx");
 
