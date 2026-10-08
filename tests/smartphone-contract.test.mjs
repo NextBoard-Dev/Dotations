@@ -115,6 +115,25 @@ test("smartphone signatures: validation, fusion et retour document restent contr
   assert.match(source, /await sqlPerson\.update\(personId, \{ dateSortieReelle: getTodayIsoDate\(\) \}\)/);
 });
 
+test("smartphone signatures: les rafraichissements nettoient timers et ecouteurs", () => {
+  for (const [file, docType] of [
+    ["smartphone/src/components/mobile/MobileDocumentArrivee.jsx", "arrival"],
+    ["smartphone/src/components/mobile/MobileDocumentSortie.jsx", "exit"],
+  ]) {
+    const source = read(file);
+
+    assert.match(source, new RegExp(`db\\.Signature\\.filter\\(\\{ personId: selectedPerson\\.id, docType: "${docType}" \\}\\)`));
+    assert.match(source, /const timer = window\.setInterval\(refreshSignatures, 3000\);/);
+    assert.match(source, /window\.addEventListener\("focus", refreshSignatures\);/);
+    assert.match(source, /document\.addEventListener\("visibilitychange", refreshSignatures\);/);
+    assert.match(source, /return \(\) => \{/);
+    assert.match(source, /stopped = true;/);
+    assert.match(source, /window\.clearInterval\(timer\);/);
+    assert.match(source, /window\.removeEventListener\("focus", refreshSignatures\);/);
+    assert.match(source, /document\.removeEventListener\("visibilitychange", refreshSignatures\);/);
+  }
+});
+
 test("smartphone suppressions: les donnees metier sont neutralisees sans suppression physique directe", () => {
   const source = read("smartphone/src/lib/db.js");
 
