@@ -26,6 +26,11 @@ function isIsoDateTimeOrEmpty(value) {
   return !raw || /^\d{4}-\d{2}-\d{2}(?:[T ][0-2]\d:[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|[+-][0-2]\d:[0-5]\d)?)?$/.test(raw);
 }
 
+function isIsoDateOrEmpty(value) {
+  const raw = text(value);
+  return !raw || /^\d{4}-\d{2}-\d{2}$/.test(raw);
+}
+
 test("donnees metier: les identifiants personnes et effets sont globalement uniques", () => {
   const personIds = new Set();
   const effectIds = new Set();
@@ -89,6 +94,42 @@ test("donnees metier: signatures et dates de validation restent exploitables", (
         if (storageRef && !/^storage:\/\/[^/]+\/.+/i.test(storageRef)) {
           errors.push(`${personId}.${docType}.${signer}.storageRef invalide`);
         }
+      }
+    }
+  }
+
+  assert.deepEqual(errors, []);
+});
+
+test("donnees metier: les dates restent au format exploitable et chronologique", () => {
+  const errors = [];
+
+  for (const person of data.personnes || []) {
+    const personId = text(person?.id) || "(personne sans id)";
+    for (const field of ["dateEntree", "dateSortiePrevue", "dateSortieReelle"]) {
+      if (!isIsoDateOrEmpty(person?.[field])) {
+        errors.push(`${personId}.${field} format invalide: ${text(person?.[field])}`);
+      }
+    }
+
+    const dateEntree = text(person?.dateEntree);
+    const dateSortieReelle = text(person?.dateSortieReelle);
+    if (dateEntree && dateSortieReelle && dateSortieReelle < dateEntree) {
+      errors.push(`${personId}.dateSortieReelle avant dateEntree`);
+    }
+
+    for (const effect of Array.isArray(person?.effetsConfies) ? person.effetsConfies : []) {
+      const effectId = text(effect?.id) || "(effet sans id)";
+      for (const field of ["dateRemise", "dateRetour", "dateRemplacement"]) {
+        if (!isIsoDateOrEmpty(effect?.[field])) {
+          errors.push(`${effectId}.${field} format invalide: ${text(effect?.[field])}`);
+        }
+      }
+
+      const dateRemise = text(effect?.dateRemise);
+      const dateRetour = text(effect?.dateRetour);
+      if (dateRemise && dateRetour && dateRetour < dateRemise) {
+        errors.push(`${effectId}.dateRetour avant dateRemise`);
       }
     }
   }
