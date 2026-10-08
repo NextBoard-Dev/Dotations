@@ -77,3 +77,22 @@ test("archives UI: ouvrir un PDF archive utilise une URL resolue et ne supprime 
   assert.match(appSource, /state\.data\.documentsArchives = state\.data\.documentsArchives\.filter/);
   assert.doesNotMatch(appSource, /deleteDocumentArchiveEntry[\s\S]{0,1200}fetch\([^)]*DELETE/i);
 });
+
+test("archives PDF: les chemins d'ouverture restent bornes et verificables", () => {
+  assert.match(appSource, /function resolveArchivePdfLocations\(pdfPath, existing = \{\}\)/);
+  assert.match(appSource, /parseStorageSchemePath\(raw\)/);
+  assert.match(appSource, /getSupabaseStoragePublicUrl\(storageRef\.bucket, storageRef\.objectPath\)/);
+  assert.match(appSource, /isSafeArchiveHttpUrl\(raw\) \|\| isHostedPdfDocumentPath\(raw\)/);
+  assert.match(appSource, /isSafeArchiveRelativePath\(raw\)/);
+  assert.match(appSource, /localPath\.toLowerCase\(\)\.startsWith\("data\/pdf\/"\)/);
+  assert.match(appSource, /openLocalUrl = `\/api\/pdf-file\?path=\$\{encodeURIComponent\(apiPath\)\}`/);
+
+  assert.match(appSource, /function normalizeDirectPdfOpenUrl\(value\)/);
+  assert.match(appSource, /const isPdfApi = pathname\.endsWith\("\/api\/pdf-file"\)/);
+  assert.match(appSource, /const isPdfFile = pathname\.endsWith\("\.pdf"\)/);
+  assert.match(appSource, /parsed\.searchParams\.get\("pdf"\) === "1"/);
+  assert.match(appSource, /return isPdfApi \|\| isPdfFile \|\| isHostedPdfRender \? parsed\.href : ""/);
+  assert.match(appSource, /function verifyActiveArchiveOpenable\(personId, docType\)/);
+  assert.match(appSource, /fetch\(targetUrl, \{ method: "HEAD", cache: "no-store" \}\)/);
+  assert.match(appSource, /ARCHIVE_FILE_HEAD_FAILED/);
+});
