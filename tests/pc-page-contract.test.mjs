@@ -42,6 +42,10 @@ function localRefsFromHtml(html) {
   return refs;
 }
 
+function idsFromHtml(html) {
+  return Array.from(html.matchAll(/\bid=["']([^"']+)["']/g), (match) => match[1].trim()).filter(Boolean);
+}
+
 test("pages PC: chaque page garde son identite et charge la meme application", () => {
   for (const { file, page, title } of DESKTOP_PAGES) {
     const html = read(file);
@@ -68,6 +72,22 @@ test("pages PC: les liens et ressources locales referencees existent", () => {
   }
 
   assert.deepEqual(missing, []);
+});
+
+test("pages PC: les identifiants HTML restent uniques par page", () => {
+  const duplicates = [];
+
+  for (const { file } of DESKTOP_PAGES) {
+    const seen = new Set();
+    for (const id of idsFromHtml(read(file))) {
+      if (seen.has(id)) {
+        duplicates.push(`${file} -> ${id}`);
+      }
+      seen.add(id);
+    }
+  }
+
+  assert.deepEqual(duplicates, []);
 });
 
 test("pages PC: les pages principales conservent la structure commune", () => {
