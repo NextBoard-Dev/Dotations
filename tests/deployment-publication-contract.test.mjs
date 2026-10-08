@@ -47,6 +47,13 @@ function refsFromHtml(html) {
   return refs;
 }
 
+function mobileBundleRefs() {
+  const html = read("mobile/index.html");
+  const js = Array.from(html.matchAll(/src="\.\/assets\/([^"]+\.js)"/g), (match) => match[1]);
+  const css = Array.from(html.matchAll(/href="\.\/assets\/([^"]+\.css)"/g), (match) => match[1]);
+  return { js, css };
+}
+
 test("publication: les points d'entree publics chargent les fichiers publies attendus", () => {
   for (const file of DESKTOP_ENTRYPOINTS) {
     const html = read(file);
@@ -57,14 +64,23 @@ test("publication: les points d'entree publics chargent les fichiers publies att
 });
 
 test("publication mobile: l'index publie référence exactement le bundle disponible", () => {
-  const html = read("mobile/index.html");
-  const jsMatch = html.match(/src="\.\/assets\/([^"]+\.js)"/);
-  const cssMatch = html.match(/href="\.\/assets\/([^"]+\.css)"/);
+  const { js, css } = mobileBundleRefs();
 
-  assert.ok(jsMatch, "mobile/index.html doit charger un bundle JS");
-  assert.ok(cssMatch, "mobile/index.html doit charger un bundle CSS");
-  assert.equal(fs.existsSync(path.join(ROOT, "mobile", "assets", jsMatch[1])), true, `bundle JS absent: ${jsMatch[1]}`);
-  assert.equal(fs.existsSync(path.join(ROOT, "mobile", "assets", cssMatch[1])), true, `bundle CSS absent: ${cssMatch[1]}`);
+  assert.equal(js.length, 1, "mobile/index.html doit charger un seul bundle JS");
+  assert.equal(css.length, 1, "mobile/index.html doit charger un seul bundle CSS");
+  assert.equal(fs.existsSync(path.join(ROOT, "mobile", "assets", js[0])), true, `bundle JS absent: ${js[0]}`);
+  assert.equal(fs.existsSync(path.join(ROOT, "mobile", "assets", css[0])), true, `bundle CSS absent: ${css[0]}`);
+});
+
+test("publication mobile: aucun ancien bundle asset ne reste publie", () => {
+  const { js, css } = mobileBundleRefs();
+  const expectedAssets = new Set([...js, ...css]);
+  const actualAssets = fs
+    .readdirSync(path.join(ROOT, "mobile", "assets"))
+    .filter((file) => /\.(?:js|css)$/i.test(file))
+    .sort();
+
+  assert.deepEqual(actualAssets, Array.from(expectedAssets).sort());
 });
 
 test("publication: toutes les references locales des entrees publiees existent", () => {
