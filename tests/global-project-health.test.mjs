@@ -16,6 +16,11 @@ const CORE_HTML_FILES = [
   "suivi-global.html",
 ];
 const REDIRECT_HTML_FILES = new Set(["suivi-global.html"]);
+const CSS_FILES = [
+  "style.css",
+  "mobile/assets/index-0baX2u83.css",
+  "smartphone/src/index.css",
+];
 
 function read(file) {
   return fs.readFileSync(path.join(ROOT, file), "utf8");
@@ -57,6 +62,17 @@ function getHtmlLocalReferences(html) {
   return refs;
 }
 
+function getCssLocalReferences(css) {
+  const refs = [];
+  const urlPattern = /url\(\s*(?:"([^"]+)"|'([^']+)'|([^)'"\s]+))\s*\)/g;
+  let match;
+  while ((match = urlPattern.exec(css))) {
+    const ref = stripQuery(match[1] || match[2] || match[3] || "");
+    if (isLocalReference(ref)) refs.push(ref);
+  }
+  return refs;
+}
+
 function isIsoDateOrEmpty(value) {
   const raw = String(value || "").trim();
   return !raw || /^\d{4}-\d{2}-\d{2}$/.test(raw);
@@ -93,6 +109,37 @@ test("socle projet: les liens locaux des pages principales pointent vers des fic
     }
   }
   assert.deepEqual(missing, []);
+});
+
+test("socle projet: les ressources locales referencees par les CSS existent", () => {
+  const missing = [];
+  for (const file of CSS_FILES) {
+    const baseDir = path.dirname(path.join(ROOT, file));
+    const refs = getCssLocalReferences(read(file));
+    for (const ref of refs) {
+      const normalized = ref.replace(/\//g, path.sep);
+      const target = path.resolve(baseDir, normalized);
+      if (!fs.existsSync(target)) {
+        missing.push(`${file} -> ${ref}`);
+      }
+    }
+  }
+
+  assert.deepEqual(missing, []);
+});
+
+test("socle projet: les CSS ne referencent pas les anciens favicons ou anciens logos", () => {
+  const forbidden = [];
+  for (const file of CSS_FILES) {
+    const refs = getCssLocalReferences(read(file));
+    for (const ref of refs) {
+      if (/ancien|old|favicon-old|nextboard-old|ancienne-icone|old-logo/i.test(ref)) {
+        forbidden.push(`${file} -> ${ref}`);
+      }
+    }
+  }
+
+  assert.deepEqual(forbidden, []);
 });
 
 test("socle donnees: data.json est lisible et respecte les champs critiques", () => {
