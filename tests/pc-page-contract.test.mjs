@@ -46,6 +46,10 @@ function idsFromHtml(html) {
   return Array.from(html.matchAll(/\bid=["']([^"']+)["']/g), (match) => match[1].trim()).filter(Boolean);
 }
 
+function labelTargetsFromHtml(html) {
+  return Array.from(html.matchAll(/<label\b[^>]*\bfor=["']([^"']+)["'][^>]*>/g), (match) => match[1].trim()).filter(Boolean);
+}
+
 test("pages PC: chaque page garde son identite et charge la meme application", () => {
   for (const { file, page, title } of DESKTOP_PAGES) {
     const html = read(file);
@@ -88,6 +92,22 @@ test("pages PC: les identifiants HTML restent uniques par page", () => {
   }
 
   assert.deepEqual(duplicates, []);
+});
+
+test("pages PC: les labels de formulaire pointent vers des champs existants", () => {
+  const missing = [];
+
+  for (const { file } of DESKTOP_PAGES) {
+    const html = read(file);
+    const ids = new Set(idsFromHtml(html));
+    for (const target of labelTargetsFromHtml(html)) {
+      if (!ids.has(target)) {
+        missing.push(`${file} -> ${target}`);
+      }
+    }
+  }
+
+  assert.deepEqual(missing, []);
 });
 
 test("pages PC: les pages principales conservent la structure commune", () => {
