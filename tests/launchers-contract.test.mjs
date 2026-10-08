@@ -7,6 +7,13 @@ const ROOT = process.cwd();
 const EXPECTED_REMOTE = "https://nextboard-dev.github.io/Dotations/";
 const CURRENT_LOCAL_PATH = "03.%20DOTATIONS/MODE%20HEBERGE%20-%20VERSION%20ACTIVE/index.html";
 const OLD_DASHBOARD_PATTERN = /GESTION(?:%20| )DES(?:%20| )ACC|EFFETS(?:%20| )SENSIBLES|favicon-dark\.ico/i;
+const LAUNCHER_FILES = [
+  "Ouvrir-Dotations-PC-Heberge.url",
+  "Ouvrir-Dotations-PC-Local.url",
+  "Ouvrir-Dotations-Telephone-Heberge.url",
+  "Ouvrir-Dotations-Telephone-Local.bat",
+  "scripts/planifier_backup_quotidien.bat",
+];
 
 function read(file) {
   return fs.readFileSync(path.join(ROOT, file), "utf8");
@@ -29,15 +36,28 @@ test("lanceurs: les raccourcis PC et telephone ouvrent les bonnes entrees Dotati
 });
 
 test("lanceurs: aucun raccourci Dotations ne pointe vers un ancien dashboard ou ancien favicon", () => {
-  const shortcuts = [
-    "Ouvrir-Dotations-PC-Heberge.url",
-    "Ouvrir-Dotations-PC-Local.url",
-    "Ouvrir-Dotations-Telephone-Heberge.url",
-  ];
-
-  for (const shortcut of shortcuts) {
-    assert.doesNotMatch(read(shortcut), OLD_DASHBOARD_PATTERN, shortcut);
+  for (const launcher of LAUNCHER_FILES) {
+    assert.doesNotMatch(read(launcher), OLD_DASHBOARD_PATTERN, launcher);
   }
+});
+
+test("lanceurs: les fichiers de demarrage restent dans le perimetre Dotations courant", () => {
+  const pcHosted = read("Ouvrir-Dotations-PC-Heberge.url");
+  const phoneHosted = read("Ouvrir-Dotations-Telephone-Heberge.url");
+  const pcLocal = read("Ouvrir-Dotations-PC-Local.url");
+  const phoneLocal = read("Ouvrir-Dotations-Telephone-Local.bat");
+  const backupScheduler = read("scripts/planifier_backup_quotidien.bat");
+
+  assert.equal(urlValue(pcHosted), `${EXPECTED_REMOTE}?view=desktop`);
+  assert.equal(urlValue(phoneHosted), `${EXPECTED_REMOTE}?view=mobile`);
+  assert.match(urlValue(pcLocal), new RegExp(CURRENT_LOCAL_PATH.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+
+  assert.match(phoneLocal, /set "ROOT=%~dp0"/);
+  assert.match(phoneLocal, /set "APP_DIR=%ROOT%smartphone"/);
+  assert.doesNotMatch(phoneLocal, /C:\\Users\\sebastien\.duc\\CLOUD\\02_ARCHIVAGE PERSONNEL\\DASHBOARDS\\DOTATIONS\\/i);
+
+  assert.match(backupScheduler, /set "SCRIPT_PS=%~dp0backup_dotations_edge\.ps1"/);
+  assert.doesNotMatch(backupScheduler, /C:\\Users\\sebastien\.duc\\CLOUD\\02_ARCHIVAGE PERSONNEL\\DASHBOARDS\\DOTATIONS\\/i);
 });
 
 test("lanceur telephone local: il demarre le projet smartphone sur le reseau local", () => {
