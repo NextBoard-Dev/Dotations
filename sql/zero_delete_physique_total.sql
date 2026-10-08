@@ -27,6 +27,7 @@ create or replace function public.soft_delete_instead_of_delete()
 returns trigger
 language plpgsql
 security definer
+set search_path = public
 as $$
 begin
   execute format(
