@@ -4,6 +4,9 @@ import fs from "node:fs";
 import vm from "node:vm";
 
 import {
+  getEffectStatus as mobileStatus,
+  getEffectMovement as mobileMovement,
+  isCurrentAssignedEffect as mobileAssigned,
   getEffectBillingCause,
   getEffectBillingStatus,
   getReplacementCostValue,
@@ -58,6 +61,10 @@ function loadPcBillingFns() {
     "isPastDate",
     "normalizeDateString",
     "isExitDue",
+    "deriveEffectState",
+    "getEffectStatus",
+    "isCurrentAssignedEffect",
+    "getEffectChartCategory",
     "getEffectReplacementCause",
     "getEffectReplacementCost",
   ];
@@ -80,6 +87,10 @@ function loadPcBillingFns() {
   }
   return {
     getEffectReplacementCause: context.getEffectReplacementCause,
+    deriveEffectState: context.deriveEffectState,
+    getEffectStatus: context.getEffectStatus,
+    isCurrentAssignedEffect: context.isCurrentAssignedEffect,
+    getEffectChartCategory: context.getEffectChartCategory,
     getEffectReplacementCost: context.getEffectReplacementCost,
     state: context.state,
   };
@@ -238,6 +249,33 @@ test("Coût aligné PC/smartphone pour mêmes typeEffet + cause", () => {
     assert.equal(pcCost, sample.expected);
     assert.equal(smCost, sample.expected);
   }
+});
+
+test("cloture PC et smartphone: exclure des effets en cours sans inventer un retour", () => {
+  const pc = loadPcBillingFns();
+  primePcCosts(pc);
+  const person = { dateSortieReelle: "2000-01-01" };
+  for (const statutManuel of ["ACTIF", "NON RENDU", "PERDU", "VOL", "HS", "CASSE"]) {
+    const effect = { statutManuel, etatFacturation: "CLOTURE", typeEffet: "CLE" };
+    assert.equal(pc.getEffectStatus(person, effect), "CLOTURE");
+    assert.equal(mobileStatus(person, effect), "CLOTURE");
+    assert.equal(pc.deriveEffectState(person, effect).movement, "CLOTURE");
+    assert.equal(mobileMovement(person, effect), "CLOTURE");
+    assert.equal(pc.isCurrentAssignedEffect(person, effect), false);
+    assert.equal(mobileAssigned(person, effect), false);
+    assert.equal(pc.getEffectChartCategory(person, effect), "cloture");
+    assert.equal(effect.dateRetour, undefined);
+    effect.dateRetour = "2000-01-02";
+    assert.equal(pc.getEffectStatus(person, effect), "RESTITUE");
+    assert.equal(mobileStatus(person, effect), "RESTITUE");
+    delete effect.dateRetour;
+    effect.etatFacturation = "";
+    assert.notEqual(pc.getEffectStatus(person, effect), "CLOTURE");
+    assert.notEqual(mobileStatus(person, effect), "CLOTURE");
+  }
+  const billed = { statutManuel: "ACTIF", etatFacturation: "FACTURE" };
+  assert.equal(pc.getEffectStatus(person, billed), "NON RENDU");
+  assert.equal(mobileStatus(person, billed), "NON RENDU");
 });
 
 test("CLOTURE conserve le total facturable mais met le reste à facturer à zéro", () => {

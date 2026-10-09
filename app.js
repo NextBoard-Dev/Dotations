@@ -11326,6 +11326,7 @@ function renderEffectsChart(nodeId, persons) {
   const counts = new Map();
   const totals = {
     actif: 0,
+    cloture: 0,
     nonRendu: 0,
     restitue: 0,
     perdu: 0,
@@ -11334,6 +11335,7 @@ function renderEffectsChart(nodeId, persons) {
   };
   const totalsCost = {
     actif: 0,
+    cloture: 0,
     nonRendu: 0,
     restitue: 0,
     perdu: 0,
@@ -11349,6 +11351,7 @@ function renderEffectsChart(nodeId, persons) {
         total: 0,
         segments: {
           actif: 0,
+          cloture: 0,
           nonRendu: 0,
           restitue: 0,
           perdu: 0,
@@ -11389,6 +11392,7 @@ function renderEffectsChart(nodeId, persons) {
         total: 0,
         segments: {
           actif: 0,
+          cloture: 0,
           nonRendu: 0,
           restitue: 0,
           perdu: 0,
@@ -11416,6 +11420,7 @@ function renderEffectsChart(nodeId, persons) {
     </div>`;
   const legendMarkup = `
     <div class="effects-chart__legend">
+      <span class="effects-chart__legend-item"><span class="effects-chart__legend-dot effects-chart__legend-dot--cloture"></span>CLOTURE <strong>${totals.cloture}</strong><span class="effects-chart__legend-cost">${formatAmountWithEuro(totalsCost.cloture)}</span></span>
       <span class="effects-chart__legend-item"><span class="effects-chart__legend-dot effects-chart__legend-dot--actif"></span>ACTIF <strong>${totals.actif}</strong><span class="effects-chart__legend-cost">${formatAmountWithEuro(totalsCost.actif)}</span></span>
       <span class="effects-chart__legend-item"><span class="effects-chart__legend-dot effects-chart__legend-dot--nonRendu"></span>NON RENDU <strong>${totals.nonRendu}</strong><span class="effects-chart__legend-cost">${formatAmountWithEuro(totalsCost.nonRendu)}</span></span>
       <span class="effects-chart__legend-item"><span class="effects-chart__legend-dot effects-chart__legend-dot--restitue"></span>RENDU <strong>${totals.restitue}</strong><span class="effects-chart__legend-cost">${formatAmountWithEuro(totalsCost.restitue)}</span></span>
@@ -11427,6 +11432,7 @@ function renderEffectsChart(nodeId, persons) {
     .map(([type, row]) => {
       const width = row.total > 0 ? Math.max(8, Math.round((row.total / maxValue) * 100)) : 0;
       const segmentMarkup = [
+        ["cloture", "CLOTURE"],
         ["actif", "ACTIF"],
         ["nonRendu", "NON RENDU"],
         ["restitue", "RENDU"],
@@ -16825,6 +16831,7 @@ function deriveEffectState(person, effect) {
 
   let status = "ACTIF";
   if (hasReturnDate) status = "RESTITUE";
+  else if (normalizeText(effect?.etatFacturation) === "CLOTURE") status = "CLOTURE";
   else if (manualStatus === "CASSE") status = "DETRUIT";
   else if (["PERDU", "HS", "VOL"].includes(manualStatus)) status = manualStatus;
   else if ((!manualStatus || manualStatus === "ACTIF") && isExitDue(person)) status = "NON RENDU";
@@ -16832,7 +16839,7 @@ function deriveEffectState(person, effect) {
 
   const cause = persistedCause || fallbackCause;
   const movement =
-    status === "RESTITUE"
+    status === "CLOTURE" ? "CLOTURE" : status === "RESTITUE"
       ? "RENDU"
       : status === "DETRUIT"
         ? "DETRUIT"
@@ -16858,6 +16865,7 @@ function getEffectStatus(person, effect) {
     return deriveEffectState(person, effect).status;
   }
   if (effect?.dateRetour) return "RESTITUE";
+  if (normalizeText(effect?.etatFacturation) === "CLOTURE") return "CLOTURE";
   const manualStatus = normalizeText(effect?.statutManuel);
   if (manualStatus === "CASSE") return "DETRUIT";
   if (["PERDU", "HS", "VOL"].includes(manualStatus)) return manualStatus;
@@ -16919,7 +16927,7 @@ function getEffectsForActiveFilters(person, filters = state.filters || DEFAULT_F
 
 function isCurrentAssignedEffect(person, effect) {
   const status = normalizeText(getEffectStatus(person, effect));
-  return !["RESTITUE", "PERDU", "HS", "DETRUIT", "VOL"].includes(status);
+  return !["RESTITUE", "PERDU", "HS", "DETRUIT", "VOL", "CLOTURE"].includes(status);
 }
 
 function getCurrentAssignedEffects(person) {
@@ -16934,6 +16942,7 @@ function getCurrentAssignedEffectsForActiveFilters(person, filters = state.filte
 
 function getEffectChartCategory(person, effect) {
   const status = normalizeText(getEffectStatus(person, effect));
+  if (status === "CLOTURE") return "cloture";
   if (status === "NON RENDU") {
     return "nonRendu";
   }

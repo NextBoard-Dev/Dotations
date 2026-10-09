@@ -84,6 +84,7 @@ export function normalizeManualStatus(rawStatus) {
 
 export function getEffectStatus(person, effect) {
   if (String(effect?.dateRetour || "").trim()) return "RESTITUE";
+  if (normalizeText(effect?.etatFacturation) === "CLOTURE") return "CLOTURE";
   const manualStatus = normalizeManualStatus(effect?.statutManuel || effect?.statut);
   if (["PERDU", "HS", "VOL", "DETRUIT"].includes(manualStatus)) return manualStatus;
   if (isExitDue(person)) return "NON RENDU";
@@ -101,6 +102,7 @@ export function getEffectMovement(person, effect) {
   const status = normalizeText(getEffectStatus(person, effect));
   const cause = normalizeText(getEffectBillingCause(person, effect));
   if (status === "RESTITUE") return "RENDU";
+  if (status === "CLOTURE") return "CLOTURE";
   if (status === "DETRUIT") return "DETRUIT";
   if (status === "VOL" || cause === "VOL") return "VOLE";
   if (status === "HS") return "HS";
@@ -167,7 +169,7 @@ export function formatDateFr(value) {
 
 export function isCurrentAssignedEffect(person, effect) {
   const status = normalizeText(getEffectStatus(person, effect));
-  return !["RESTITUE", "PERDU", "HS", "DETRUIT", "VOL"].includes(status);
+  return !["RESTITUE", "PERDU", "HS", "DETRUIT", "VOL", "CLOTURE"].includes(status);
 }
 
 function isDocumentFullySigned(person, docType) {

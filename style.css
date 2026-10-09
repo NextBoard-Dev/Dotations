@@ -2632,6 +2632,11 @@ body[data-page="reference-bases"] .reference-cost-form--inline .form-actions {
   color: #2c513a;
 }
 
+.effects-chart__segment--cloture,
+.effects-chart__legend-dot--cloture {
+  background: #578268;
+}
+
 .status-pill--cloture {
   background: rgba(132, 140, 149, 0.22);
   border-color: rgba(132, 140, 149, 0.45);
