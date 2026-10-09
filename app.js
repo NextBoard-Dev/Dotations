@@ -3219,7 +3219,7 @@ function refreshDocumentAfterMobileSignatureMerge(docType, personId, forcedPerso
 }
 
 async function syncHostedMobileSignaturesForDocument(docType, personId) {
-  if (!state.data || !isSupabaseConfigured() || document.body?.dataset?.page === "mobile-signature") {
+  if (!state.data || document.body?.dataset?.page === "mobile-signature") {
     return false;
   }
   const normalizedPersonId = String(personId || "").trim();
@@ -3232,6 +3232,35 @@ async function syncHostedMobileSignaturesForDocument(docType, personId) {
   inFlight.add(syncKey);
 
   try {
+    if (getDataBackendMode() === "LOCAL_API") {
+      const pullResponse = await fetch("/api/sync/pull-mobile-signatures", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ personId: normalizedPersonId, docType: normalizedDocType }),
+        cache: "no-store",
+      });
+      const pullPayload = await pullResponse.json().catch(() => ({}));
+      if (!pullResponse.ok) {
+        throw new Error(`LOCAL_SIGNATURE_PULL_FAILED:${pullResponse.status}:${String(pullPayload?.error || "").slice(0, 160)}`);
+      }
+      if (!pullPayload?.data) {
+        return false;
+      }
+      state.data = pullPayload.data;
+      migrateDataModel({ suppressDirty: true });
+      refreshDocumentAfterMobileSignatureMerge(normalizedDocType, normalizedPersonId, null, { force: true });
+      if (pullPayload.changed) {
+        state.isDirty = false;
+        state.lastPersistedDataSignature = computeDataPersistenceSignature(state.data);
+        clearUndoStack();
+        showDataStatus("SIGNATURE MOBILE HEBERGEE REPRISE EN LOCAL");
+        return true;
+      }
+      return false;
+    }
+    if (!isSupabaseConfigured()) {
+      return false;
+    }
     const tokens = getMobileSignatureRequestTokensForContext(state.data, normalizedPersonId, normalizedDocType);
     const rows = await fetchSupabaseMobileSignatureRows(normalizedPersonId, normalizedDocType, tokens);
     const changed = mergeSupabaseMobileSignatureRows(state.data, rows, normalizedPersonId, normalizedDocType);
@@ -6181,7 +6210,7 @@ async function pollMobileSignatureRequest() {
       }
       showDataStatus("LECTURE ETAT HEBERGE RETARDEE - RECHERCHE SIGNATURE", "warning");
     }
-    if (getDataBackendMode() === "LOCAL_API" && isSupabaseConfigured()) {
+    if (getDataBackendMode() === "LOCAL_API") {
       try {
         const pullResponse = await fetch("/api/sync/pull-mobile-signatures", {
           method: "POST",

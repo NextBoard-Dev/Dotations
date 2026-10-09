@@ -189,6 +189,9 @@ test("signature mobile: chaque reprise distante force le rafraichissement du doc
   assert.match(pollSource, /canPersistMobileSignatureMerge = false;/);
   assert.match(pollSource, /json = state\.data;/);
   assert.match(pollSource, /SIGNATURE MOBILE VISIBLE - SAUVEGARDE ETAT EN ATTENTE/);
+  assert.doesNotMatch(source, /getDataBackendMode\(\) === "LOCAL_API" && isSupabaseConfigured\(\)/);
+  assert.match(syncSource, /getDataBackendMode\(\) === "LOCAL_API"[\s\S]*?\/api\/sync\/pull-mobile-signatures/);
+  assert.match(pollSource, /getDataBackendMode\(\) === "LOCAL_API"[\s\S]*?\/api\/sync\/pull-mobile-signatures/);
   assert.match(pollSource, /pullPayload\.changed[\s\S]*?refreshDocumentAfterMobileSignatureMerge\(docType, personId, null, \{ force: true \}\);/);
   assert.match(pollSource, /mergeSupabaseMobileSignatureRows\(json, signatureRows, personId, docType\)[\s\S]*?refreshDocumentAfterMobileSignatureMerge\(docType, personId, null, \{ force: true \}\);/);
   assert.ok(
