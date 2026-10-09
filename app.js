@@ -4673,8 +4673,8 @@ function buildFallbackMobileSignatureRequestFromUrl(token) {
     personId,
     docType,
     signer: signer.toUpperCase(),
-    createdAt: createdAt.toISOString(),
-    expiresAt: expiresAt.toISOString(),
+    createdAt: /^SIG-\d{13}-/.test(normalizedToken) ? new Date(Number(normalizedToken.split("-")[1])).toISOString() : createdAt.toISOString(),
+    expiresAt: /^SIG-\d{13}-/.test(normalizedToken) ? new Date(Number(normalizedToken.split("-")[1]) + MOBILE_SIGNATURE_REQUEST_TTL_MS).toISOString() : expiresAt.toISOString(),
     status: "EN ATTENTE",
     validatedAt: "",
     fallbackFromUrl: true,
@@ -14261,7 +14261,66 @@ function getMobileSignatureRuntimeSignature(request, person, docType, signer) {
   }
   return getMobileSignatureRuntimeStore().get(key) || null;
 }
+async function refreshMobileSignaturePageFromRelay() {
+  if (document.body.dataset.page !== "mobile-signature" || document.visibilityState === "hidden" || state.mobileSignaturePageReadInFlight || state.saveInFlight) return;
+  const request = getCurrentMobileSignatureRequest();
+  const person = getMobileSignatureTargetPerson();
+  if (!request || !person || !isSupabaseConfigured()) return;
+  const token = String(request.token || "");
+  const docType = normalizeText(request.docType) === "EXIT" ? "exit" : "arrival";
+  const signer = normalizeMobileSignatureSigner(request.signer);
+  if (getMobileSignatureRuntimeSignature(request, person, docType, signer)) return;
+  state.mobileSignaturePageReadInFlight = true;
+  try {
+    const rows = await fetchSupabaseMobileSignatureRows(person.id, docType, [token]);
+    if (getCurrentMobileSignatureToken() !== token) return;
+    // Only the validation belonging to this link can lock this signing page.
+    const row = rows.find((entry) =>
+      getSupabaseSignatureRowField(entry, "token") === token &&
+      getSupabaseSignatureRowField(entry, "person_id", "personId") === String(person.id) &&
+      normalizeText(getSupabaseSignatureRowField(entry, "doc_type", "docType")) === normalizeText(docType) &&
+      normalizeMobileSignatureSigner(getSupabaseSignatureRowField(entry, "signer")) === signer
+    );
+    if (!row) return;
+    const validatedAt = getSupabaseSignatureRowField(row, "validated_at_text", "validatedAt", "signed_at", "signedAt");
+    const storageRef = getSupabaseSignatureRowField(row, "storage_ref", "storageRef");
+    const storagePublicUrl = getSupabaseSignatureRowField(row, "storage_public_url", "storagePublicUrl");
+    const image = getSupabaseSignatureRowField(row, "signature_data", "signatureData", "image") || storagePublicUrl || (storageRef ? `storage://${DEFAULT_SUPABASE_SIGNATURES_BUCKET}/${storageRef}` : "");
+    if (!image || !validatedAt) return;
+    if (!Array.isArray(state.data.personnes)) state.data.personnes = [];
+    if (!state.data.personnes.some((entry) => String(entry.id) === String(person.id))) state.data.personnes.push(person);
+    if (!Array.isArray(state.data.demandesSignatureMobile)) state.data.demandesSignatureMobile = [];
+    if (!state.data.demandesSignatureMobile.some((entry) => entry.token === token)) state.data.demandesSignatureMobile.push(request);
+    request.status = "SIGNEE";
+    request.validatedAt = validatedAt;
+    setSignatureValue(person, docType, signer, image, validatedAt, storageRef, storagePublicUrl);
+    rememberMobileSignatureRuntimeSignature(request, person, docType, signer, image, validatedAt, storageRef, storagePublicUrl);
+    renderMobileSignaturePage();
+    refreshDocumentSignatureCanvases(docType, person);
+  } catch (error) {
+    console.warn("Verification de la validation mobile differee", error);
+  } finally {
+    state.mobileSignaturePageReadInFlight = false;
+  }
+}
+
+function startMobileSignaturePageRefresh() {
+  if (state.mobileSignaturePageReadTimer) return;
+  state.mobileSignaturePageReadTimer = window.setInterval(refreshMobileSignaturePageFromRelay, 5000);
+  if (!state.mobileSignaturePageReadBound) {
+    state.mobileSignaturePageReadBound = true;
+    document.addEventListener("visibilitychange", refreshMobileSignaturePageFromRelay);
+    window.addEventListener("pageshow", startMobileSignaturePageRefresh);
+    window.addEventListener("pagehide", () => {
+      window.clearInterval(state.mobileSignaturePageReadTimer);
+      state.mobileSignaturePageReadTimer = 0;
+    });
+  }
+  void refreshMobileSignaturePageFromRelay();
+}
+
 function renderMobileSignaturePage() {
+  startMobileSignaturePageRefresh();
   const request = getCurrentMobileSignatureRequest();
   const person = getMobileSignatureTargetPerson();
   const docType = getCurrentMobileSignatureDocType();
@@ -14397,8 +14456,8 @@ function renderMobileSignaturePage() {
     }
   }
   if (clearButton instanceof HTMLButtonElement) {
-    clearButton.disabled = !isRequestUsable;
-    clearButton.classList.toggle("is-disabled", !isRequestUsable);
+    clearButton.disabled = isAlreadySigned || !isRequestUsable;
+    clearButton.classList.toggle("is-disabled", isAlreadySigned || !isRequestUsable);
   }
 
   if (statusNode) {

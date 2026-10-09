@@ -77,6 +77,37 @@ function createSignatureContext(fetchImpl = async () => ({ ok: true, json: async
   return context;
 }
 
+test("page de signature: relire uniquement la validation du lien exact", async () => {
+  const ctx = createSignatureContext();
+  const request = {token:"TEST-TOKEN",personId:"TEST",docType:"arrival",signer:"representant"};
+  const person = {id:"TEST"};
+  let rows = [], rendered = 0;
+  ctx.state = {data:{personnes:[],demandesSignatureMobile:[]}};
+  ctx.document = {body:{dataset:{page:"mobile-signature"}},visibilityState:"visible"};
+  ctx.isSupabaseConfigured = () => true;
+  ctx.getCurrentMobileSignatureRequest = () => request;
+  ctx.getMobileSignatureTargetPerson = () => person;
+  ctx.getCurrentMobileSignatureToken = () => request.token;
+  ctx.getMobileSignatureRuntimeSignature = () => null;
+  ctx.fetchSupabaseMobileSignatureRows = async () => rows;
+  ctx.setSignatureValue = (p,d,s,image,date) => {p.image=image;p.date=date;};
+  ctx.rememberMobileSignatureRuntimeSignature = () => {};
+  ctx.renderMobileSignaturePage = () => rendered++;
+  ctx.refreshDocumentSignatureCanvases = () => {};
+  vm.runInContext(extractFunctionSource(fs.readFileSync("app.js","utf8"),"refreshMobileSignaturePageFromRelay"),ctx);
+  const row={token:"OTHER",person_id:"TEST",doc_type:"arrival",signer:"representant",signature_data:"image",signed_at:"2026-10-09T11:35:48Z"};
+  rows=[row];
+  await ctx.refreshMobileSignaturePageFromRelay();
+  assert.equal(rendered,0);
+  rows=[{...row,token:request.token}];
+  await ctx.refreshMobileSignaturePageFromRelay();
+  assert.equal(rendered,1);
+  assert.equal(request.status,"SIGNEE");
+  assert.equal(person.image,"image");
+  assert.equal(person.date,row.signed_at);
+  assert.equal(ctx.state.mobileSignaturePageReadInFlight,false);
+});
+
 test("verification automatique: demandes connues, signature manquante et effacement volontaire", () => {
   const source = fs.readFileSync("app.js", "utf8");
   const ctx = createSignatureContext();
