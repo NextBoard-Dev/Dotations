@@ -15,7 +15,7 @@ const DESKTOP_PAGES = [
 ];
 
 const SHELL_PAGES = DESKTOP_PAGES.filter((entry) => entry.page !== "mobile-signature");
-const APP_SCRIPT_PATTERN = /<script src="app\.js\?v=20261009-mobile-signature-refresh"><\/script>/;
+const APP_SCRIPT_PATTERN = /<script src="app\.js\?v=20261009-mobile-signature-direct-read"><\/script>/;
 
 function read(file) {
   return fs.readFileSync(path.join(ROOT, file), "utf8");
