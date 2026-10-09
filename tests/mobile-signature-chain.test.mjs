@@ -77,6 +77,22 @@ function createSignatureContext(fetchImpl = async () => ({ ok: true, json: async
   return context;
 }
 
+test("signature effacee: ancienne signature ignoree, nouvelle signature acceptee sans retour en arriere", () => {
+  const ctx = createSignatureContext();
+  for (const docType of ["arrival", "exit"]) for (const signer of ["personnel", "representant"]) {
+    const data = { personnes: [{ id: "TEST", signatures: { [docType]: { [signer]: {
+      image: "", validatedAt: "", clearedAt: "2026-10-09T09:00:00Z",
+    } } } }], demandesSignatureMobile: [] };
+    const row = { person_id: "TEST", doc_type: docType, signer, signature_data: "ancienne", signed_at: "2026-10-09T08:00:00Z" };
+    assert.equal(ctx.mergeSupabaseMobileSignatureRows(data, [row], "TEST", docType), false);
+    assert.equal(data.personnes[0].signatures[docType][signer].image, "");
+    ctx.mergeSupabaseMobileSignatureRows(data, [{ ...row, signature_data: "nouvelle", signed_at: "2026-10-09T10:00:00Z" }], "TEST", docType);
+    assert.equal(data.personnes[0].signatures[docType][signer].image, "nouvelle");
+    ctx.mergeSupabaseMobileSignatureRows(data, [row], "TEST", docType);
+    assert.equal(data.personnes[0].signatures[docType][signer].image, "nouvelle");
+  }
+});
+
 test("signature mobile: la lecture par token bascule vers la lecture par document si le token ne retourne rien", async () => {
   const calls = [];
   const documentRows = [{ token: "SIG-1", person_id: "P1", doc_type: "arrival", signer: "personnel", signature_data: "data:image/png;base64,AAA", validated_at_text: "2026-10-07T10:00:00" }];

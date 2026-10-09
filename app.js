@@ -3123,8 +3123,10 @@ function mergeSupabaseMobileSignatureRows(data, rows, personId, docType) {
       person.signatures[normalizedDocType] = {};
     }
     const current = person.signatures[normalizedDocType][signer] || {};
+    if ((Date.parse(current.clearedAt || "") || 0) >= (Date.parse(entry.validatedAt || "") || 0) && current.clearedAt) continue;
     const currentMs = Date.parse(current.validatedAt || "") || 0;
     const nextMs = Date.parse(entry.validatedAt || "") || 0;
+    if (currentMs > nextMs) continue;
         const currentImage = String(current.image || "").trim();
     const currentStorageRef = String(current.storageRef || "").trim();
     const currentStoragePublicUrl = String(current.storagePublicUrl || "").trim();
@@ -3230,6 +3232,7 @@ async function syncHostedMobileSignaturesForDocument(docType, personId) {
   const inFlight = getDocumentMobileSignatureSyncInFlight();
   if (inFlight.has(syncKey)) return false;
   inFlight.add(syncKey);
+  const mutationAtStart = state.localMutationTick;
 
   try {
     if (getDataBackendMode() === "LOCAL_API") {
@@ -3240,6 +3243,7 @@ async function syncHostedMobileSignaturesForDocument(docType, personId) {
         cache: "no-store",
       });
       const pullPayload = await pullResponse.json().catch(() => ({}));
+      if (state.localMutationTick !== mutationAtStart || state.saveInFlight) return false;
       if (!pullResponse.ok) {
         throw new Error(`LOCAL_SIGNATURE_PULL_FAILED:${pullResponse.status}:${String(pullPayload?.error || "").slice(0, 160)}`);
       }
@@ -3916,6 +3920,7 @@ function mergeHostedMobileSignaturesIntoLocal(localPayload, hostedPayload, perso
       return;
     }
     const localEntry = localPerson.signatures?.[normalizedDocType]?.[signer] || {};
+    if ((Date.parse(localEntry.clearedAt || "") || 0) >= (Date.parse(hostedValidatedAt) || 0) && localEntry.clearedAt) return;
     const localImage = String(localEntry.image || "").trim();
     const localValidatedAt = String(localEntry.validatedAt || "").trim();
     const hostedMs = Date.parse(hostedValidatedAt) || 0;
@@ -5754,6 +5759,7 @@ function migrateDataModel(options = {}) {
             validatedAt: String(currentEntry.validatedAt || ""),
             storageRef: String(currentEntry.storageRef || ""),
             storagePublicUrl: String(currentEntry.storagePublicUrl || ""),
+            clearedAt: String(currentEntry.clearedAt || ""),
           };
           return;
         }
@@ -6173,6 +6179,8 @@ function hideMobileSignatureRecoveryModalAfterRender() {
 }
 
 async function pollMobileSignatureRequest() {
+  if (state.saveInFlight || state.isDirty) return;
+  const mutationAtStart = state.localMutationTick;
   if (document.visibilityState === "hidden") {
     return;
   }
@@ -6219,6 +6227,7 @@ async function pollMobileSignatureRequest() {
           cache: "no-store",
         });
         const pullPayload = await pullResponse.json().catch(() => ({}));
+        if (state.localMutationTick !== mutationAtStart || state.saveInFlight) return;
         if (pullResponse.ok && pullPayload?.data) {
           json = pullPayload.data;
           if (pullPayload.changed) {
@@ -8888,6 +8897,7 @@ function hasStoredSignaturePayload(entry) {
 
 function cloneSignatureEntry(entry) {
   return {
+    clearedAt: String(entry?.clearedAt || ""),
     image: String(entry?.image || ""),
     validatedAt: String(entry?.validatedAt || ""),
     storageRef: String(entry?.storageRef || ""),
@@ -14056,6 +14066,7 @@ function bindSignatureCanvases() {
         stateRef.pendingDataUrl = "";
         clearSignatureCanvas(canvas);
         setSignatureValue(person, docType, signer, "", "", "", "");
+        person.signatures[docType][signer].clearedAt = new Date().toISOString();
         refreshDocumentSignatureCanvases(docType, person);
         if (document.body.dataset.page === "mobile-signature") {
           const request = getCurrentMobileSignatureRequest();
