@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+cd "$(git rev-parse --show-toplevel)"
+node --check app.js
+node --test tests/*.mjs
