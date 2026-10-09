@@ -4756,6 +4756,29 @@ function hasActiveMobileSignatureRequest(personId, docType) {
   return getActiveMobileSignatureRequestContext(personId, docType).hasAny;
 }
 
+function hasMobileSignatureRequestForDocument(personId, docType) {
+  return (state.data?.demandesSignatureMobile || []).some((request) =>
+    String(request?.personId || "") === String(personId || "") &&
+    normalizeText(request?.docType) === normalizeText(docType)
+  );
+}
+
+function hasMissingSignatureForMobileRequest(personId, docType) {
+  const person = (state.data?.personnes || []).find((entry) => String(entry.id) === String(personId));
+  if (!person) return false;
+  const bucket = normalizeText(docType) === "EXIT" ? "exit" : "arrival";
+  return (state.data?.demandesSignatureMobile || []).some((request) => {
+    if (String(request?.personId || "") !== String(personId) || normalizeText(request?.docType) !== normalizeText(docType)) return false;
+    const signer = normalizeMobileSignatureSigner(request.signer);
+    if (!signer) return false;
+    const entry = person.signatures?.[bucket]?.[signer] || {};
+    const clearedMs = Date.parse(entry.clearedAt || "") || 0;
+    const requestMs = Math.max(Date.parse(request.createdAt || "") || 0, Date.parse(request.validatedAt || "") || 0);
+    if (clearedMs && requestMs <= clearedMs) return false;
+    return !getSignatureValue(person, bucket, signer);
+  });
+}
+
 function createMobileSignatureRequest(personId, docType, signer = "personnel") {
   const createdAt = new Date();
   const expiresAt = new Date(createdAt.getTime() + MOBILE_SIGNATURE_REQUEST_TTL_MS);

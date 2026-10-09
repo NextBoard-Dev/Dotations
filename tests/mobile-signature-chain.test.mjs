@@ -77,6 +77,26 @@ function createSignatureContext(fetchImpl = async () => ({ ok: true, json: async
   return context;
 }
 
+test("verification automatique: demandes connues, signature manquante et effacement volontaire", () => {
+  const source = fs.readFileSync("app.js", "utf8");
+  const ctx = createSignatureContext();
+  ctx.state = {data:{personnes:[{id:"P1",signatures:{arrival:{representant:{image:""}}}}],demandesSignatureMobile:[]}};
+  ctx.getSignatureValue = (p,d,s) => p.signatures?.[d]?.[s]?.image || "";
+  for (const name of ["hasMobileSignatureRequestForDocument", "hasMissingSignatureForMobileRequest"]) vm.runInContext(extractFunctionSource(source,name),ctx);
+  assert.equal(ctx.hasMobileSignatureRequestForDocument("P1","arrival"),false);
+  ctx.state.data.demandesSignatureMobile.push({personId:"P1",docType:"ARRIVAL",signer:"REPRESENTANT",createdAt:"2026-10-09T08:00:00Z"});
+  assert.equal(ctx.hasMobileSignatureRequestForDocument("P1","arrival"),true);
+  assert.equal(ctx.hasMissingSignatureForMobileRequest("P1","arrival"),true);
+  assert.equal(ctx.hasMissingSignatureForMobileRequest("P1","exit"),false);
+  const entry=ctx.state.data.personnes[0].signatures.arrival.representant;
+  entry.clearedAt="2026-10-09T09:00:00Z";
+  assert.equal(ctx.hasMissingSignatureForMobileRequest("P1","arrival"),false);
+  ctx.state.data.demandesSignatureMobile[0].createdAt="2026-10-09T10:00:00Z";
+  assert.equal(ctx.hasMissingSignatureForMobileRequest("P1","arrival"),true);
+  entry.image="signature";
+  assert.equal(ctx.hasMissingSignatureForMobileRequest("P1","arrival"),false);
+});
+
 test("signature effacee: ancienne signature ignoree, nouvelle signature acceptee sans retour en arriere", () => {
   const ctx = createSignatureContext();
   for (const docType of ["arrival", "exit"]) for (const signer of ["personnel", "representant"]) {
