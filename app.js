@@ -4991,6 +4991,7 @@ async function getAbsoluteMobileSignatureUrl(request, options = {}) {
 }
 
 async function fillMobileSignatureShareLink(request) {
+  const shareRevision = state.mobileSignatureShareRevision = (state.mobileSignatureShareRevision || 0) + 1;
   const wrapper = document.getElementById("mobile-signature-share");
   const input = document.getElementById("mobile-signature-share-url");
   const copyButton = document.getElementById("mobile-signature-copy-link");
@@ -5036,6 +5037,7 @@ async function fillMobileSignatureShareLink(request) {
     },
   });
 
+  if (shareRevision !== state.mobileSignatureShareRevision) return;
   wrapper.hidden = false;
   input.value = absoluteUrl;
   copyButton.disabled = false;
@@ -14341,6 +14343,8 @@ function renderMobileSignaturePage() {
   const signatureStorageRef = String(runtimeSignature?.storageRef || person?.signatures?.[normalizedDocType]?.[signer]?.storageRef || "");
   const signatureStoragePublicUrl = String(runtimeSignature?.storagePublicUrl || person?.signatures?.[normalizedDocType]?.[signer]?.storagePublicUrl || "");
   const isAlreadySigned = Boolean((request && normalizeText(request.status) === "SIGNEE") || runtimeSignature?.image);
+  const signingHint = document.querySelector(".mobile-signature-card__hint");
+  if (signingHint) signingHint.hidden = isAlreadySigned;
   const isRequestUsable = Boolean(
     request &&
       isMobileSignatureRequestValid(request) &&

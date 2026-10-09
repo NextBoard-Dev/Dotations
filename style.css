@@ -3760,6 +3760,12 @@ body[data-pdf-mode="true"] .signature-box__mobile-link {
   gap: 8px;
 }
 
+.mobile-signature-share[hidden],
+.mobile-signature-share__qr[hidden],
+.mobile-signature-card__hint[hidden] {
+  display: none !important;
+}
+
 .mobile-signature-share {
   display: grid;
   gap: 6px;
