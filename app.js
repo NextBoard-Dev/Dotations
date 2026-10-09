@@ -46,6 +46,7 @@ const state = {
   mobileSignaturePollStateSignature: "",
   mobileSignaturePollSyncModeSignature: "",
   mobileSignaturePollStatusSignature: "",
+  mobileSignaturePollUiRefreshSignature: "",
   documentMobileSignatureSyncInFlight: new Set(),
   mobileSignatureRecoveryModalOpen: false,
   mobileSignatureVisibilityBound: false,
@@ -3173,6 +3174,50 @@ function getDocumentMobileSignatureSyncInFlight() {
   return state.documentMobileSignatureSyncInFlight;
 }
 
+function refreshDocumentAfterMobileSignatureMerge(docType, personId, forcedPerson = null, options = {}) {
+  const normalizedDocType = normalizeText(docType) === "EXIT" ? "exit" : "arrival";
+  const normalizedPersonId = String(personId || "").trim();
+  const page = document.body?.dataset?.page || "";
+  if (!normalizedPersonId || (page !== "arrival-document" && page !== "exit-document")) {
+    return false;
+  }
+  if ((page === "arrival-document") !== (normalizedDocType === "arrival")) {
+    return false;
+  }
+
+  const person = forcedPerson || getPersonById(normalizedPersonId);
+  const uiRefreshSignature = [
+    page,
+    normalizedPersonId,
+    normalizedDocType,
+    String(getSignatureValue(person, normalizedDocType, "personnel") || ""),
+    String(getSignatureValidationDate(person, normalizedDocType, "personnel") || ""),
+    String(getSignatureValue(person, normalizedDocType, "representant") || ""),
+    String(getSignatureValidationDate(person, normalizedDocType, "representant") || ""),
+  ].join("|||");
+  if (!options.force && state.mobileSignaturePollUiRefreshSignature === uiRefreshSignature) {
+    return false;
+  }
+  state.mobileSignaturePollUiRefreshSignature = uiRefreshSignature;
+
+  if (state.documentViewRenderCache && typeof state.documentViewRenderCache === "object") {
+    state.documentViewRenderCache[normalizedDocType] = "";
+  }
+  state.pageRenderSignature = "";
+  if (page === "arrival-document") {
+    renderArrivalDocument(normalizedPersonId);
+  } else {
+    renderExitDocument(normalizedPersonId);
+  }
+  refreshDocumentSignatureCanvases(normalizedDocType, getPersonById(normalizedPersonId) || person);
+  updateDocumentPdfButtonsState();
+  renderDirtyState();
+  if (options.schedule) {
+    schedulePageRender();
+  }
+  return true;
+}
+
 async function syncHostedMobileSignaturesForDocument(docType, personId) {
   if (!state.data || !isSupabaseConfigured() || document.body?.dataset?.page === "mobile-signature") {
     return false;
@@ -3208,16 +3253,7 @@ async function syncHostedMobileSignaturesForDocument(docType, personId) {
     state.lastPersistedDataSignature = computeDataPersistenceSignature(state.data);
     clearUndoStack();
 
-    const person = getPersonById(normalizedPersonId);
-    const page = document.body?.dataset?.page || "";
-    if (page === "arrival-document" && normalizedDocType === "arrival") {
-      renderArrivalDocument(normalizedPersonId);
-    } else if (page === "exit-document" && normalizedDocType === "exit") {
-      renderExitDocument(normalizedPersonId);
-    }
-    refreshDocumentSignatureCanvases(normalizedDocType, person);
-    updateDocumentPdfButtonsState();
-    renderDirtyState();
+    refreshDocumentAfterMobileSignatureMerge(normalizedDocType, normalizedPersonId, null, { force: true });
     showDataStatus("SIGNATURE MOBILE REPRISE DANS LE DOCUMENT");
     return true;
   } catch (error) {
@@ -5908,6 +5944,7 @@ function stopMobileSignaturePolling() {
   state.mobileSignaturePollBackoffUntil = 0;
   state.mobileSignaturePollErrorCount = 0;
   state.mobileSignaturePollIntervalMs = 0;
+  state.mobileSignaturePollUiRefreshSignature = "";
   if (document.body.dataset.page === "arrival-document" || document.body.dataset.page === "exit-document") {
     setMobileSignaturePollStatus("Vérification en pause (onglet masqué ou navigation ailleurs)", "warning");
   } else {
@@ -6145,6 +6182,7 @@ async function pollMobileSignatureRequest() {
             state.isDirty = false;
             state.lastPersistedDataSignature = computeDataPersistenceSignature(state.data);
             clearUndoStack();
+            refreshDocumentAfterMobileSignatureMerge(docType, personId, null, { force: true });
             showDataStatus("SIGNATURE MOBILE HEBERGEE REPRISE EN LOCAL");
           }
         }
@@ -6170,6 +6208,7 @@ async function pollMobileSignatureRequest() {
           state.isDirty = false;
           state.lastPersistedDataSignature = computeDataPersistenceSignature(state.data);
           clearUndoStack();
+          refreshDocumentAfterMobileSignatureMerge(docType, personId, null, { force: true });
           showDataStatus("SIGNATURE MOBILE HEBERGEE REPRISE");
         }
       } catch (signatureRowsError) {
@@ -6317,11 +6356,13 @@ async function pollMobileSignatureRequest() {
 
     if (state.mobileSignaturePollStateSignature === pollStateSignature) {
       if (!anyPending && trackedRequestsLength === 0 && activeServerRequests.length === 0 && nextRequestsByToken.size === 0) {
+        refreshDocumentAfterMobileSignatureMerge(docType, personId, person);
         hideMobileSignatureRecoveryModal();
         setMobileSignaturePollStatus("");
         return;
       }
       if (!anyPending) {
+        refreshDocumentAfterMobileSignatureMerge(docType, personId, person);
         renderMobileSignatureLink(docType, "personnel", "");
         renderMobileSignatureLink(docType, "representant", "");
         hideMobileSignatureRecoveryModalAfterRender();
@@ -6343,16 +6384,9 @@ async function pollMobileSignatureRequest() {
       setMobileSignaturePollStatus("");
     }
 
-    state.documentViewRenderCache[docType] = "";
-    state.pageRenderSignature = "";
-    if (docType === "arrival") {
-      renderArrivalDocument(personId);
-    } else {
-      renderExitDocument(personId);
-    }
-    refreshDocumentSignatureCanvases(docType, getPersonById(personId) || person);
-    updateDocumentPdfButtonsState();
-    renderDirtyState();
+    refreshDocumentAfterMobileSignatureMerge(docType, personId, getPersonById(personId) || person, {
+      force: true,
+    });
     schedulePageRender();
     queueAutoGenerateSignedDocumentsPdfIfMissing();
     const signedRepresentative = Array.from(nextRequestsByToken.values()).some(

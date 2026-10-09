@@ -174,6 +174,24 @@ test("signature mobile: les documents entree et sortie declenchent la reprise di
   assert.match(source, /documentMobileSignatureSyncInFlight: new Set\(\)/);
 });
 
+test("signature mobile: chaque reprise distante force le rafraichissement du document courant", () => {
+  const source = fs.readFileSync("app.js", "utf8");
+  const refreshSource = extractFunctionSource(source, "refreshDocumentAfterMobileSignatureMerge");
+  const pollSource = extractFunctionSource(source, "pollMobileSignatureRequest");
+  const syncSource = extractFunctionSource(source, "syncHostedMobileSignaturesForDocument");
+
+  assert.match(refreshSource, /state\.documentViewRenderCache\[normalizedDocType\] = "";/);
+  assert.match(refreshSource, /state\.pageRenderSignature = "";/);
+  assert.match(refreshSource, /renderArrivalDocument\(normalizedPersonId\);/);
+  assert.match(refreshSource, /renderExitDocument\(normalizedPersonId\);/);
+  assert.match(refreshSource, /refreshDocumentSignatureCanvases\(normalizedDocType, getPersonById\(normalizedPersonId\) \|\| person\);/);
+  assert.match(source, /mobileSignaturePollUiRefreshSignature: ""/);
+  assert.match(pollSource, /pullPayload\.changed[\s\S]*?refreshDocumentAfterMobileSignatureMerge\(docType, personId, null, \{ force: true \}\);/);
+  assert.match(pollSource, /mergeSupabaseMobileSignatureRows\(json, signatureRows, personId, docType\)[\s\S]*?refreshDocumentAfterMobileSignatureMerge\(docType, personId, null, \{ force: true \}\);/);
+  assert.match(pollSource, /state\.mobileSignaturePollStateSignature === pollStateSignature[\s\S]*?refreshDocumentAfterMobileSignatureMerge\(docType, personId, person\);/);
+  assert.match(syncSource, /refreshDocumentAfterMobileSignatureMerge\(normalizedDocType, normalizedPersonId, null, \{ force: true \}\);/);
+});
+
 test("signature mobile: la page autonome conserve les points d'ancrage critiques", () => {
   const html = fs.readFileSync("signature-mobile.html", "utf8");
 
