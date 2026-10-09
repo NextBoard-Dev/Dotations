@@ -204,7 +204,7 @@ test("signature mobile: la page autonome conserve les points d'ancrage critiques
   assert.match(html, /id="mobile-costs-head"/);
   assert.match(html, /id="mobile-costs-body"/);
   assert.match(html, /href="favicon\.ico\?v=20260928b"/);
-  assert.match(html, /src="app\.js\?v=20261007-mobile-signature-chain-guard"/);
+  assert.match(html, /src="app\.js\?v=20261009-mobile-signature-refresh"/);
 });
 
 test("signature mobile: le bouton reste verrouille apres validation locale", () => {

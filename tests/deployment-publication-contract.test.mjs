@@ -59,7 +59,7 @@ test("publication: les points d'entree publics chargent les fichiers publies att
     const html = read(file);
     assert.match(html, /<link rel="icon" href="favicon\.ico\?v=20260928b"/, `${file} doit exposer le favicon courant`);
     assert.match(html, /<link rel="stylesheet" href="style\.css\?v=20260624-pdf-sync-hidden"/, `${file} doit charger le CSS publie`);
-    assert.match(html, /<script src="app\.js\?v=20261007-mobile-signature-chain-guard"><\/script>/, `${file} doit charger app.js publie`);
+    assert.match(html, /<script src="app\.js\?v=20261009-mobile-signature-refresh"><\/script>/, `${file} doit charger app.js publie`);
   }
 });
 
