@@ -186,8 +186,17 @@ test("signature mobile: chaque reprise distante force le rafraichissement du doc
   assert.match(refreshSource, /renderExitDocument\(normalizedPersonId\);/);
   assert.match(refreshSource, /refreshDocumentSignatureCanvases\(normalizedDocType, getPersonById\(normalizedPersonId\) \|\| person\);/);
   assert.match(source, /mobileSignaturePollUiRefreshSignature: ""/);
+  assert.match(pollSource, /canPersistMobileSignatureMerge = false;/);
+  assert.match(pollSource, /json = state\.data;/);
+  assert.match(pollSource, /SIGNATURE MOBILE VISIBLE - SAUVEGARDE ETAT EN ATTENTE/);
   assert.match(pollSource, /pullPayload\.changed[\s\S]*?refreshDocumentAfterMobileSignatureMerge\(docType, personId, null, \{ force: true \}\);/);
   assert.match(pollSource, /mergeSupabaseMobileSignatureRows\(json, signatureRows, personId, docType\)[\s\S]*?refreshDocumentAfterMobileSignatureMerge\(docType, personId, null, \{ force: true \}\);/);
+  assert.ok(
+    pollSource.indexOf("refreshDocumentAfterMobileSignatureMerge(docType, personId, null, { force: true });") <
+      pollSource.indexOf("await saveDataToFile", pollSource.indexOf("mergeSupabaseMobileSignatureRows(json, signatureRows, personId, docType)")),
+    "le document doit etre repeint avant une sauvegarde potentiellement lente"
+  );
+  assert.match(syncSource, /refreshDocumentAfterMobileSignatureMerge\(normalizedDocType, normalizedPersonId, null, \{ force: true \}\);[\s\S]*?await saveDataToFile/);
   assert.match(pollSource, /state\.mobileSignaturePollStateSignature === pollStateSignature[\s\S]*?refreshDocumentAfterMobileSignatureMerge\(docType, personId, person\);/);
   assert.match(syncSource, /refreshDocumentAfterMobileSignatureMerge\(normalizedDocType, normalizedPersonId, null, \{ force: true \}\);/);
 });

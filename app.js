@@ -3242,19 +3242,23 @@ async function syncHostedMobileSignaturesForDocument(docType, personId) {
     state.documentViewRenderCache[normalizedDocType] = "";
     state.pageRenderSignature = "";
 
-    await saveDataToFile({
-      silent: true,
-      reloadAfter: false,
-      promptDownload: false,
-      autoPushHosted: false,
-      successText: "SIGNATURE MOBILE REPRISE",
-    });
-    state.isDirty = false;
-    state.lastPersistedDataSignature = computeDataPersistenceSignature(state.data);
-    clearUndoStack();
-
     refreshDocumentAfterMobileSignatureMerge(normalizedDocType, normalizedPersonId, null, { force: true });
-    showDataStatus("SIGNATURE MOBILE REPRISE DANS LE DOCUMENT");
+    try {
+      await saveDataToFile({
+        silent: true,
+        reloadAfter: false,
+        promptDownload: false,
+        autoPushHosted: false,
+        successText: "SIGNATURE MOBILE REPRISE",
+      });
+      state.isDirty = false;
+      state.lastPersistedDataSignature = computeDataPersistenceSignature(state.data);
+      clearUndoStack();
+      showDataStatus("SIGNATURE MOBILE REPRISE DANS LE DOCUMENT");
+    } catch (persistError) {
+      console.warn("Signature mobile visible, sauvegarde etat differee", persistError);
+      showDataStatus("SIGNATURE MOBILE REPRISE - SAUVEGARDE ETAT EN ATTENTE", "warning");
+    }
     return true;
   } catch (error) {
     console.warn("Reprise signature mobile document impossible", error);
@@ -6164,7 +6168,19 @@ async function pollMobileSignatureRequest() {
   }
   const docType = page === "exit-document" ? "exit" : "arrival";
   try {
-    let json = await fetchLatestDataSnapshot({ forceFresh: true });
+    let canPersistMobileSignatureMerge = true;
+    let json = null;
+    try {
+      json = await fetchLatestDataSnapshot({ forceFresh: true });
+    } catch (snapshotError) {
+      console.warn("Lecture etat heberge differee, reprise directe signatures", snapshotError);
+      json = state.data;
+      canPersistMobileSignatureMerge = false;
+      if (!json) {
+        throw snapshotError;
+      }
+      showDataStatus("LECTURE ETAT HEBERGE RETARDEE - RECHERCHE SIGNATURE", "warning");
+    }
     if (getDataBackendMode() === "LOCAL_API" && isSupabaseConfigured()) {
       try {
         const pullResponse = await fetch("/api/sync/pull-mobile-signatures", {
@@ -6197,19 +6213,28 @@ async function pollMobileSignatureRequest() {
         if (mergeSupabaseMobileSignatureRows(json, signatureRows, personId, docType)) {
           state.data = json;
           migrateDataModel({ suppressDirty: true });
-          state.isDirty = true;
-          await saveDataToFile({
-            silent: true,
-            reloadAfter: false,
-            promptDownload: false,
-            autoPushHosted: false,
-            successText: "SIGNATURE MOBILE HEBERGEE REPRISE",
-          });
-          state.isDirty = false;
-          state.lastPersistedDataSignature = computeDataPersistenceSignature(state.data);
-          clearUndoStack();
           refreshDocumentAfterMobileSignatureMerge(docType, personId, null, { force: true });
-          showDataStatus("SIGNATURE MOBILE HEBERGEE REPRISE");
+          if (!canPersistMobileSignatureMerge) {
+            showDataStatus("SIGNATURE MOBILE VISIBLE - SAUVEGARDE ETAT EN ATTENTE", "warning");
+          } else {
+            state.isDirty = true;
+            try {
+              await saveDataToFile({
+                silent: true,
+                reloadAfter: false,
+                promptDownload: false,
+                autoPushHosted: false,
+                successText: "SIGNATURE MOBILE HEBERGEE REPRISE",
+              });
+              state.isDirty = false;
+              state.lastPersistedDataSignature = computeDataPersistenceSignature(state.data);
+              clearUndoStack();
+              showDataStatus("SIGNATURE MOBILE HEBERGEE REPRISE");
+            } catch (persistError) {
+              console.warn("Signature mobile hebergee visible, sauvegarde etat differee", persistError);
+              showDataStatus("SIGNATURE MOBILE HEBERGEE REPRISE - SAUVEGARDE ETAT EN ATTENTE", "warning");
+            }
+          }
         }
       } catch (signatureRowsError) {
         console.warn("Lecture table signatures indisponible", signatureRowsError);
