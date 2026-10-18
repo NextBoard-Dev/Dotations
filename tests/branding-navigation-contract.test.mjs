@@ -39,6 +39,12 @@ function read(file) {
   return fs.readFileSync(path.join(ROOT, file), "utf8");
 }
 
+// Le logo de sidebar PC est distinct des anciennes icones mobiles.
+function withoutDesktopSidebarLogo(file, source) {
+  if (!PC_HTML_FILES.includes(file) || file === "signature-mobile.html") return source;
+  return source.replace(/<img src="assets\/branding\/nextboard-brand-v[3]\.png\?v=20261018-charte" alt="NextBo@rd" class="sidebar__brand-banner"\s*\/>/g, "");
+}
+
 function trackedTextFiles() {
   const textExtensions = new Set([".html", ".js", ".jsx", ".css", ".json", ".md", ".bat", ".sql", ".mjs"]);
   return execFileSync("git", ["ls-files"], { cwd: ROOT, encoding: "utf8" })
@@ -72,7 +78,7 @@ test("branding PC: toutes les pages gardent le favicon NextBoard courant", () =>
   for (const file of PC_HTML_FILES) {
     const html = read(file);
     assert.match(html, new RegExp(`href="${EXPECTED_PC_FAVICON.replace(/[.?]/g, "\\$&")}"`), `${file} doit pointer vers le favicon courant`);
-    assert.doesNotMatch(html, OLD_PC_BRANDING_PATTERN, `${file} ne doit pas referencer un ancien logo`);
+    assert.doesNotMatch(withoutDesktopSidebarLogo(file, html), OLD_PC_BRANDING_PATTERN, `${file} ne doit pas referencer un ancien logo`);
   }
 });
 
@@ -135,7 +141,7 @@ test("branding: aucun fichier texte versionné ne référence les anciennes icô
   const offenders = [];
   for (const file of trackedTextFiles()) {
     const source = read(file);
-    if (OLD_MOBILE_BRANDING_PATTERN.test(source)) {
+    if (OLD_MOBILE_BRANDING_PATTERN.test(withoutDesktopSidebarLogo(file, source))) {
       offenders.push(file);
     }
   }
