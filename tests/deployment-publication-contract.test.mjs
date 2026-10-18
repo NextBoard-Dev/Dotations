@@ -58,7 +58,7 @@ test("publication: les points d'entree publics chargent les fichiers publies att
   for (const file of DESKTOP_ENTRYPOINTS) {
     const html = read(file);
     assert.match(html, /<link rel="icon" href="favicon\.ico\?v=20260928b"/, `${file} doit exposer le favicon courant`);
-    const cssVersion = file === "signature-mobile.html" ? "20261009-signature-validated" : "20260624-pdf-sync-hidden";
+    const cssVersion = file === "signature-mobile.html" ? "20261009-signature-validated" : "20261018-charte";
     const jsVersion = file === "signature-mobile.html" ? "20261009-signature-validated" : "20261009-mobile-signature-direct-read";
     assert.ok(html.includes(`href="style.css?v=${cssVersion}"`), `${file} doit charger le CSS publie`);
     assert.ok(html.includes(`src="app.js?v=${jsVersion}"`), `${file} doit charger app.js publie`);
