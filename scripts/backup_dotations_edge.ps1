@@ -3,7 +3,7 @@ param(
   [string]$Email,
   [Parameter(Mandatory = $true)]
   [string]$Password,
-  [string]$OutDir = "C:\Users\sebastien.duc\CLOUD\02_ARCHIVAGE PERSONNEL\DASHBOARDS\DOTATIONS SNAPSHOTS"
+  [string]$OutDir = "C:\Users\sebastien.duc\CLOUD\02_ARCHIVAGE PERSONNEL\DASHBOARDS\80. SNAPSHOTS ET SAUVEGARDES\03. DOTATIONS\DOTATIONS SNAPSHOTS"
 )
 
 $ErrorActionPreference = "Stop"
