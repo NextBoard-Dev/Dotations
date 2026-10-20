@@ -4,7 +4,7 @@
 -- - Checksum SHA-256
 -- - Journal minimal
 -- - Rollback par revision
--- - Retention: 7 jours + 20 snapshots max par app_state
+-- - Conservation sans purge automatique non archivee
 
 begin;
 
@@ -158,29 +158,16 @@ end;
 $$;
 
 create or replace function public.prune_app_state_versions()
-returns void
-language plpgsql
-security definer
-set search_path = public
+returns void language plpgsql security definer
+set search_path = pg_catalog, public, pg_temp
 as $$
 begin
-  -- Retention temps: 48 heures. Le coffre-fort est une securite courte,
-  -- pas un stockage historique lourd.
-  delete from public.app_state_versions
-  where created_at < now() - interval '48 hours';
-
-  -- Retention volume: max 5 snapshots par app_state_id.
-  with ranked as (
-    select id,
-           row_number() over (partition by app_state_id order by created_at desc, id desc) as rn
-    from public.app_state_versions
-  )
-  delete from public.app_state_versions v
-  using ranked r
-  where v.id = r.id
-    and r.rn > 5;
+  -- Aucun point retire sans archivage externe verifie.
+  -- Compatibilite des appels existants ; conservation sans suppression.
+  return;
 end;
 $$;
+revoke all on function public.prune_app_state_versions() from PUBLIC, anon, authenticated;
 
 -- RLS: lecture admin seulement, ecriture directe client interdite
 alter table public.app_state_versions enable row level security;
@@ -215,6 +202,10 @@ for all
 to authenticated
 using (false)
 with check (false);
+
+-- Lecture uniquement : les policies is_admin() limitent les lignes visibles.
+grant select on table public.app_state_versions to authenticated;
+grant select on table public.app_state_save_journal to authenticated;
 
 commit;
 

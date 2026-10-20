@@ -41,7 +41,7 @@ test("contrat Supabase signatures: les colonnes snake_case et le secours camelCa
   ];
 
   for (const column of requiredColumns) {
-    assert.match(sqlSource, new RegExp(`add column if not exists ${column}\\b`, "i"), `colonne SQL manquante: ${column}`);
+    assert.match(sqlSource, new RegExp(`add column if not exists "?${column}\\b`, "i"), `colonne SQL manquante: ${column}`);
   }
 
   assert.match(appSource, /getSupabaseSignatureRowField\(row, "person_id", "personId"\)/);
@@ -51,10 +51,13 @@ test("contrat Supabase signatures: les colonnes snake_case et le secours camelCa
 
 test("contrat Supabase signatures: RLS et politiques minimales restent presentes", () => {
   assert.match(sqlSource, /alter table public\.signatures enable row level security/i);
-  assert.match(sqlSource, /create policy "mobile_signature_select_by_token"/i);
-  assert.match(sqlSource, /create policy "mobile_signature_insert_by_token"/i);
-  assert.match(sqlSource, /create policy "mobile_signature_update_by_token"/i);
-  assert.doesNotMatch(sqlSource, /security definer/i);
+  assert.doesNotMatch(sqlSource, /create policy "?mobile_signature_(select|insert|update)_by_token/i);
+  assert.match(sqlSource, /revoke all on table public\.signatures from PUBLIC, anon/i);
+  assert.match(sqlSource, /as restrictive for insert to authenticated/i);
+  assert.match(sqlSource, /SIGNATURE_TOKEN_INVALID/);
+  assert.match(sqlSource, /SIGNATURE_READ_FORBIDDEN/);
+  assert.match(sqlSource, /SET search_path TO 'public', 'pg_temp'/i);
+  assert.match(sqlSource, /revoke all on function public\.fetch_mobile_signature_rows_for_document\(text,text\) from PUBLIC, anon/i);
 });
 
 test("contrat Supabase SQL: les scripts restent bornes et sans secret serveur", () => {
@@ -91,7 +94,7 @@ test("contrat Supabase SQL: les fonctions security definer cadrent le search_pat
     while ((match = functionPattern.exec(source))) {
       const block = match[0];
       const functionName = match[1];
-      if (/security\s+definer/i.test(block) && !/set\s+search_path\s*=\s*public/i.test(block)) {
+      if (/security\s+definer/i.test(block) && !/set\s+search_path\s*=\s*(?:pg_catalog\s*,\s*)?public\b/i.test(block)) {
         errors.push(`${file}: public.${functionName} est security definer sans search_path public`);
       }
     }

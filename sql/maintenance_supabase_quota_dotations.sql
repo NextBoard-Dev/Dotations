@@ -5,26 +5,16 @@
 begin;
 
 create or replace function public.prune_app_state_versions()
-returns void
-language plpgsql
-security definer
-set search_path = public
+returns void language plpgsql security definer
+set search_path = pg_catalog, public, pg_temp
 as $$
 begin
-  delete from public.app_state_versions
-  where created_at < now() - interval '48 hours';
-
-  with ranked as (
-    select id,
-           row_number() over (partition by app_state_id order by created_at desc, id desc) as rn
-    from public.app_state_versions
-  )
-  delete from public.app_state_versions v
-  using ranked r
-  where v.id = r.id
-    and r.rn > 5;
+  -- Aucun point retire sans archivage externe verifie.
+  -- Compatibilite des appels existants ; conservation sans suppression.
+  return;
 end;
 $$;
+revoke all on function public.prune_app_state_versions() from PUBLIC, anon, authenticated;
 
 create or replace function public.prune_audit_log()
 returns void

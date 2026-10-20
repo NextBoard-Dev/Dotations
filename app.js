@@ -5403,7 +5403,7 @@ async function loadData() {
     maybeOpenRescueModalPreview();
   }
 
-  const workingData = loadWorkingData();
+  const workingData = await loadWorkingData();
   if (workingData) {
     state.data = workingData;
     migrateDataModel({ suppressDirty: true });
@@ -11146,6 +11146,7 @@ function renderPage() {
     String(state.localMutationTick || 0),
     String(state.supabaseRevision || ""),
     String(state.isDirty ? "1" : "0"),
+    String(state.workingDataError ? "1" : "0"),
     String(state.saveButtonLatchedDirty ? "1" : "0"),
     String(state.currentUserRoleLabel || ""),
     String(state.currentSheetPersonId || ""),
@@ -20016,7 +20017,7 @@ function bindBeforeUnloadGuard() {
   if (window.__dotationsBeforeUnloadBound) return;
   window.__dotationsBeforeUnloadBound = true;
   window.addEventListener("beforeunload", (event) => {
-    if (!state.isDirty) return;
+    if (!state.isDirty && !state.workingDataError) return;
     event.preventDefault();
     event.returnValue = "";
   });
@@ -20172,13 +20173,66 @@ function showActionStatus(type, text) {
   }
 }
 
-function loadWorkingData() {
+let workingDataDbPromise;
+let workingDataQueue = Promise.resolve();
+
+function openWorkingDataDb() {
+  if (!workingDataDbPromise) {
+    workingDataDbPromise = new Promise((resolve, reject) => {
+      const request = window.indexedDB.open("dotations-working-data", 1);
+      request.onupgradeneeded = () => request.result.createObjectStore("drafts");
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+      request.onblocked = () => reject(new Error("Stockage de travail bloque par un autre onglet"));
+    }).catch((error) => { workingDataDbPromise = null; throw error; });
+  }
+  return workingDataDbPromise;
+}
+
+function getWorkingDataTabKey() {
+  const pointerKey = WORKING_DATA_KEY + "-tab";
+  let key = window.sessionStorage.getItem(pointerKey);
+  if (!key) {
+    key = window.crypto.randomUUID();
+    window.sessionStorage.setItem(pointerKey, key);
+  }
+  return key;
+}
+
+async function workingDataTransaction(mode, action) {
+  const key = getWorkingDataTabKey();
+  const db = await openWorkingDataDb();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction("drafts", mode);
+    const request = action(transaction.objectStore("drafts"), key);
+    transaction.oncomplete = () => resolve(request.result);
+    transaction.onerror = () => reject(transaction.error || request.error);
+    transaction.onabort = () => reject(transaction.error || new Error("Copie de travail interrompue"));
+  });
+}
+
+function reportWorkingDataError(error) {
+  console.error("Copie de travail non securisee", error);
+  state.workingDataError = true;
+  renderDirtyState();
+  showDataStatus("COPIE DE TRAVAIL NON SECURISEE : NE FERMEZ PAS CET ONGLET");
+}
+
+async function loadWorkingData() {
   try {
+    const stored = await workingDataTransaction("readonly", (store, key) => store.get(key));
+    if (stored) return stored.data;
     const raw = window.sessionStorage.getItem(WORKING_DATA_KEY);
-    return raw ? JSON.parse(raw) : null;
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    // Retirer l'ancienne copie seulement apres validation de la transaction.
+    await workingDataTransaction("readwrite", (store, key) => store.put({ data, savedAt: Date.now() }, key));
+    window.sessionStorage.removeItem(WORKING_DATA_KEY);
+    return data;
   } catch (error) {
-    console.error(error);
-    return null;
+    reportWorkingDataError(error);
+    // Ne jamais remplacer un brouillon potentiellement inaccessible par le serveur.
+    throw error;
   }
 }
 
@@ -20223,22 +20277,28 @@ function undoLastChange() {
 }
 
 function saveWorkingData() {
-  if (!state.data) {
-    return;
-  }
-  try {
-    window.sessionStorage.setItem(WORKING_DATA_KEY, JSON.stringify(state.data));
-  } catch (error) {
-    console.error(error);
-  }
+  if (!state.data) return Promise.resolve();
+  // Capturer maintenant pour que les modifications suivantes ne changent pas cette copie.
+  const data = cloneData(state.data);
+  workingDataQueue = workingDataQueue.catch(() => {}).then(async () => {
+    await workingDataTransaction("readwrite", (store, key) => store.put({ data, savedAt: Date.now() }, key));
+    window.sessionStorage.removeItem(WORKING_DATA_KEY);
+    state.workingDataError = false;
+    renderDirtyState();
+  });
+  workingDataQueue.catch(reportWorkingDataError);
+  return workingDataQueue;
 }
 
 function clearWorkingData() {
-  try {
+  workingDataQueue = workingDataQueue.catch(() => {}).then(async () => {
+    await workingDataTransaction("readwrite", (store, key) => store.delete(key));
     window.sessionStorage.removeItem(WORKING_DATA_KEY);
-  } catch (error) {
-    console.error(error);
-  }
+    state.workingDataError = false;
+    renderDirtyState();
+  });
+  workingDataQueue.catch(reportWorkingDataError);
+  return workingDataQueue;
 }
 
 function bindAutoSaveOnNavigation() {
@@ -20469,6 +20529,7 @@ function renderDirtyState() {
     .join("|");
   const nextDirtyStateSignature = [
     String(state.isDirty ? "1" : "0"),
+    String(state.workingDataError ? "1" : "0"),
     String(state.saveButtonLatchedDirty ? "1" : "0"),
     String(saveButtons.length),
     String(saveButtonSignature),
@@ -20480,8 +20541,8 @@ function renderDirtyState() {
 
   if (node) {
     node.hidden = false;
-    node.textContent = state.isDirty ? "MODIFICATIONS NON SAUVEGARDEES" : "DONNEES SAUVEGARDEES";
-    node.classList.toggle("is-saved", !state.isDirty);
+    node.textContent = state.workingDataError ? "COPIE DE TRAVAIL NON SECURISEE" : (state.isDirty ? "MODIFICATIONS NON SAUVEGARDEES" : "DONNEES SAUVEGARDEES");
+    node.classList.toggle("is-saved", !state.isDirty && !state.workingDataError);
   }
 
   const saveButtonActive = Boolean(state.isDirty || state.saveButtonLatchedDirty);

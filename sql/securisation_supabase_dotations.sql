@@ -16,6 +16,10 @@ create table if not exists public.audit_log (
 
 alter table public.audit_log enable row level security;
 
+-- Acces explicite apres changement des privileges par defaut Supabase.
+-- La policy audit_log_read_admin_only reste obligatoire et limite aux admins.
+grant select on table public.audit_log to authenticated;
+
 create index if not exists ix_audit_log_created_at
   on public.audit_log(created_at desc);
 
@@ -199,6 +203,9 @@ begin
   foreach t in array array['personnes','effetsConfies','signatures','app_state'] loop
     if to_regclass(format('public.%I', t)) is not null then
       execute format('alter table public.%I enable row level security', t);
+      -- Droits explicites, identiques au perimetre actuel ; RLS reste applicable.
+      -- Aucun droit anonyme et aucune suppression physique accordee.
+      execute format('grant select, insert, update on table public.%I to authenticated', t);
     end if;
   end loop;
 end$$;
