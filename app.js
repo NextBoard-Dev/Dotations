@@ -11441,7 +11441,7 @@ function renderEffectsChart(nodeId, persons) {
   const maxValue = Math.max(...rows.map(([, row]) => row.total), 1);
   const summaryMarkup = `
     <div class="effects-chart__summary">
-      <span class="effects-chart__summary-item">TOTAL EFFETS CONFIES <strong>${effects.length}</strong><span class="effects-chart__summary-sub">COUT <strong>${formatAmountWithEuro(totalEntrustedCost)}</strong></span></span>
+      <span class="effects-chart__summary-item">TOTAL HISTORIQUE <strong>${effects.length}</strong><span class="effects-chart__summary-sub">COUT <strong>${formatAmountWithEuro(totalEntrustedCost)}</strong></span></span>
       <span class="effects-chart__summary-item">TOTAL FACTURABLE <strong>${formatAmountWithEuro(totalFacturable)}</strong></span>
     </div>`;
   const legendMarkup = `
