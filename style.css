@@ -1423,6 +1423,12 @@ body.has-modal-open {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+@media (min-width: 981px) {
+  body[data-page="overview"] .kpi-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
 .kpi-grid--references {
   grid-template-columns: repeat(9, minmax(0, 1fr));
 }
