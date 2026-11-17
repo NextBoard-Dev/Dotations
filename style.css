@@ -1433,12 +1433,6 @@ body.has-modal-open {
   grid-template-columns: repeat(9, minmax(0, 1fr));
 }
 
-.kpi-grid--stock-types {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 6px;
-  margin-bottom: 8px;
-}
-
 body[data-page="reference-bases"] .kpi-grid--references {
   gap: 4px;
   width: 100%;
@@ -1743,37 +1737,6 @@ body[data-page="overview"] .kpi-grid .kpi-card__value {
   gap: 6px;
   align-content: start;
   min-height: 0;
-}
-
-.stock-adjustment-footer {
-  grid-column: 1 / -1;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px;
-  align-items: end;
-}
-
-.stock-instant-kpi {
-  min-width: 160px;
-  padding: 7px 12px;
-  border: 1px solid rgba(68, 110, 129, 0.35);
-  border-radius: 12px;
-  background: linear-gradient(135deg, rgba(236, 245, 246, 0.94), rgba(246, 240, 225, 0.96));
-  text-align: right;
-}
-
-.stock-instant-kpi__label {
-  display: block;
-  color: var(--text-soft);
-  font-size: 9px;
-  letter-spacing: 0.08em;
-}
-
-.stock-instant-kpi__value {
-  display: block;
-  color: var(--brand);
-  font-size: 22px;
-  line-height: 1.05;
 }
 
 body[data-page="reference-bases"] .card,
@@ -2275,10 +2238,6 @@ input[type="reset"]:not(.button) {
 
 .button--primary:hover {
   background: var(--accent-strong);
-}
-
-.stock-reset-pending {
-  box-shadow: 0 0 0 2px rgba(63, 97, 112, 0.22), 0 6px 16px rgba(31, 64, 79, 0.34);
 }
 
 .button--secondary {
@@ -2886,11 +2845,6 @@ body[data-page="reference-bases"] .reference-cost-form--inline .form-actions {
   max-height: 220px;
 }
 
-body[data-page="reference-bases"] #stock-movements-wrap.table-wrap--reference-medium {
-  max-height: 150px !important;
-  overflow-y: auto;
-}
-
 .table-wrap--reference-tall {
   max-height: 470px;
 }
@@ -2987,35 +2941,6 @@ body[data-page="overview"] .data-table td {
   font-weight: 700;
   color: var(--text-main);
   background: rgba(214, 224, 229, 0.55);
-}
-
-.table-total-row--stock-summary td {
-  border-top: 2px solid rgba(63, 97, 112, 0.34);
-}
-
-.stock-current {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  min-width: 42px;
-  font-weight: 700;
-}
-
-.stock-current__icon {
-  font-size: 12px;
-  line-height: 1;
-}
-
-.stock-current--positive strong {
-  color: #227449;
-}
-
-.stock-current--zero strong {
-  color: #a35f13;
-}
-
-.stock-current--negative strong {
-  color: #b33131;
 }
 
 .arrival-effect-row--added td {
@@ -3876,9 +3801,7 @@ body[data-pdf-mode="true"] .signature-box__meta-value--pdf {
 
   .summary-grid,
   .kpi-grid,
-  .kpi-grid--references,
-  .kpi-grid--stock-types,
-  .effect-type-kpis,
+  .kpi-grid--references,  .effect-type-kpis,
   .document-grid,
   .arrival-summary,
   .signature-grid {
@@ -3939,9 +3862,7 @@ body[data-pdf-mode="true"] .signature-box__meta-value--pdf {
   .reference-effect-form,
   .summary-grid,
   .kpi-grid,
-  .kpi-grid--references,
-  .kpi-grid--stock-types,
-  .effect-type-kpis,
+  .kpi-grid--references,  .effect-type-kpis,
   .sheet-grid,
   .reference-grid,
   .reference-mini-form,
@@ -4007,10 +3928,6 @@ button.btn-click-ack,
   animation: btnClickAck 0.24s cubic-bezier(0.2, 0.8, 0.2, 1) 1 !important;
   transform-origin: center center !important;
   filter: brightness(0.94) saturate(1.04) !important;
-}
-
-.stock-row-focus {
-  animation: stockRowPulse 1400ms ease-out 1;
 }
 
 @keyframes stockRowPulse {

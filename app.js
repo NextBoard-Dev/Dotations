@@ -77,8 +77,8 @@ const state = {
   autoPdfGeneratedKeys: new Set(),
   signedDocumentsPopupSeenKeys: new Set(),
   previousSignatureValidationMap: new Map(),
-  stockTableFilters: { site: "", typeEffet: "", referenceEffetId: "" },
-  stockHighlightKey: "",
+  
+  
   isReferencePageResetting: false,
   currentUserRoleLabel: "",
   adminCreateUserInFlight: false,
@@ -108,10 +108,10 @@ const state = {
     mobileSignature: "",
     documentsArchives: "",
     referenceBases: "",
-    stockMovements: "",
-    stockSummary: "",
-    stockKpis: "",
-    stockInstantKpi: "",
+    
+    
+    
+    
     referenceCounts: "",
   },
   pageRenderRafId: 0,
@@ -151,8 +151,8 @@ const MAX_UNDO_STACK = 30;
 const ALL_SITES_VALUE = "TOUS SITES";
 const ALL_TYPES_VALUE = "TOUS TYPES";
 const ALL_DESIGNATIONS_VALUE = "__ALL_DESIGNATIONS__";
-const STOCK_SYNTHETIC_REFERENCE_PREFIX = "__STOCK_SYNTHETIC__:";
-const STOCK_EMPTY_DESIGNATION_LABEL = "SANS DESIGNATION";
+
+const EMPTY_REFERENCE_DESIGNATION_LABEL = "SANS DESIGNATION";
 const EFFECT_TYPES_WITHOUT_REFERENCE_DESIGNATION = ["RADIATEUR APPOINT"];
 const EFFECT_STATUS_CAUSES = ["HS", "PERTE", "VOL", "NON RENDU", "DETRUIT"];
 const BILLABLE_EFFECT_CAUSES = ["PERTE", "VOL", "NON RENDU", "DETRUIT"];
@@ -4089,51 +4089,15 @@ function getReferenceEffectiveType(reference) {
   return baseType;
 }
 
-function getStockReferenceDesignation(reference) {
-  return normalizeText(reference?.designation || "") || STOCK_EMPTY_DESIGNATION_LABEL;
-}
 
-function getStockGroupingDesignation(typeEffet, designation) {
-  const normalizedType = normalizeText(typeEffet);
-  if (["BADGE INTRUSION", "CARTE TURBOSELF", "RADIATEUR APPOINT", "TELECOMMANDE URMET"].includes(normalizedType)) {
-    return STOCK_EMPTY_DESIGNATION_LABEL;
-  }
-  return normalizeText(designation || "") || STOCK_EMPTY_DESIGNATION_LABEL;
-}
 
-function typeIgnoresStockDesignation(typeEffet) {
-  return ["BADGE INTRUSION", "CARTE TURBOSELF", "RADIATEUR APPOINT", "TELECOMMANDE URMET"].includes(normalizeText(typeEffet));
-}
 
-function getStockSyntheticReferenceValue(site, typeEffet, designation) {
-  const parts = [
-    normalizeText(site) || "SANS SITE",
-    normalizeText(typeEffet),
-    getStockGroupingDesignation(typeEffet, designation),
-  ];
-  return `${STOCK_SYNTHETIC_REFERENCE_PREFIX}${parts.map((part) => encodeURIComponent(part)).join("|")}`;
-}
 
-function parseStockSyntheticReferenceValue(value) {
-  const rawValue = String(value || "");
-  if (!rawValue.startsWith(STOCK_SYNTHETIC_REFERENCE_PREFIX)) {
-    return null;
-  }
-  try {
-    const [site = "", typeEffet = "", designation = ""] = rawValue
-      .slice(STOCK_SYNTHETIC_REFERENCE_PREFIX.length)
-      .split("|")
-      .map((part) => normalizeText(decodeURIComponent(part)));
-    return {
-      site: site || "SANS SITE",
-      typeEffet,
-      designation: designation || STOCK_EMPTY_DESIGNATION_LABEL,
-    };
-  } catch (error) {
-    console.error(error);
-    return null;
-  }
-}
+
+
+
+
+
 
 function referenceMatchesType(reference, selectedType) {
   const normalizedType = normalizeText(selectedType || "");
@@ -4202,14 +4166,7 @@ function referenceHasSite(reference, site) {
   return sites.includes(ALL_SITES_VALUE) || sites.includes(normalizedSite);
 }
 
-function resolveStockMovementSite(site, reference) {
-  const normalizedSite = normalizeText(site);
-  if (normalizedSite !== ALL_SITES_VALUE || !reference) {
-    return normalizedSite;
-  }
-  const referenceSites = getReferenceSites(reference).filter((entry) => normalizeText(entry) !== ALL_SITES_VALUE);
-  return referenceSites.length === 1 ? referenceSites[0] : normalizedSite;
-}
+
 
 function getComparableSites(value) {
   return normalizeSites(value).slice().sort((left, right) => left.localeCompare(right, "fr"));
@@ -5594,9 +5551,7 @@ function migrateDataModel(options = {}) {
   if (!Array.isArray(state.data.documentsArchives)) {
     state.data.documentsArchives = [];
   }
-  if (!Array.isArray(state.data.stocksEffetsManuels)) {
-    state.data.stocksEffetsManuels = [];
-  }
+  
   if (!Array.isArray(state.data.demandesSignatureMobile)) {
     state.data.demandesSignatureMobile = [];
   }
@@ -5674,21 +5629,7 @@ function migrateDataModel(options = {}) {
     })
     .filter((entry) => entry.personId && entry.typeDocument && entry.pdfPath);
 
-  state.data.stocksEffetsManuels = state.data.stocksEffetsManuels
-    .map((entry, index) => ({
-      id: String(entry.id || `STKM${String(index + 1).padStart(4, "0")}`),
-      typeEffet: normalizeText(entry.typeEffet),
-      site: normalizeText(entry.typeEffet) === "CARTE TURBOSELF" ? ALL_SITES_VALUE : normalizeText(entry.site),
-      referenceEffetId: String(entry.referenceEffetId || ""),
-      designation: normalizeText(entry.designation),
-      action: normalizeText(entry.action),
-      quantite: Math.max(1, Number.parseInt(String(entry.quantite || 1), 10) || 1),
-      motif: normalizeText(entry.motif),
-      commentaire: normalizeText(entry.commentaire),
-      source: normalizeText(entry.source) === "AUTO" ? "AUTO" : "MANUEL",
-      date: String(entry.date || getTodayIsoDate()),
-    }))
-    .filter((entry) => entry.typeEffet && entry.designation && entry.action);
+  
 
   state.data.demandesSignatureMobile = state.data.demandesSignatureMobile
     .map((entry, index) => ({
@@ -8798,11 +8739,9 @@ function bindEffectForm() {
       person.effetsConfies[existingIndex] = effect;
     } else {
       person.effetsConfies.push(effect);
-      addAutoStockMovement(person, effect, "SORTIE", "AFFECTATION");
+      
     }
-    if (mode === "edit" && ["HS", "DETRUIT", "PERDU", "VOL"].includes(nextStatus) && nextStatus !== previousStatus) {
-      addAutoStockMovement(person, effect, "INFO", nextStatus);
-    }
+    
     markEffectRowFlash(mode === "edit" ? "update" : "create", person.id, effect.id);
 
     markDirty();
@@ -8892,9 +8831,7 @@ async function deleteEffect(personId, effectId) {
   }
 
   pushUndoSnapshot("SUPPRESSION EFFET");
-  if (effect) {
-    addAutoStockMovement(person, effect, "ENTREE", "SUPPRESSION_DOTATION");
-  }
+  
   const effectIndex = person.effetsConfies.findIndex((entry) => entry.id === effectId);
   if (effectIndex >= 0) {
     person.effetsConfies[effectIndex] = markSoftDeletedEntity(person.effetsConfies[effectIndex]);
@@ -9698,9 +9635,7 @@ function bindRegisterButtonsAutoSave() {
     if (!label.startsWith("ENREGISTRER")) {
       return;
     }
-    if (button.id === "stock-save-movement") {
-      return;
-    }
+    
 
     window.setTimeout(async () => {
       if (!state.isDirty) {
@@ -9717,24 +9652,9 @@ function bindRegisterButtonsAutoSave() {
   document.body.dataset.registerAutosaveBound = "true";
 }
 
-function showStockAdjustmentStatus(message, variant = "info") {
-  const node = document.getElementById("stock-adjustment-status");
-  if (node) {
-    node.textContent = message;
-    node.dataset.status = variant;
-  }
-  showDataStatus(message);
-}
 
-function setStockResetButtonPending(isPending) {
-  const resetButton = document.getElementById("stock-reset-filters");
-  if (!(resetButton instanceof HTMLButtonElement)) {
-    return;
-  }
-  resetButton.classList.toggle("button--primary", Boolean(isPending));
-  resetButton.classList.toggle("button--secondary", !isPending);
-  resetButton.classList.toggle("stock-reset-pending", Boolean(isPending));
-}
+
+
 
 function getReplacementCostValue(typeEffet, causeRemplacement, designation = "") {
   const normalizedType = normalizePricingKey(typeEffet);
@@ -10297,354 +10217,13 @@ function bindReplacementCostForm() {
   };
 }
 
-function bindStockAdjustmentForm() {
-  const form = document.getElementById("stock-adjustment-form");
-  if (!(form instanceof HTMLFormElement)) {
-    return;
-  }
-  const saveButton = document.getElementById("stock-save-movement");
-  let stockSaveInFlight = false;
 
-  const saveStockMovement = async () => {
-    if (stockSaveInFlight) {
-      return;
-    }
-    stockSaveInFlight = true;
-    if (saveButton instanceof HTMLButtonElement) {
-      saveButton.disabled = true;
-    }
-    if (!state.data) {
-      showStockAdjustmentStatus("DONNEES NON CHARGEES", "error");
-      stockSaveInFlight = false;
-      if (saveButton instanceof HTMLButtonElement) {
-        saveButton.disabled = false;
-      }
-      return;
-    }
-    if (!Array.isArray(state.data.stocksEffetsManuels)) {
-      state.data.stocksEffetsManuels = [];
-    }
 
-    try {
-      const formData = new FormData(form);
-      const typeEffet = normalizeText(formData.get("stockTypeEffet"));
-      const site = normalizeText(formData.get("stockSite"));
-      const referenceEffetId = String(formData.get("stockReferenceId") || "");
-      let syntheticReference = parseStockSyntheticReferenceValue(referenceEffetId);
-      const reference = referenceEffetId === ALL_DESIGNATIONS_VALUE || syntheticReference ? null : findReferenceById(referenceEffetId);
-      const resolvedSite = reference ? resolveStockMovementSite(site, reference) : normalizeText(syntheticReference?.site || site);
-      const movementSite = resolvedSite || site;
-      const effectiveTypeEffet = reference ? getReferenceEffectiveType(reference) : typeEffet;
-      let designation = getStockGroupingDesignation(
-        effectiveTypeEffet,
-        reference ? getStockReferenceDesignation(reference) : syntheticReference?.designation || ""
-      );
-      const action = normalizeText(formData.get("stockAction"));
-      const quantite = Math.max(1, Number.parseInt(String(formData.get("stockQuantity") || "1"), 10) || 1);
-      const motif = normalizeText(formData.get("stockReason"));
-      const commentaire = normalizeText(formData.get("stockComment"));
 
-      if (!reference && !syntheticReference && typeEffet && site) {
-        const matchingUndesignatedRow = getStockSummaryRows().find(
-          (row) =>
-            normalizeText(row.site) === site &&
-            normalizeText(row.typeEffet) === typeEffet &&
-            normalizeText(row.designation) === getStockGroupingDesignation(typeEffet, row.designation)
-        );
-        if (matchingUndesignatedRow || typeIgnoresStockDesignation(typeEffet)) {
-          syntheticReference = {
-            site,
-            typeEffet,
-            designation: getStockGroupingDesignation(typeEffet, ""),
-          };
-          designation = getStockGroupingDesignation(typeEffet, "");
-        }
-      }
 
-      if (!typeEffet || !movementSite || (!reference && !syntheticReference) || !action) {
-        showStockAdjustmentStatus("TYPE, SITE ET MOUVEMENT OBLIGATOIRES", "error");
-        return;
-      }
-      const isExactSyntheticStockRow = Boolean(syntheticReference);
-      if (
-        typeEffet === ALL_TYPES_VALUE ||
-        referenceEffetId === ALL_DESIGNATIONS_VALUE ||
-        (site === ALL_SITES_VALUE &&
-          movementSite === ALL_SITES_VALUE &&
-          !isExactSyntheticStockRow &&
-          !referenceHasSite(reference, ALL_SITES_VALUE))
-      ) {
-        showStockAdjustmentStatus("POUR ENREGISTRER : CHOISIR SITE/TYPE/DESIGNATION PRECIS", "error");
-        return;
-      }
-      if (reference && !isReferenceEffectActive(reference)) {
-        showStockAdjustmentStatus("REFERENCE EFFET DESACTIVEE - MOUVEMENT BLOQUE", "error");
-        return;
-      }
-      if (reference && !referenceMatchesType(reference, typeEffet)) {
-        showStockAdjustmentStatus("TYPE D'EFFET ET DESIGNATION INCOHERENTS", "error");
-        return;
-      }
-      if (reference && !referenceHasSite(reference, movementSite)) {
-        showStockAdjustmentStatus("SITE ET DESIGNATION INCOHERENTS", "error");
-        return;
-      }
-      if (!reference) {
-        if (syntheticReference.site !== movementSite || syntheticReference.typeEffet !== typeEffet) {
-          showStockAdjustmentStatus("TYPE, SITE ET DESIGNATION STOCK INCOHERENTS", "error");
-          return;
-        }
-        const stockRowExists = getStockSummaryRows().some(
-          (row) =>
-            normalizeText(row.site) === movementSite &&
-            normalizeText(row.typeEffet) === typeEffet &&
-            normalizeText(row.designation) === getStockGroupingDesignation(typeEffet, designation)
-        );
-        if (!stockRowExists && !typeIgnoresStockDesignation(typeEffet)) {
-          showStockAdjustmentStatus("MOUVEMENT STOCK BLOQUE : LIGNE ABSENTE DE LA SYNTHESE STOCK", "error");
-          return;
-        }
-      }
 
-      pushUndoSnapshot("MOUVEMENT STOCK MANUEL");
-      const movement = {
-        id: getNextId("STKM", state.data.stocksEffetsManuels),
-        typeEffet: effectiveTypeEffet,
-        site: movementSite,
-        referenceEffetId: reference ? String(reference.id || "") : "",
-        designation,
-        action,
-        quantite,
-        motif,
-        commentaire,
-        source: "MANUEL",
-        date: getTodayIsoDate(),
-      };
-      state.data.stocksEffetsManuels.push(movement);
-      state.stockHighlightKey = `${effectiveTypeEffet}__${movementSite}__${designation}`;
-      markDirty();
-      state.stockTableFilters = {
-        site: movementSite,
-        typeEffet: effectiveTypeEffet,
-        referenceEffetId: reference ? String(reference.id || "") : referenceEffetId,
-      };
-      renderStockMovementsTable();
-      renderStockSummaryTable();
-      renderStockInstantKpi();
-      renderReferenceCounts();
-      showActionStatus("create", `MOUVEMENT STOCK ENREGISTRE : ${effectiveTypeEffet} / ${designation}`);
-      showStockAdjustmentStatus(`MOUVEMENT STOCK AJOUTE : ${effectiveTypeEffet} / ${designation} - SAUVEGARDE EN COURS`, "success");
-      setStockResetButtonPending(true);
-      saveDataToFile({
-        silent: true,
-        reloadAfter: false,
-        promptDownload: false,
-        reloadOnConflict: false,
-      }).then(() => {
-        if (state.isDirty) {
-          showStockAdjustmentStatus("MOUVEMENT STOCK AJOUTE - SAUVEGARDE A RELANCER", "warning");
-          return;
-        }
-        showStockAdjustmentStatus(`MOUVEMENT STOCK SAUVEGARDE : ${effectiveTypeEffet} / ${designation}`, "success");
-      });
-    } finally {
-      stockSaveInFlight = false;
-      if (saveButton instanceof HTMLButtonElement) {
-        saveButton.disabled = false;
-      }
-    }
-  };
 
-  form.onsubmit = async (event) => {
-    event.preventDefault();
-    await saveStockMovement();
-  };
 
-  if (saveButton instanceof HTMLButtonElement) {
-    saveButton.onclick = async (event) => {
-      event.preventDefault();
-      await saveStockMovement();
-    };
-  }
-
-  const typeSelect = form.elements.stockTypeEffet;
-  const siteSelect = form.elements.stockSite;
-  const referenceSelect = form.elements.stockReferenceId;
-  if (typeSelect instanceof HTMLSelectElement) {
-    typeSelect.onchange = () => {
-      updateStockDesignationOptions();
-      refreshStockTableFiltersFromForm();
-      renderStockMovementsTable();
-      renderStockSummaryTable();
-      renderStockTypeKpis();
-      renderStockInstantKpi();
-    };
-  }
-  if (siteSelect instanceof HTMLSelectElement) {
-    siteSelect.onchange = () => {
-      updateStockDesignationOptions();
-      refreshStockTableFiltersFromForm();
-      renderStockMovementsTable();
-      renderStockSummaryTable();
-      renderStockTypeKpis();
-      renderStockInstantKpi();
-    };
-  }
-  if (referenceSelect instanceof HTMLSelectElement) {
-    referenceSelect.onchange = () => {
-      refreshStockTableFiltersFromForm();
-      renderStockMovementsTable();
-      renderStockSummaryTable();
-      renderStockTypeKpis();
-      renderStockInstantKpi();
-    };
-  }
-  const resetButton = document.getElementById("stock-reset-filters");
-  if (resetButton instanceof HTMLButtonElement) {
-    resetButton.onclick = () => {
-      resetReferenceBasesPageFields();
-      setStockResetButtonPending(false);
-    };
-  }
-}
-
-function bindStockMovementActions() {
-  const body = document.getElementById("stock-movements-table-body");
-  if (!body || body.dataset.bound === "true") {
-    return;
-  }
-  body.addEventListener("click", (event) => {
-    const target = event.target;
-    if (!(target instanceof HTMLElement)) {
-      return;
-    }
-    const deleteButton = target.closest(".js-delete-stock-movement");
-    if (deleteButton instanceof HTMLElement) {
-      event.preventDefault();
-      const movementId = String(deleteButton.dataset.stockMovementId || "");
-      const movement = (state.data?.stocksEffetsManuels || []).find((entry) => String(entry.id || "") === movementId);
-      if (!movement) {
-        return;
-      }
-      const linkedReference = movement.referenceEffetId ? findReferenceById(movement.referenceEffetId) : null;
-      if (movement.referenceEffetId && !linkedReference) {
-        showDataStatus("MOUVEMENT STOCK VERROUILLE : REFERENCE ABSENTE EN BASE");
-        return;
-      }
-      if (!window.confirm(`SUPPRIMER LE MOUVEMENT STOCK : ${movement.typeEffet} / ${movement.designation} ?`)) {
-        return;
-      }
-      pushUndoSnapshot("SUPPRESSION MOUVEMENT STOCK");
-      state.data.stocksEffetsManuels = state.data.stocksEffetsManuels.filter((entry) => String(entry.id || "") !== movementId);
-      markDirty();
-      renderReferenceBases();
-      showActionStatus("delete", "MOUVEMENT STOCK SUPPRIME");
-      return;
-    }
-
-    const row = target.closest(".js-stock-movement-row");
-    if (!(row instanceof HTMLElement)) {
-      return;
-    }
-
-    hydrateStockAdjustmentFromSelection({
-      site: String(row.dataset.site || ""),
-      typeEffet: String(row.dataset.typeEffet || ""),
-      referenceEffetId: String(row.dataset.referenceEffetId || ""),
-      designation: String(row.dataset.designation || ""),
-    });
-  });
-  body.dataset.bound = "true";
-}
-
-function bindStockSummaryActions() {
-  const body = document.getElementById("stock-summary-table-body");
-  if (!body || body.dataset.bound === "true") {
-    return;
-  }
-  body.addEventListener("click", (event) => {
-    const target = event.target;
-    if (!(target instanceof HTMLElement)) {
-      return;
-    }
-    const row = target.closest(".js-stock-summary-row");
-    if (!(row instanceof HTMLElement)) {
-      return;
-    }
-    hydrateStockAdjustmentFromSelection({
-      site: String(row.dataset.site || ""),
-      typeEffet: String(row.dataset.typeEffet || ""),
-      referenceEffetId: "",
-      designation: String(row.dataset.designation || ""),
-    });
-  });
-  body.dataset.bound = "true";
-}
-
-function hydrateStockAdjustmentFromSelection(selection) {
-  const form = document.getElementById("stock-adjustment-form");
-  if (!(form instanceof HTMLFormElement)) {
-    return;
-  }
-
-  const site = normalizeText(selection?.site || "");
-  const typeEffet = normalizeText(selection?.typeEffet || "");
-  const referenceEffetId = String(selection?.referenceEffetId || "");
-  const designation = normalizeText(selection?.designation || "");
-
-  const siteSelect = form.elements.stockSite;
-  const typeSelect = form.elements.stockTypeEffet;
-  const referenceSelect = form.elements.stockReferenceId;
-  if (!(siteSelect instanceof HTMLSelectElement) || !(typeSelect instanceof HTMLSelectElement) || !(referenceSelect instanceof HTMLSelectElement)) {
-    return;
-  }
-
-  if (site && Array.from(siteSelect.options).some((opt) => normalizeText(opt.value) === site)) {
-    siteSelect.value = site;
-  }
-  if (typeEffet && Array.from(typeSelect.options).some((opt) => normalizeText(opt.value) === typeEffet)) {
-    typeSelect.value = typeEffet;
-  }
-
-  updateStockDesignationOptions();
-
-  let resolvedReferenceId = "";
-  if (referenceEffetId && Array.from(referenceSelect.options).some((opt) => String(opt.value || "") === referenceEffetId)) {
-    resolvedReferenceId = referenceEffetId;
-  } else {
-    const match = (state.data?.listes?.referencesEffets || []).find((reference) => {
-      if (!isReferenceEffectActive(reference)) {
-        return false;
-      }
-      if (getStockReferenceDesignation(reference) !== designation) {
-        return false;
-      }
-      if (!referenceMatchesType(reference, typeEffet)) {
-        return false;
-      }
-      return referenceHasSite(reference, site);
-    });
-    if (match && Array.from(referenceSelect.options).some((opt) => String(opt.value || "") === String(match.id || ""))) {
-      resolvedReferenceId = String(match.id || "");
-    }
-  }
-  if (!resolvedReferenceId && designation) {
-    const syntheticValue = getStockSyntheticReferenceValue(site, typeEffet, designation);
-    if (Array.from(referenceSelect.options).some((opt) => String(opt.value || "") === syntheticValue)) {
-      resolvedReferenceId = syntheticValue;
-    }
-  }
-
-  if (resolvedReferenceId) {
-    referenceSelect.value = resolvedReferenceId;
-  }
-
-  refreshStockTableFiltersFromForm();
-  renderStockMovementsTable();
-  renderStockSummaryTable();
-  renderStockTypeKpis();
-  renderStockInstantKpi();
-}
 
 function getReferenceCauseOptions() {
   const baseCauses = Array.isArray(state.data?.listes?.causesRemplacement)
@@ -10676,7 +10255,7 @@ function resetReferenceBasesPageFields() {
     "representative-signatory-form",
     "reference-filter-form",
     "reference-effect-form",
-    "stock-adjustment-form",
+    
     "replacement-cost-form",
   ];
 
@@ -10692,7 +10271,7 @@ function resetReferenceBasesPageFields() {
   state.editingReferenceId = "";
   state.editingRepresentativeId = "";
   state.editingReplacementCostKey = "";
-  state.stockTableFilters = { site: "", typeEffet: "", referenceEffetId: "" };
+  
 
   const referenceSubmit = document.querySelector('#reference-effect-form button[type="submit"]');
   if (referenceSubmit instanceof HTMLButtonElement) {
@@ -10710,8 +10289,8 @@ function resetReferenceBasesPageFields() {
   }
 
   updateReferenceEffectFormMode("");
-  updateStockDesignationOptions();
-  refreshStockTableFiltersFromForm();
+  
+  
   renderReferenceBases();
 
   const filterForm = document.getElementById("reference-filter-form");
@@ -16480,9 +16059,7 @@ function bindExitReturnTodayToggles() {
     effect.dateRetour = target.checked ? getTodayIsoDate() : "";
     effect.statutManuel = getStoredManualStatusForEffect(effect.statutManuel, effect.dateRetour);
     const isReturned = Boolean(String(effect.dateRetour || "").trim());
-    if (isReturned !== wasReturned) {
-    addAutoStockMovement(person, effect, isReturned ? "ENTREE" : "SORTIE", isReturned ? "RETOUR" : "ANNULATION_RETOUR");
-    }
+    
     markDirty();
     schedulePageRender();
     showActionStatus("update", target.checked ? "EFFET MARQUE RENDU CE JOUR" : "RETOUR DU JOUR ANNULE");
@@ -17128,18 +16705,8 @@ function renderReferenceBases() {
   const filterSearch = normalizeText(filterForm?.elements?.filterReferenceSearch?.value);
   const filterSite = normalizeText(filterForm?.elements?.filterReferenceSite?.value);
   const filterTypeEffet = normalizeText(filterForm?.elements?.filterReferenceTypeEffet?.value);
-  const stockFilters = state.stockTableFilters || { site: "", typeEffet: "", referenceEffetId: "" };
-  const stockMovementsSignature = (state.data?.stocksEffetsManuels || [])
-    .map((movement) => {
-      const entry = movement || {};
-      return `${String(entry.id || "")}|${normalizeText(entry.typeEffet)}|${normalizeText(entry.site)}|${normalizeText(
-        entry.designation
-      )}|${normalizeText(entry.referenceEffetId)}|${String(entry.quantite || 0)}|${normalizeText(entry.action)}|${String(
-        entry.date || ""
-      )}`;
-    })
-    .sort()
-    .join("||");
+  
+  
 
   const referenceRenderContext = buildReferenceRenderContext();
   const referenceSort = getEffectTableSort("referenceEffects");
@@ -17155,7 +16722,7 @@ function renderReferenceBases() {
       references: listSignature(state.data?.listes?.referencesEffets),
       cots: listSignature(state.data?.listes?.coutsRemplacement),
       representants: listSignature(state.data?.listes?.representantsSignataires),
-      stockMovements: stockMovementsSignature,
+      
       listesFingerprint:
         state.data?.listes?.referencesEffets?.length || 0,
     },
@@ -17173,9 +16740,7 @@ function renderReferenceBases() {
       typeEffet: filterTypeEffet,
       sortKey: String(referenceSort.key || ""),
       sortDir: String(referenceSort.dir || ""),
-      stock: `${normalizeText(stockFilters.site || "")}|${normalizeText(stockFilters.typeEffet || "")}|${String(
-        stockFilters.referenceEffetId || ""
-      )}`,
+      
     },
   });
 
@@ -17200,304 +16765,23 @@ function renderReferenceBases() {
   return true;
 }
 
-function renderStockTypeKpis() {
-  const summaryRows = getFilteredStockSummaryRows();
-  const nextStockKpisSignature = (() => {
-    const knownTypes = Array.from(
-      new Set(((state.data?.listes?.typesEffets || []).map(normalizeText).filter(Boolean)))
-    ).sort((a, b) => a.localeCompare(b, "fr"));
-    const rowTypes = Array.from(new Set(summaryRows.map((row) => normalizeText(row.typeEffet)).filter(Boolean))).sort(
-      (a, b) => a.localeCompare(b, "fr")
-    );
-    const mergedTypes = Array.from(new Set([...knownTypes, ...rowTypes])).slice(0, 5);
-    const valuesSignature = mergedTypes
-      .map((typeEffet) => {
-        const totalStock = summaryRows
-          .filter((row) => normalizeText(row.typeEffet) === typeEffet)
-          .reduce((sum, row) => sum + Number(row.stockCourant || 0), 0);
-        return `${typeEffet || "EMPTY"}:${String(totalStock)}`;
-      })
-      .join("|");
-    return `stock-kpis|${knownTypes.join("|")}|${mergedTypes.join("|")}|${valuesSignature}`;
-  })();
-  if (state.listRenderCache.stockKpis === nextStockKpisSignature) {
-    return false;
-  }
-  state.listRenderCache.stockKpis = nextStockKpisSignature;
 
-  const knownTypes = Array.from(
-    new Set(((state.data?.listes?.typesEffets || []).map(normalizeText).filter(Boolean)))
-  ).sort((a, b) => a.localeCompare(b, "fr"));
-  const rowTypes = Array.from(
-    new Set(summaryRows.map((row) => normalizeText(row.typeEffet)).filter(Boolean))
-  ).sort((a, b) => a.localeCompare(b, "fr"));
-  const mergedTypes = Array.from(new Set([...knownTypes, ...rowTypes])).slice(0, 5);
 
-  for (let index = 1; index <= 5; index += 1) {
-    const typeEffet = mergedTypes[index - 1] || "";
-    const labelNode = document.getElementById(`stock-type-kpi-label-${index}`);
-    const valueNode = document.getElementById(`stock-type-kpi-value-${index}`);
-    if (labelNode) {
-      labelNode.textContent = typeEffet || `TYPE ${index}`;
-    }
-    if (!valueNode) {
-      continue;
-    }
-    if (!typeEffet) {
-      setKpiCountAnimated(valueNode, 0);
-      continue;
-    }
-    const totalStock = summaryRows
-      .filter((row) => normalizeText(row.typeEffet) === typeEffet)
-      .reduce((sum, row) => sum + Number(row.stockCourant || 0), 0);
-    setKpiCountAnimated(valueNode, totalStock);
-  }
-  return true;
-}
 
-function getFilteredStockSummaryRows() {
-  const filters = state.stockTableFilters || { site: "", typeEffet: "", referenceEffetId: "" };
-  return getStockSummaryRows().filter((row) => {
-    if (filters.site && filters.site !== ALL_SITES_VALUE && normalizeText(row.site) !== filters.site) {
-      return false;
-    }
-    if (filters.typeEffet && filters.typeEffet !== ALL_TYPES_VALUE && normalizeText(row.typeEffet) !== filters.typeEffet) {
-      return false;
-    }
-    if (filters.referenceEffetId && filters.referenceEffetId !== ALL_DESIGNATIONS_VALUE) {
-      const syntheticReference = parseStockSyntheticReferenceValue(filters.referenceEffetId);
-      const reference = syntheticReference ? null : findReferenceById(filters.referenceEffetId);
-      if (syntheticReference) {
-        return (
-          normalizeText(row.site) === syntheticReference.site &&
-          normalizeText(row.typeEffet) === syntheticReference.typeEffet &&
-          normalizeText(row.designation) === syntheticReference.designation
-        );
-      }
-      const referenceDesignation = reference
-        ? getStockGroupingDesignation(getReferenceEffectiveType(reference), getStockReferenceDesignation(reference))
-        : "";
-      if (referenceDesignation && normalizeText(row.designation) !== referenceDesignation) {
-        return false;
-      }
-    }
-    return true;
-  });
-}
 
-function getStockInstantSelectionValue(filters = state.stockTableFilters || {}) {
-  const previousFilters = state.stockTableFilters;
-  state.stockTableFilters = filters;
-  const rows = getFilteredStockSummaryRows();
-  state.stockTableFilters = previousFilters;
-  const stockCourant = rows.reduce((sum, row) => sum + Number(row.stockCourant || 0), 0);
-  return {
-    isPrecise: rows.length > 0,
-    stockCourant,
-    label: `${rows.length} ligne(s) de stock concernee(s)`,
-  };
-}
 
-function renderStockInstantKpi() {
-  const valueNode = document.getElementById("stock-instant-value");
-  if (!valueNode) {
-    return false;
-  }
-  const selection = getStockInstantSelectionValue(state.stockTableFilters || {});
-  const nextStockInstantSignature = `instant|${String(state.stockTableFilters?.site || "")}|${String(
-    state.stockTableFilters?.typeEffet || ""
-  )}|${String(state.stockTableFilters?.referenceEffetId || "")}|${String(selection.stockCourant)}|${selection.label}`;
-  if (state.listRenderCache.stockInstantKpi === nextStockInstantSignature) {
-    return false;
-  }
-  state.listRenderCache.stockInstantKpi = nextStockInstantSignature;
-  valueNode.textContent = String(selection.stockCourant);
-  valueNode.title = selection.label || "Aucune ligne de stock concernee.";
-  return true;
-}
 
-function renderStockFormOptions() {
-  const form = document.getElementById("stock-adjustment-form");
-  if (!(form instanceof HTMLFormElement)) {
-    return;
-  }
-  const typeSelect = form.elements.stockTypeEffet;
-  const siteSelect = form.elements.stockSite;
-  const reasonSelect = form.elements.stockReason;
-  if (
-    !(typeSelect instanceof HTMLSelectElement) ||
-    !(siteSelect instanceof HTMLSelectElement) ||
-    !(reasonSelect instanceof HTMLSelectElement)
-  ) {
-    return;
-  }
-  const values = Array.from(
-    new Set(
-      []
-        .concat((state.data?.listes?.typesEffets || []).map(normalizeText))
-        .concat(
-          (state.data?.listes?.referencesEffets || [])
-            .filter((reference) => isReferenceEffectActive(reference))
-            .map((reference) => normalizeText(reference.typeEffet))
-        )
-        .concat(
-          getAllEffects(state.data?.personnes || []).map(({ effect }) => normalizeText(effect?.typeEffet || ""))
-        )
-        .filter(Boolean)
-    )
-  ).sort((a, b) => normalizeText(a).localeCompare(normalizeText(b), "fr"));
-  const currentType = String(typeSelect.value || "");
-  typeSelect.innerHTML = [`<option value="">SELECTIONNER</option>`, `<option value="${ALL_TYPES_VALUE}">${ALL_TYPES_VALUE}</option>`]
-    .concat(values.map((entry) => `<option value="${escapeHtml(entry)}">${escapeHtml(entry)}</option>`))
-    .join("");
-  if (currentType && Array.from(typeSelect.options).some((opt) => opt.value === currentType)) {
-    typeSelect.value = currentType;
-  }
-  const sites = (state.data?.listes?.sites || [])
-    .slice()
-    .sort((a, b) => normalizeText(a).localeCompare(normalizeText(b), "fr"));
-  const currentSite = String(siteSelect.value || "");
-  siteSelect.innerHTML = [`<option value="">SELECTIONNER</option>`, `<option value="${ALL_SITES_VALUE}">${ALL_SITES_VALUE}</option>`]
-    .concat(sites.map((entry) => `<option value="${escapeHtml(entry)}">${escapeHtml(entry)}</option>`))
-    .join("");
-  if (currentSite && Array.from(siteSelect.options).some((opt) => opt.value === currentSite)) {
-    siteSelect.value = currentSite;
-  }
-  syncSelectOptions(reasonSelect, getStockReasonOptions(), "SELECTIONNER");
-  updateStockDesignationOptions();
-  refreshStockTableFiltersFromForm();
-}
 
-function getStockReasonOptions() {
-  const baseCauses = Array.isArray(state.data?.listes?.causesRemplacement)
-    ? state.data.listes.causesRemplacement.map(normalizeText).filter(Boolean)
-    : [];
-  const defaults = [
-    "ACHAT",
-    "DOUBLE",
-    "CORRECTION INVENTAIRE",
-    "REBUT",
-    "DON",
-    "TRANSFERT INTERNE",
-    "REMPLACEMENT",
-  ];
-  return Array.from(new Set([...baseCauses, ...defaults])).sort((a, b) =>
-    normalizeText(a).localeCompare(normalizeText(b), "fr")
-  );
-}
 
-function updateStockDesignationOptions() {
-  const form = document.getElementById("stock-adjustment-form");
-  if (!(form instanceof HTMLFormElement)) {
-    return;
-  }
-  const typeEffet = normalizeText(form.elements.stockTypeEffet?.value || "");
-  const site = normalizeText(form.elements.stockSite?.value || "");
-  const designationSelect = form.elements.stockReferenceId;
-  if (!(designationSelect instanceof HTMLSelectElement)) {
-    return;
-  }
-  if (!typeEffet) {
-    designationSelect.innerHTML = `<option value="">SELECTIONNER</option>`;
-    designationSelect.disabled = true;
-    return;
-  }
-  const references = (state.data?.listes?.referencesEffets || [])
-    .filter((reference) => isReferenceEffectActive(reference))
-    .filter((reference) => {
-      if (!typeEffet || typeEffet === ALL_TYPES_VALUE) {
-        return true;
-      }
-      if (!referenceMatchesType(reference, typeEffet)) {
-        return false;
-      }
-      return true;
-    })
-    .filter((reference) => !site || site === ALL_SITES_VALUE || referenceHasSite(reference, site))
-    .sort((a, b) => getStockReferenceDesignation(a).localeCompare(getStockReferenceDesignation(b), "fr"));
-  const referenceOptionValues = new Set(references.map((reference) => String(reference.id || "")));
-  const syntheticRows = getStockSummaryRows()
-    .filter((row) => {
-      if (!site || site === ALL_SITES_VALUE || normalizeText(row.site) === site) {
-        return !typeEffet || typeEffet === ALL_TYPES_VALUE || normalizeText(row.typeEffet) === typeEffet;
-      }
-      return false;
-    })
-    .filter((row) => normalizeText(row.designation) === STOCK_EMPTY_DESIGNATION_LABEL)
-    .filter((row) => {
-      return !references.some(
-        (reference) =>
-          referenceMatchesType(reference, row.typeEffet) &&
-          referenceHasSite(reference, row.site) &&
-          getStockReferenceDesignation(reference) === STOCK_EMPTY_DESIGNATION_LABEL
-      );
-    })
-    .sort((a, b) => {
-      const left = `${normalizeText(a.site)} ${normalizeText(a.typeEffet)} ${normalizeText(a.designation)}`;
-      const right = `${normalizeText(b.site)} ${normalizeText(b.typeEffet)} ${normalizeText(b.designation)}`;
-      return left.localeCompare(right, "fr");
-    });
 
-  const currentValue = String(designationSelect.value || "");
-  const canUseAllDesignations = !typeEffet || typeEffet === ALL_TYPES_VALUE || !site || site === ALL_SITES_VALUE;
-  const optionHtml = [`<option value="">SELECTIONNER</option>`];
-  if (canUseAllDesignations) {
-    optionHtml.push(`<option value="${ALL_DESIGNATIONS_VALUE}">TOUTES DESIGNATIONS</option>`);
-  }
-  designationSelect.innerHTML = optionHtml
-    .concat(
-      references.map(
-        (reference) =>
-          `<option value="${escapeHtml(String(reference.id || ""))}">${escapeHtml(getStockReferenceDesignation(reference))}</option>`
-      )
-    )
-    .concat(
-      syntheticRows.map((row) => {
-        const value = getStockSyntheticReferenceValue(row.site, row.typeEffet, row.designation);
-        referenceOptionValues.add(value);
-        return `<option value="${escapeHtml(value)}">${escapeHtml(row.designation)}</option>`;
-      })
-    )
-    .join("");
-  if (currentValue && references.some((entry) => String(entry.id || "") === currentValue)) {
-    designationSelect.value = currentValue;
-  } else if (currentValue && referenceOptionValues.has(currentValue)) {
-    designationSelect.value = currentValue;
-  } else if (currentValue === ALL_DESIGNATIONS_VALUE && canUseAllDesignations) {
-    designationSelect.value = ALL_DESIGNATIONS_VALUE;
-  } else {
-    designationSelect.value = "";
-  }
-  designationSelect.disabled = references.length === 0 && syntheticRows.length === 0;
-}
 
-function refreshStockTableFiltersFromForm() {
-  const form = document.getElementById("stock-adjustment-form");
-  if (!(form instanceof HTMLFormElement)) {
-    return;
-  }
-  state.stockTableFilters = {
-    site: normalizeText(form.elements.stockSite?.value || ""),
-    typeEffet: normalizeText(form.elements.stockTypeEffet?.value || ""),
-    referenceEffetId: String(form.elements.stockReferenceId?.value || ""),
-  };
-}
 
-function resetStockTableFiltersFromForm() {
-  const form = document.getElementById("stock-adjustment-form");
-  if (!(form instanceof HTMLFormElement)) {
-    return;
-  }
-  if (form.elements.stockSite) form.elements.stockSite.value = "";
-  if (form.elements.stockTypeEffet) form.elements.stockTypeEffet.value = "";
-  updateStockDesignationOptions();
-  if (form.elements.stockReferenceId) form.elements.stockReferenceId.value = "";
-  refreshStockTableFiltersFromForm();
-  renderStockMovementsTable();
-  renderStockSummaryTable();
-  renderStockTypeKpis();
-  renderStockInstantKpi();
-}
+
+
+
+
+
+
 
 function renderMobileSignatureSettings() {
   const input = document.querySelector('#mobile-signature-settings-form [name="mobileSignatureBaseUrl"]');
@@ -17739,7 +17023,7 @@ function renderReferenceEffectsTable(renderContext = null) {
         return `<tr class="js-reference-effect-row">
           <td>${escapeHtml(ALL_SITES_VALUE)}</td>
           <td>${escapeHtml(typeEffet)}</td>
-          <td>${escapeHtml(STOCK_EMPTY_DESIGNATION_LABEL)} <span class="table-muted">(PAS DE REFERENCE)</span></td>
+          <td>${escapeHtml(EMPTY_REFERENCE_DESIGNATION_LABEL)} <span class="table-muted">(PAS DE REFERENCE)</span></td>
           <td>${usage}</td>
           <td><span class="table-muted">TYPE SANS DESIGNATION</span></td>
         </tr>`;
@@ -17791,13 +17075,7 @@ function renderReplacementCostsTable() {
   bindReplacementCostActions();
 }
 
-function getStockMovementSignedQuantity(entry) {
-  const qty = Math.max(1, Number.parseInt(String(entry?.quantite || 1), 10) || 1);
-  const action = normalizeText(entry?.action);
-  if (action === "ENTREE" || action === "AJUSTEMENT_PLUS") return qty;
-  if (action === "SORTIE" || action === "AJUSTEMENT_MOINS") return -qty;
-  return 0;
-}
+
 
 function getSignatureContextPerson(isMobileSignatureContext = false) {
   if (!isMobileSignatureContext) {
@@ -17806,323 +17084,13 @@ function getSignatureContextPerson(isMobileSignatureContext = false) {
   return getMobileSignatureTargetPerson();
 }
 
-function addAutoStockMovement(person, effect, action, motif, commentaire = "") {
-  if (!state.data || !effect) {
-    return;
-  }
-  if (!Array.isArray(state.data.stocksEffetsManuels)) {
-    state.data.stocksEffetsManuels = [];
-  }
-  const typeEffet = normalizeText(effect?.typeEffet);
-  if (!typeEffet) {
-    return;
-  }
-  const site = typeEffet === "CARTE TURBOSELF"
-    ? ALL_SITES_VALUE
-    : normalizeText(effect?.siteReference || referenceSiteFromEffect(effect) || getPersonSiteLabel(person) || "SANS SITE");
-  const designation = getStockGroupingDesignation(typeEffet, getEffectDisplayDesignation(effect));
-  if (!designation) {
-    return;
-  }
-  state.data.stocksEffetsManuels.push({
-    id: getNextId("STKM", state.data.stocksEffetsManuels),
-    typeEffet,
-    site,
-    referenceEffetId: String(effect?.referenceEffetId || ""),
-    designation,
-    action: normalizeText(action),
-    quantite: 1,
-    motif: normalizeText(motif),
-    commentaire: normalizeText(commentaire),
-    source: "AUTO",
-    date: getTodayIsoDate(),
-  });
-}
 
-function getStockSummaryRows() {
-  const rowsByKey = new Map();
-  const ensureRow = (typeEffet, site, designation) => {
-    const key = `${normalizeText(typeEffet)}__${normalizeText(site)}__${normalizeText(designation)}`;
-    if (!rowsByKey.has(key)) {
-      rowsByKey.set(key, {
-        key,
-        typeEffet: normalizeText(typeEffet),
-        site: normalizeText(site) || "SANS SITE",
-        designation: normalizeText(designation),
-        dotes: 0,
-        rendus: 0,
-        nonRendus: 0,
-        perdus: 0,
-        voles: 0,
-        hs: 0,
-        detruits: 0,
-        manuelDelta: 0,
-      });
-    }
-    return rowsByKey.get(key);
-  };
 
-  (state.data?.listes?.referencesEffets || [])
-    .filter((reference) => isReferenceEffectActive(reference))
-    .forEach((reference) => {
-      const typeEffet = getReferenceEffectiveType(reference);
-      const designation = getStockGroupingDesignation(typeEffet, getStockReferenceDesignation(reference));
-      const sites = getReferenceSites(reference);
-      if (!typeEffet) {
-        return;
-      }
-      if (!sites.length) {
-        ensureRow(typeEffet, "SANS SITE", designation);
-        return;
-      }
-      sites.forEach((site) => {
-        ensureRow(typeEffet, normalizeText(site) || "SANS SITE", designation);
-      });
-    });
 
-  getAllEffects(state.data?.personnes || []).forEach(({ person, effect }) => {
-    const linkedReference = effect?.referenceEffetId ? findReferenceById(effect.referenceEffetId) : null;
-    const typeEffet = linkedReference ? getReferenceEffectiveType(linkedReference) : normalizeText(effect?.typeEffet || "");
-    const site = normalizeText(getEffectDisplaySite(effect) || getPersonSiteLabel(person) || "SANS SITE");
-    const designation = getStockGroupingDesignation(
-      typeEffet,
-      getEffectDisplayDesignation(effect) || effect?.designation || STOCK_EMPTY_DESIGNATION_LABEL
-    );
-    if (!typeEffet || !designation) {
-      return;
-    }
-    const row = ensureRow(typeEffet, site, designation);
-    const status = normalizeText(getEffectStatus(person, effect));
-    row.dotes += 1;
-    if (status === "RESTITUE") row.rendus += 1;
-    else if (status === "NON RENDU") row.nonRendus += 1;
-    else if (status === "PERDU") row.perdus += 1;
-    else if (status === "VOL") row.voles += 1;
-    else if (status === "HS") row.hs += 1;
-    else if (status === "DETRUIT") row.detruits += 1;
-  });
 
-  (state.data?.stocksEffetsManuels || []).forEach((entry) => {
-    if (!isStockMovementAllowedInSummary(entry)) {
-      return;
-    }
-    const typeEffet = normalizeText(entry?.typeEffet || "");
-    const site = normalizeText(entry?.site || "SANS SITE");
-    const designation = getStockGroupingDesignation(typeEffet, entry?.designation || "");
-    if (!typeEffet || !designation) {
-      return;
-    }
-    const row = ensureRow(typeEffet, site, designation);
-    row.manuelDelta += getStockMovementSignedQuantity(entry);
-  });
 
-  return Array.from(rowsByKey.values())
-    .map((row) => {
-      // Stock available = manual stock delta - entrusted effects + returned effects.
-      // Lost/HS/vol/detruit remain consumed because they are included in entrusted effects and not returned.
-      return {
-        ...row,
-        stockCourant: row.manuelDelta - row.dotes + row.rendus,
-      };
-    })
-    .sort((left, right) => {
-      const a = `${normalizeText(left.typeEffet)} ${normalizeText(left.site)} ${normalizeText(left.designation)}`;
-      const b = `${normalizeText(right.typeEffet)} ${normalizeText(right.site)} ${normalizeText(right.designation)}`;
-      return a.localeCompare(b, "fr");
-    });
-}
 
-function renderStockMovementsTable() {
-  const body = document.getElementById("stock-movements-table-body");
-  if (!body) {
-    return false;
-  }
-  const filters = state.stockTableFilters || { site: "", typeEffet: "", referenceEffetId: "" };
-  const entries = (state.data?.stocksEffetsManuels || [])
-    .filter((entry) => {
-      if (!isStockMovementAllowedInSummary(entry)) {
-        return false;
-      }
-      if (filters.site && filters.site !== ALL_SITES_VALUE && normalizeText(entry.site) !== filters.site) {
-        return false;
-      }
-      if (filters.typeEffet && filters.typeEffet !== ALL_TYPES_VALUE && normalizeText(entry.typeEffet) !== filters.typeEffet) {
-        return false;
-      }
-      if (
-        filters.referenceEffetId &&
-        filters.referenceEffetId !== ALL_DESIGNATIONS_VALUE
-      ) {
-        const syntheticReference = parseStockSyntheticReferenceValue(filters.referenceEffetId);
-        if (syntheticReference) {
-          return (
-            normalizeText(entry.site) === syntheticReference.site &&
-            normalizeText(entry.typeEffet) === syntheticReference.typeEffet &&
-            normalizeText(entry.designation) === syntheticReference.designation
-          );
-        }
-        if (String(entry.referenceEffetId || "") !== String(filters.referenceEffetId || "")) {
-          return false;
-        }
-      }
-      return true;
-    })
-    .slice()
-    .sort((a, b) => String(b.date || "").localeCompare(String(a.date || ""), "fr"));
-  const entriesSignature = entries
-    .map((entry) => {
-      const source = entry || {};
-      return `${String(source.id || "")}|${normalizeText(source.site || "")}|${normalizeText(source.typeEffet || "")}|${normalizeText(
-        source.designation || ""
-      )}|${normalizeText(source.action || "")}|${String(source.quantite || 0)}|${normalizeText(source.referenceEffetId || "")}|${normalizeText(source.motif || "")}|${normalizeText(source.source || "")}|${String(source.date || "")}`;
-    })
-    .join("||");
-  const nextStockMovementsSignature = `movements|${normalizeText(filters.site || "")}|${normalizeText(filters.typeEffet || "")}|${String(
-    filters.referenceEffetId || ""
-  )}|${String(entries.length)}|${entriesSignature}`;
-  if (state.listRenderCache.stockMovements === nextStockMovementsSignature) {
-    return false;
-  }
-  state.listRenderCache.stockMovements = nextStockMovementsSignature;
 
-  if (!entries.length) {
-    body.innerHTML = buildEmptyTableRow(body, "AUCUN MOUVEMENT", 9);
-    return true;
-  }
-  const rowsHtml = entries.map((entry) => {
-    const signedQty = getStockMovementSignedQuantity(entry);
-    const qtyLabel = signedQty > 0 ? `+${signedQty}` : `${signedQty}`;
-    const source = normalizeText(entry.source) === "AUTO" ? "AUTO" : "MANUEL";
-    const canDelete = source !== "AUTO";
-    return `<tr class="js-stock-movement-row" data-stock-movement-id="${escapeHtml(entry.id)}" data-site="${escapeHtml(entry.site || "")}" data-type-effet="${escapeHtml(entry.typeEffet || "")}" data-designation="${escapeHtml(entry.designation || "")}" data-reference-effet-id="${escapeHtml(String(entry.referenceEffetId || ""))}">
-      <td>${escapeHtml(formatDate(entry.date) || entry.date || "-")}</td>
-      <td>${escapeHtml(entry.site || "-")}</td>
-      <td>${escapeHtml(entry.typeEffet || "-")}</td>
-      <td>${escapeHtml(entry.designation || "-")}</td>
-      <td>${escapeHtml(entry.action || "-")}</td>
-      <td>${escapeHtml(qtyLabel)}</td>
-      <td>${escapeHtml(entry.motif || "-")}</td>
-      <td>${escapeHtml(source)}</td>
-      <td>${canDelete ? `<button type="button" class="table-link js-delete-stock-movement" data-stock-movement-id="${escapeHtml(entry.id)}">SUPPRIMER</button>` : "-"}</td>
-    </tr>`;
-  });
-  renderTableRowsProgressively(body, rowsHtml, buildEmptyTableRow(body, "AUCUN MOUVEMENT", 9), 24);
-  bindStockMovementActions();
-  return true;
-}
-
-function renderStockSummaryTable() {
-  const body = document.getElementById("stock-summary-table-body");
-  if (!body) {
-    return false;
-  }
-  const rows = getFilteredStockSummaryRows();
-  const rowsSignature = rows
-    .map((row) =>
-      [
-        normalizeText(row.site || ""),
-        normalizeText(row.typeEffet || ""),
-        normalizeText(row.designation || ""),
-        String(Number(row.dotes || 0)),
-        String(Number(row.rendus || 0)),
-        String(Number(row.nonRendus || 0)),
-        String(Number(row.perdus || 0)),
-        String(Number(row.voles || 0)),
-        String(Number(row.hs || 0)),
-        String(Number(row.detruits || 0)),
-        String(Number(row.manuelDelta || 0)),
-        String(Number(row.stockCourant || 0)),
-      ].join("|")
-    )
-    .sort()
-    .join("||");
-  const totals = rows.reduce(
-    (accumulator, row) => {
-      accumulator.dotes += Number(row.dotes || 0);
-      accumulator.rendus += Number(row.rendus || 0);
-      accumulator.nonRendus += Number(row.nonRendus || 0);
-      accumulator.perdus += Number(row.perdus || 0);
-      accumulator.voles += Number(row.voles || 0);
-      accumulator.hs += Number(row.hs || 0);
-      accumulator.detruits += Number(row.detruits || 0);
-      accumulator.manuelDelta += Number(row.manuelDelta || 0);
-      accumulator.stockCourant += Number(row.stockCourant || 0);
-      return accumulator;
-    },
-    { dotes: 0, rendus: 0, nonRendus: 0, perdus: 0, voles: 0, hs: 0, detruits: 0, manuelDelta: 0, stockCourant: 0 }
-  );
-  const nextStockSummarySignature = `summary|${normalizeText(state.stockTableFilters?.site || "")}|${normalizeText(
-    state.stockTableFilters?.typeEffet || ""
-  )}|${String(state.stockTableFilters?.referenceEffetId || "")}|${rows.length}|${rowsSignature}|${[
-    totals.dotes,
-    totals.rendus,
-    totals.nonRendus,
-    totals.perdus,
-    totals.voles,
-    totals.hs,
-    totals.detruits,
-    totals.manuelDelta,
-    totals.stockCourant,
-  ].join("|")}|${String(state.stockHighlightKey || "")}`;
-  if (state.listRenderCache.stockSummary === nextStockSummarySignature) {
-    return false;
-  }
-  state.listRenderCache.stockSummary = nextStockSummarySignature;
-
-  if (!rows.length) {
-    body.innerHTML = buildEmptyTableRow(body, "AUCUN STOCK CALCULE", 12);
-    return true;
-  }
-  const formatSignedStockValue = (value) => {
-    const numericValue = Number(value || 0);
-    const variant = numericValue > 0 ? "positive" : numericValue < 0 ? "negative" : "zero";
-    const icon = numericValue > 0 ? "🟢" : numericValue < 0 ? "🔴" : "🟠";
-    return `<span class="stock-current stock-current--${variant}" aria-label="Stock courant ${numericValue}">
-      <span class="stock-current__icon" aria-hidden="true">${icon}</span>
-      <strong>${numericValue}</strong>
-    </span>`;
-  };
-  const rowsHtml = rows.map((row) => {
-    const manualDeltaLabel = row.manuelDelta > 0 ? `+${row.manuelDelta}` : String(row.manuelDelta);
-    const rowKey = `${normalizeText(row.typeEffet)}__${normalizeText(row.site)}__${normalizeText(row.designation)}`;
-    const focusClass = rowKey === String(state.stockHighlightKey || "") ? " stock-row-focus" : "";
-    return `<tr class="js-stock-summary-row${focusClass}" data-site="${escapeHtml(row.site || "")}" data-type-effet="${escapeHtml(row.typeEffet || "")}" data-designation="${escapeHtml(row.designation || "")}">
-      <td>${escapeHtml(row.site)}</td>
-      <td>${escapeHtml(row.typeEffet)}</td>
-      <td>${escapeHtml(row.designation)}</td>
-      <td>${row.dotes}</td>
-      <td>${row.rendus}</td>
-      <td>${row.nonRendus}</td>
-      <td>${row.perdus}</td>
-      <td>${row.voles}</td>
-      <td>${row.hs}</td>
-      <td>${row.detruits}</td>
-      <td>${escapeHtml(manualDeltaLabel)}</td>
-      <td>${formatSignedStockValue(row.stockCourant)}</td>
-    </tr>`;
-  });
-  const totalManualDeltaLabel = totals.manuelDelta > 0 ? `+${totals.manuelDelta}` : String(totals.manuelDelta);
-  rowsHtml.push(`<tr class="table-total-row table-total-row--stock-summary">
-    <td colspan="3">TOTAL</td>
-    <td>${totals.dotes}</td>
-    <td>${totals.rendus}</td>
-    <td>${totals.nonRendus}</td>
-    <td>${totals.perdus}</td>
-    <td>${totals.voles}</td>
-    <td>${totals.hs}</td>
-    <td>${totals.detruits}</td>
-    <td>${escapeHtml(totalManualDeltaLabel)}</td>
-    <td>${formatSignedStockValue(totals.stockCourant)}</td>
-  </tr>`);
-  renderTableRowsProgressively(body, rowsHtml, buildEmptyTableRow(body, "AUCUN STOCK CALCULE", 12), 24);
-  bindStockSummaryActions();
-  if (state.stockHighlightKey) {
-    window.setTimeout(() => {
-      state.stockHighlightKey = "";
-    }, 1200);
-  }
-  return true;
-}
 
 function renderTableRowsProgressively(body, rowsHtml, emptyMarkup = "", batchSize = 40) {
   if (!body) {
@@ -18573,11 +17541,7 @@ function deleteReferenceEffect(referenceId) {
 
   pushUndoSnapshot("SUPPRESSION REFERENCE");
   reference.active = nextActive;
-  if (!nextActive && Array.isArray(state.data.stocksEffetsManuels)) {
-    state.data.stocksEffetsManuels = state.data.stocksEffetsManuels.filter(
-      (entry) => !isStockMovementLinkedToReference(entry, reference)
-    );
-  }
+  
   if (state.editingReferenceId === referenceId) {
     state.editingReferenceId = "";
     resetReferenceEffectForm();
@@ -18611,11 +17575,7 @@ function hardDeleteReferenceEffect(referenceId) {
   state.data.listes.referencesEffets = state.data.listes.referencesEffets.filter(
     (entry) => entry.id !== referenceId
   );
-  if (Array.isArray(state.data.stocksEffetsManuels)) {
-    state.data.stocksEffetsManuels = state.data.stocksEffetsManuels.filter(
-      (entry) => !isStockMovementLinkedToReference(entry, reference)
-    );
-  }
+  
   if (state.editingReferenceId === referenceId) {
     state.editingReferenceId = "";
     resetReferenceEffectForm();
@@ -18706,58 +17666,13 @@ function getReferenceEffectCurrentUsage(referenceId) {
   }).length;
 }
 
-function referenceMatchesStockIdentity(reference, typeEffet, site, designation, requireActive = true) {
-  if (!reference || (requireActive && !isReferenceEffectActive(reference))) {
-    return false;
-  }
-  const normalizedType = normalizeText(typeEffet);
-  const normalizedSite = normalizeText(site);
-  const normalizedDesignation = getStockGroupingDesignation(normalizedType, designation);
-  return (
-    referenceMatchesType(reference, normalizedType) &&
-    referenceHasSite(reference, normalizedSite) &&
-    getStockGroupingDesignation(normalizedType, getStockReferenceDesignation(reference)) === normalizedDesignation
-  );
-}
 
-function hasActiveStockReference(typeEffet, site, designation) {
-  return (state.data?.listes?.referencesEffets || []).some((reference) =>
-    referenceMatchesStockIdentity(reference, typeEffet, site, designation)
-  );
-}
 
-function isStockMovementAllowedInSummary(entry) {
-  const typeEffet = normalizeText(entry?.typeEffet || "");
-  const site = normalizeText(entry?.site || "SANS SITE");
-  const designation = getStockGroupingDesignation(typeEffet, entry?.designation || "");
-  if (!typeEffet || !designation) {
-    return false;
-  }
-  if (entry?.referenceEffetId) {
-    const reference = findReferenceById(entry.referenceEffetId);
-    return referenceMatchesStockIdentity(reference, typeEffet, site, designation);
-  }
-  if (typeUsesReferenceCatalog(typeEffet) && designation !== STOCK_EMPTY_DESIGNATION_LABEL) {
-    return hasActiveStockReference(typeEffet, site, designation);
-  }
-  return true;
-}
 
-function isStockMovementLinkedToReference(entry, reference) {
-  if (!reference) {
-    return false;
-  }
-  if (String(entry?.referenceEffetId || "") === String(reference.id || "")) {
-    return true;
-  }
-  return referenceMatchesStockIdentity(
-    reference,
-    entry?.typeEffet || "",
-    entry?.site || "",
-    entry?.designation || "",
-    false
-  );
-}
+
+
+
+
 
 function cascadeSimpleReferenceRename(listName, oldValue, newValue) {
   const oldNormalized =
@@ -19386,8 +18301,8 @@ function resetUiWithoutData() {
     { id: "reference-causesRemplacement-body", colspan: 2 },
     { id: "reference-effects-table-body", colspan: 5 },
     { id: "replacement-costs-body", colspan: 4 },
-    { id: "stock-movements-table-body", colspan: 9 },
-    { id: "stock-summary-table-body", colspan: 12 },
+    
+    
   ];
 
   targets.forEach(({ id, colspan }) => {
@@ -19410,11 +18325,11 @@ function resetUiWithoutData() {
     "reference-count-referencesEffets",
     "reference-count-coutsRemplacement",
     "reference-count-representantsSignataires",
-    "stock-type-kpi-value-1",
-    "stock-type-kpi-value-2",
-    "stock-type-kpi-value-3",
-    "stock-type-kpi-value-4",
-    "stock-type-kpi-value-5",
+    
+    
+    
+    
+    
   ].forEach((id) => {
     const node = document.getElementById(id);
     if (node) node.textContent = "0";
