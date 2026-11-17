@@ -5370,7 +5370,6 @@ async function loadData() {
   bindReferenceListForms();
   bindReferenceEffectForm();
   bindReplacementCostForm();
-  bindStockAdjustmentForm();
   bindRepresentativeSignatoryForm();
   bindMobileSignatureSettingsForm();
   bindMobileSignatureVisibilityPolling();
@@ -17195,11 +17194,6 @@ function renderReferenceBases() {
   renderRepresentativesTable(state.referenceRenderContext);
   renderReferenceEffectsTable(state.referenceRenderContext);
   renderReplacementCostsTable();
-  renderStockFormOptions();
-  renderStockMovementsTable();
-  renderStockSummaryTable();
-  renderStockTypeKpis();
-  renderStockInstantKpi();
   renderReferenceCounts();
   renderMobileSignatureSettings();
   bindReferenceBaseResetButtons();

@@ -152,7 +152,9 @@ test("parcours PC: les commandes metier critiques restent presentes", () => {
 
   assert.match(references, /id="reference-representantsSignataires-body"/);
   assert.match(references, /id="replacement-costs-body"/);
-  assert.match(references, /id="stock-summary-table-body"/);
+  assert.doesNotMatch(references, /id="stock-[^"]*"/);
+  assert.doesNotMatch(references, /STOCKS D'EFFETS|AJUSTEMENT MANUEL DE STOCK|JOURNAL DES MOUVEMENTS DE STOCK|SYNTHESE STOCKS/);
+  assert.match(references, /COUTS DE REMPLACEMENT/);
 
   assert.match(mobileSignature, /id="mobile-signature-request-status"/);
   assert.match(mobileSignature, /class="signature-box__canvas js-signature-canvas"/);
