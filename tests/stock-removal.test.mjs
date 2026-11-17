@@ -14,7 +14,7 @@ test('retrait des stocks: catalogue, tarifs et effets confies conserves', () => 
   const app = read('app.js');
   assert.match(app, /function renderReferenceEffectsTable\(/);
   assert.match(app, /function renderReplacementCostsTable\(/);
-  assert.match(app, /person\.effetsConfies\.push\(effect\)/);
+  assert.match(app, /appendEffectUnits\(person\.effetsConfies, effect, quantity\)/);
   assert.match(read('index.html'), /id="kpi-effets-confies"/);
   assert.match(read('index.html'), /id="kpi-effets-historique"/);
 });

@@ -8647,6 +8647,17 @@ function bindEffectForm() {
 
     const formData = new FormData(form);
     const typeEffet = normalizeText(formData.get("typeEffet"));
+    const quantity = mode === "edit" ? 1 : Number(formData.get("quantite") ?? 1);
+    if (!Number.isInteger(quantity) || quantity < 1 || quantity > 999) {
+      window.alert("SAISIR UNE QUANTITE ENTIERE ENTRE 1 ET 999");
+      form.elements.quantite?.focus();
+      return;
+    }
+    if (quantity > 1 && String(formData.get("numeroIdentification") || "").trim()) {
+      window.alert("UN EFFET AVEC NUMERO D'IDENTIFICATION DOIT ETRE AJOUTE INDIVIDUELLEMENT");
+      form.elements.quantite?.focus();
+      return;
+    }
     const isTurboSelf = typeEffet === "CARTE TURBOSELF";
     const referenceSite = normalizeText(formData.get("referenceSite"));
     const usesReferenceCatalog = typeUsesReferenceCatalog(typeEffet);
@@ -8738,7 +8749,7 @@ function bindEffectForm() {
     if (mode === "edit" && existingIndex >= 0) {
       person.effetsConfies[existingIndex] = effect;
     } else {
-      person.effetsConfies.push(effect);
+      appendEffectUnits(person.effetsConfies, effect, quantity);
       
     }
     
@@ -8756,7 +8767,7 @@ function bindEffectForm() {
       mode === "edit" ? "update" : "create",
       mode === "edit"
         ? `EFFET MODIFIE : ${effectLabel}`
-        : `EFFET AJOUTE : ${effectLabel}`
+        : `${quantity} EFFET(S) AJOUTE(S) : ${effectLabel}`
     );
 
     await saveAfterEffectChangeWithAvenantAlert(person.id);
@@ -9471,11 +9482,24 @@ function updateEffectRequiredHighlights(form) {
   updateEffectActionButtons();
 }
 
+function appendEffectUnits(effects, effect, quantity) {
+  if (!Number.isInteger(quantity) || quantity < 1 || quantity > 999) {
+    throw new Error("QUANTITE INVALIDE");
+  }
+  for (let index = 0; index < quantity; index += 1) {
+    effects.push({ ...effect, id: getNextId("E", effects), quantite: 1 });
+  }
+}
+
 function updateEffectFormMode(typeEffet) {
   const normalizedType = normalizeText(typeEffet);
   const person = getCurrentPerson();
   const form = document.getElementById("effect-form");
   const availableReferenceSites = getAvailableReferenceSites(person);
+  if (form?.elements.quantite) {
+    form.elements.quantite.disabled = Boolean(state.editingEffectId);
+    if (state.editingEffectId) form.elements.quantite.value = "1";
+  }
   const referenceSiteField = document.getElementById("effect-reference-site-field");
   const referenceSiteLabel = document.getElementById("effect-reference-site-label");
   const referenceField = document.getElementById("effect-reference-field");
