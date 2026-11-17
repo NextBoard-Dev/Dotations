@@ -14836,6 +14836,7 @@ function matchesFilters(person, filters) {
 function renderOverview(persons) {
   const inPostNode = document.getElementById("kpi-personnes-en-poste");
   const totalEffectsNode = document.getElementById("kpi-effets-confies");
+  const historicalEffectsNode = document.getElementById("kpi-effets-historique");
   const missingEffectsNode = document.getElementById("kpi-effets-non-rendus");
   const body = document.getElementById("overview-table-body");
   const alertsSection = document.getElementById("overview-alerts-section");
@@ -14848,6 +14849,7 @@ function renderOverview(persons) {
 
     let inPostCount = 0;
     let totalEffectsCount = 0;
+    let historicalEffectsCount = 0;
     let missingEffectsCount = 0;
     const sortedPersons = sortPersonsForOverview(persons);
     const overviewSortConfig = state.tableSorts?.overviewPersons || {};
@@ -14878,8 +14880,9 @@ function renderOverview(persons) {
         if (getDossierStatus(person) === "EN POSTE") {
           inPostCount += 1;
         }
+        totalEffectsCount += assignedEffects.length;
         allEffects.forEach((effect) => {
-          totalEffectsCount += 1;
+          historicalEffectsCount += 1;
           if (getEffectStatus(person, effect) === "NON RENDU") {
             missingEffectsCount += 1;
           }
@@ -14916,6 +14919,9 @@ function renderOverview(persons) {
       }
       if (totalEffectsNode) {
         setKpiCountAnimated(totalEffectsNode, totalEffectsCount);
+      }
+      if (historicalEffectsNode) {
+        setKpiCountAnimated(historicalEffectsNode, historicalEffectsCount);
       }
       if (missingEffectsNode) {
         setKpiCountAnimated(missingEffectsNode, missingEffectsCount);
