@@ -1575,6 +1575,17 @@ body[data-page="reference-bases"] #representative-signatory-form .field {
   height: 100%;
 }
 
+@keyframes effects-chart-reveal {
+  from { clip-path: inset(0 100% 0 0); }
+  to { clip-path: inset(0 0 0 0); }
+}
+
+@media screen {
+  .effects-chart__bar-group {
+    animation: effects-chart-reveal 500ms ease-out var(--reveal-delay, 0ms) both;
+  }
+}
+
 .effects-chart__segment--actif {
   background: linear-gradient(90deg, #2d86c9 0%, #5fb9f1 100%);
 }

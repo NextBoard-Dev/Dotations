@@ -11033,7 +11033,7 @@ function renderEffectsChart(nodeId, persons) {
       <span class="effects-chart__legend-item"><span class="effects-chart__legend-dot effects-chart__legend-dot--hs"></span>HS <strong>${totals.hs}</strong><span class="effects-chart__legend-cost">${formatAmountWithEuro(totalsCost.hs)}</span></span>
     </div>`;
   const rowsMarkup = rows
-    .map(([type, row]) => {
+    .map(([type, row], rowIndex) => {
       const width = row.total > 0 ? Math.max(8, Math.round((row.total / maxValue) * 100)) : 0;
       const segmentMarkup = [
         ["cloture", "CLOTURE"],
@@ -11053,7 +11053,7 @@ function renderEffectsChart(nodeId, persons) {
       return `<div class="effects-chart__row">
         <span class="effects-chart__label">${escapeHtml(type)}</span>
         <span class="effects-chart__track" aria-hidden="true">
-          <span class="effects-chart__bar-group" style="width:${width}%">${segmentMarkup}</span>
+          <span class="effects-chart__bar-group" style="width:${width}%;--reveal-delay:${Math.min(rowIndex, 10) * 35}ms">${segmentMarkup}</span>
         </span>
         <strong class="effects-chart__value">${row.total}</strong>
       </div>`;
