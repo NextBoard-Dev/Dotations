@@ -1542,6 +1542,15 @@ body[data-page="reference-bases"] #representative-signatory-form .field {
 }
 
 .effects-chart__row {
+  width: 100%;
+  padding: 3px 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-main);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
   display: grid;
   grid-template-columns: 180px minmax(0, 1fr) 56px;
   gap: 10px;
@@ -2220,7 +2229,7 @@ input[type="reset"] {
   white-space: nowrap;
 }
 
-button:not(.overview-alert-item):not(.button):not(.table-link),
+button:not(.overview-alert-item):not(.effects-chart__row):not(.effects-chart__control):not(.button):not(.table-link),
 input[type="button"]:not(.button),
 input[type="submit"]:not(.button),
 input[type="reset"]:not(.button) {
@@ -3812,7 +3821,8 @@ body[data-pdf-mode="true"] .signature-box__meta-value--pdf {
 
   .summary-grid,
   .kpi-grid,
-  .kpi-grid--references,  .effect-type-kpis,
+  .kpi-grid--references,
+  .effect-type-kpis,
   .document-grid,
   .arrival-summary,
   .signature-grid {
@@ -3873,7 +3883,8 @@ body[data-pdf-mode="true"] .signature-box__meta-value--pdf {
   .reference-effect-form,
   .summary-grid,
   .kpi-grid,
-  .kpi-grid--references,  .effect-type-kpis,
+  .kpi-grid--references,
+  .effect-type-kpis,
   .sheet-grid,
   .reference-grid,
   .reference-mini-form,
@@ -3949,3 +3960,31 @@ button.btn-click-ack,
     background: transparent;
   }
 }
+
+
+/* Cloture administrative : distincte d une restitution. */
+.effects-chart__segment--cloture, .effects-chart__legend-dot--cloture { background: #64748b; }
+
+.effects-chart__row[data-disabled="true"] {
+  cursor: default;
+  opacity: 0.65;
+}
+
+.effects-chart__control {
+  appearance: none;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+}
+.effects-chart__control.effects-chart__label {
+  background: transparent;
+  font-size: 11px;
+}
+.effects-chart__segment { flex-shrink: 0; }
+.effects-chart__segment:focus-visible { box-shadow: inset 0 0 0 2px var(--text-main); outline: none; }
+.effects-chart__label:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

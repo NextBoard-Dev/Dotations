@@ -9,3 +9,8 @@ sauvegarde Supabase/
 
 # Etat local Supabase CLI
 supabase/.temp/
+
+# Dependencies and browser test reports
+node_modules/
+playwright-report/
+test-results/

@@ -4247,7 +4247,34 @@ function saveNavigationContext(partial = {}) {
   }
 }
 
+function isContinuingDashboardNavigation() {
+  if (!getStoredNavigationContext()) return false;
+  const navigationType = window.performance?.getEntriesByType("navigation")?.[0]?.type;
+  if (navigationType === "reload") return false;
+  if (navigationType === "back_forward") return true;
+  if (!document.referrer) return false;
+  try {
+    const previous = new URL(document.referrer);
+    const current = new URL(window.location.href);
+    return previous.origin === current.origin &&
+      new URL(".", previous).pathname === new URL(".", current).pathname;
+  } catch {
+    return false;
+  }
+}
+
 function restoreNavigationContext() {
+  state.continuingDashboardNavigation = isContinuingDashboardNavigation();
+  if (!state.continuingDashboardNavigation) {
+    saveNavigationContext({ filters: { ...DEFAULT_FILTERS }, personId: "", urgentMode: false });
+    if (document.body?.dataset?.page === "overview" &&
+        window.performance?.getEntriesByType("navigation")?.[0]?.type === "reload") {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("personId");
+      url.searchParams.delete("personld");
+      window.history.replaceState({}, "", url);
+    }
+  }
   const context = getStoredNavigationContext();
   const params = new URLSearchParams(window.location.search);
   const personIdInQuery = params.get("personId") || params.get("personld") || "";
@@ -4258,8 +4285,6 @@ function restoreNavigationContext() {
     ...DEFAULT_FILTERS,
     ...((context && context.filters) || {}),
   };
-  state.filters.search = "";
-
   if (personIdInQuery) {
     if (!params.get("personId") && params.get("personld")) {
       const nextUrl = new URL(window.location.href);
@@ -4273,7 +4298,7 @@ function restoreNavigationContext() {
 
   // Regle UX: si aucune personne n'est explicitement selectionnee sur la vue d'ensemble,
   // on ne doit pas pre-remplir automatiquement la fiche personne avec un ancien contexte.
-  if (page === "overview") {
+  if (page === "overview" && !state.continuingDashboardNavigation) {
     saveNavigationContext({ personId: "" });
     return;
   }
@@ -7055,6 +7080,8 @@ function getOverviewSortValue(person, key) {
       return currentEffects.length;
     case "nonRendus":
       return currentEffects.filter((effect) => getEffectStatus(person, effect) === "NON RENDU").length;
+    case "couts":
+      return currentEffects.reduce((sum, effect) => sum + getEffectReplacementCost(person, effect), 0);
     case "mouvements":
       return movementCount;
     default:
@@ -7064,7 +7091,7 @@ function getOverviewSortValue(person, key) {
 
 function sortPersonsForOverview(persons) {
   const sort = getEffectTableSort("overviewPersons");
-  const numericKeys = new Set(["nbEffets", "nonRendus", "mouvements"]);
+  const numericKeys = new Set(["nbEffets", "nonRendus", "couts", "mouvements"]);
   return [...persons].sort((left, right) => {
     const primary = compareEffectValues(
       getOverviewSortValue(left, sort.key),
@@ -7844,6 +7871,7 @@ function clearFormSearchFields(form) {
 }
 
 function clearSearchInputsOnInitialLoad() {
+  if (state.continuingDashboardNavigation) return;
   document
     .querySelectorAll("input[type=\"search\"], input[name*=\"search\" i], input[id*=\"search\" i]")
     .forEach((field) => {
@@ -10839,6 +10867,7 @@ function renderPage() {
   }
 
   if (page === "overview") {
+    bindEffectTableSorting("overviewPersons");
     const didOverviewChange = renderOverview(persons);
     if (didOverviewChange) {
       updateSortableHeaders("overviewPersons");
@@ -10960,6 +10989,7 @@ function renderEffectsChart(nodeId, persons) {
     perdu: 0,
     vole: 0,
     hs: 0,
+    detruit: 0,
   };
   const totalsCost = {
     actif: 0,
@@ -10969,6 +10999,7 @@ function renderEffectsChart(nodeId, persons) {
     perdu: 0,
     vole: 0,
     hs: 0,
+    detruit: 0,
   };
   let totalEntrustedCost = 0;
   let totalFacturable = 0;
@@ -10985,6 +11016,7 @@ function renderEffectsChart(nodeId, persons) {
           perdu: 0,
           vole: 0,
           hs: 0,
+          detruit: 0,
         },
       });
     }
@@ -11026,6 +11058,7 @@ function renderEffectsChart(nodeId, persons) {
           perdu: 0,
           vole: 0,
           hs: 0,
+          detruit: 0,
         },
       });
     }
@@ -11055,28 +11088,30 @@ function renderEffectsChart(nodeId, persons) {
       <span class="effects-chart__legend-item"><span class="effects-chart__legend-dot effects-chart__legend-dot--perdu"></span>PERDU <strong>${totals.perdu}</strong><span class="effects-chart__legend-cost">${formatAmountWithEuro(totalsCost.perdu)}</span></span>
       <span class="effects-chart__legend-item"><span class="effects-chart__legend-dot effects-chart__legend-dot--vole"></span>VOLE <strong>${totals.vole}</strong><span class="effects-chart__legend-cost">${formatAmountWithEuro(totalsCost.vole)}</span></span>
       <span class="effects-chart__legend-item"><span class="effects-chart__legend-dot effects-chart__legend-dot--hs"></span>HS <strong>${totals.hs}</strong><span class="effects-chart__legend-cost">${formatAmountWithEuro(totalsCost.hs)}</span></span>
+      ${totals.detruit ? `<span class="effects-chart__legend-item"><span class="effects-chart__legend-dot effects-chart__legend-dot--detruit"></span>DETRUIT <strong>${totals.detruit}</strong><span class="effects-chart__legend-cost">${formatAmountWithEuro(totalsCost.detruit)}</span></span>` : ""}
     </div>`;
   const rowsMarkup = rows
     .map(([type, row], rowIndex) => {
       const width = row.total > 0 ? Math.max(8, Math.round((row.total / maxValue) * 100)) : 0;
       const segmentMarkup = [
-        ["cloture", "CLOTURE"],
-        ["actif", "ACTIF"],
-        ["nonRendu", "NON RENDU"],
-        ["restitue", "RENDU"],
-        ["perdu", "PERDU"],
-        ["vole", "VOLE"],
-        ["hs", "HS"],
+        ["cloture", "CLOTURE", "CLOTURE"],
+        ["actif", "ACTIF", "ACTIF"],
+        ["nonRendu", "NON RENDU", "NON RENDU"],
+        ["restitue", "RENDU", "RESTITUE"],
+        ["perdu", "PERDU", "PERDU"],
+        ["vole", "VOLE", "VOL"],
+        ["hs", "HS", "HS"],
+        ["detruit", "DETRUIT", "DETRUIT"],
       ]
         .filter(([key]) => row.segments[key] > 0)
         .map(
-          ([key, label]) =>
-            `<span class="effects-chart__segment effects-chart__segment--${key}" style="width:${(row.segments[key] / row.total) * 100}%" title="${label} : ${row.segments[key]}"></span>`
+          ([key, label, status]) =>
+            `<button type="button" class="effects-chart__control effects-chart__segment effects-chart__segment--${key}" data-effect-status="${status}" aria-label="${escapeHtml(type)} : ${label}, ${row.segments[key]}" aria-pressed="${filters.typeEffet === type && filters.statutObjet === status}" style="width:${(row.segments[key] / row.total) * 100}%" title="${escapeHtml(type)} : ${label} (${row.segments[key]})"></button>`
         )
         .join("");
-      return `<div class="effects-chart__row">
-        <span class="effects-chart__label">${escapeHtml(type)}</span>
-        <span class="effects-chart__track" aria-hidden="true">
+      return `<div class="effects-chart__row" data-effect-type="${escapeHtml(type)}" data-selected="${filters.typeEffet === type}" data-disabled="${row.total === 0}">
+        <button type="button" class="effects-chart__control effects-chart__label" aria-pressed="${filters.typeEffet === type && !filters.statutObjet}" ${row.total === 0 ? "disabled" : ""}>${escapeHtml(type)}</button>
+        <span class="effects-chart__track">
           <span class="effects-chart__bar-group" style="width:${width}%;--reveal-delay:${Math.min(rowIndex, 10) * 35}ms">${segmentMarkup}</span>
         </span>
         <strong class="effects-chart__value">${row.total}</strong>
@@ -11084,6 +11119,26 @@ function renderEffectsChart(nodeId, persons) {
     })
     .join("");
   node.innerHTML = `${summaryMarkup}${legendMarkup}${rowsMarkup}`;
+  node.onclick = (event) => {
+    const row = event.target.closest(".effects-chart__row[data-effect-type]");
+    if (!row || !node.contains(row) || row.dataset.disabled === "true") return;
+    const select = document.querySelector('.js-filter-form select[name="typeEffet"]');
+    const statusSelect = document.querySelector('.js-filter-form select[name="statutObjet"]');
+    if (!select || !statusSelect) return;
+    const segment = event.target.closest("[data-effect-status]");
+    const type = row.dataset.effectType;
+    if (segment) {
+      const status = segment.dataset.effectStatus;
+      const alreadySelected = select.value === type && statusSelect.value === status;
+      select.value = type;
+      statusSelect.value = alreadySelected ? "" : status;
+    } else {
+      const onlyTypeSelected = select.value === type && !statusSelect.value;
+      select.value = onlyTypeSelected ? "" : type;
+      statusSelect.value = "";
+    }
+    select.dispatchEvent(new Event("input", { bubbles: true }));
+  };
 }
 
 function renderGlobalEffectsChart(persons) {
@@ -12253,9 +12308,6 @@ async function registerArchivedDocument(person, docType, pdfPath, metadataPath, 
     return;
   }
   const existingTypeArchive = findActiveArchiveEntry(person.id, docType);
-  if (normalizeText(docType) === "EXIT" && getDossierStatus(person) !== "SORTI" && !existingTypeArchive) {
-    return;
-  }
   const existingEntry = findReusableArchivedDocument(person, docType) || existingTypeArchive;
   upsertDocumentArchiveEntry(buildDocumentArchiveEntry(person, docType, pdfPath, metadataPath, archiveMode, existingEntry, archiveDetails));
   markDirty();
@@ -12414,9 +12466,6 @@ function renderDocumentsArchivePage() {
     trackedDocumentTypes.forEach(({ label, signatureType }) => {
       const personId = String(person?.id || "");
       if (!personId) {
-        return;
-      }
-      if (label === "SORTIE" && getDossierStatus(person) !== "SORTI") {
         return;
       }
 
@@ -16636,6 +16685,7 @@ function getCurrentAssignedEffectsForActiveFilters(person, filters = state.filte
 function getEffectChartCategory(person, effect) {
   const status = normalizeText(getEffectStatus(person, effect));
   if (status === "CLOTURE") return "cloture";
+  if (status === "DETRUIT") return "detruit";
   if (status === "NON RENDU") {
     return "nonRendu";
   }
@@ -19309,6 +19359,15 @@ function bindGlobalShortcuts() {
   }
 
   document.addEventListener("keydown", (event) => {
+    if (event.ctrlKey && event.altKey && !event.shiftKey && !event.metaKey &&
+        (event.code === "KeyR" || event.key.toLowerCase() === "r")) {
+      const form = document.querySelector(".js-filter-form, #documents-archives-filter-form");
+      if (form instanceof HTMLFormElement) {
+        event.preventDefault();
+        if (!event.repeat) form.reset();
+      }
+      return;
+    }
     if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "z") {
       return;
     }
